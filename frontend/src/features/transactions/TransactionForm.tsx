@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Button, Input, Label } from '@/components/ui'
 import { toCents } from '@/lib/format'
 import { today } from '@/lib/date'
@@ -28,6 +28,14 @@ interface TransactionFormProps {
   submitLabel?: string
 }
 
+interface FormErrors {
+  amount?: string
+  date?: string
+  description?: string
+  accountId?: string
+  transferToAccountId?: string
+}
+
 /**
  * Shared transaction form used by the Transactions and Dashboard panels.
  * Plain controlled inputs — no form library.
@@ -43,6 +51,8 @@ export function TransactionForm({
   submitLabel = 'Guardar',
 }: TransactionFormProps) {
   const [type, setType] = useState<TransactionType>(initial?.type ?? lockedType ?? 'expense')
+  const [errors, setErrors] = useState<FormErrors>({})
+  const id = useId()
   const isTransfer = type === 'transfer'
 
   const expenseCategories = categories.filter((c) => c.kind === 'expense')
@@ -67,15 +77,19 @@ export function TransactionForm({
       transferToAccountId = raw && String(raw) !== 'none' ? String(raw) : null
     }
 
-    if (
-      amount <= 0 ||
-      !date ||
-      !description.trim() ||
-      !accountId ||
-      (isTransfer && (!transferToAccountId || transferToAccountId === accountId))
-    ) {
-      return
+    const nextErrors: FormErrors = {}
+    if (amount <= 0) nextErrors.amount = 'Ingresa un monto mayor a cero.'
+    if (!date) nextErrors.date = 'Selecciona una fecha.'
+    if (!description.trim()) nextErrors.description = 'Ingresa una descripción.'
+    if (!accountId) nextErrors.accountId = 'Selecciona una cuenta.'
+    if (isTransfer && !transferToAccountId) {
+      nextErrors.transferToAccountId = 'Selecciona una cuenta de destino.'
+    } else if (isTransfer && transferToAccountId === accountId) {
+      nextErrors.transferToAccountId = 'La cuenta de destino debe ser distinta.'
     }
+    setErrors(nextErrors)
+
+    if (Object.keys(nextErrors).length > 0) return
 
     onSubmit({
       type,
@@ -90,7 +104,7 @@ export function TransactionForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
+    <form onSubmit={handleSubmit} className="space-y-3" noValidate>
       {!lockedType && (
         <div className="grid grid-cols-3 gap-2">
           {(['expense', 'income', 'transfer'] as TransactionType[]).map((t) => (
@@ -99,7 +113,11 @@ export function TransactionForm({
               type="button"
               size="sm"
               variant={type === t ? 'default' : 'outline'}
-              onClick={() => setType(t)}
+              aria-pressed={type === t}
+              onClick={() => {
+                setType(t)
+                setErrors({})
+              }}
             >
               {t === 'expense' ? 'Gasto' : t === 'income' ? 'Ingreso' : 'Transfer'}
             </Button>
@@ -109,37 +127,69 @@ export function TransactionForm({
 
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1.5">
-          <Label>Monto</Label>
+          <Label htmlFor={`${id}-amount`}>Monto</Label>
           <Input
+            id={`${id}-amount`}
             name="amount"
             placeholder="$0.00"
             inputMode="decimal"
             defaultValue={initial ? (initial.amount / 100).toFixed(2) : ''}
+            aria-invalid={!!errors.amount}
+            aria-describedby={errors.amount ? `${id}-amount-error` : undefined}
             required
           />
+          {errors.amount && (
+            <p id={`${id}-amount-error`} role="alert" className="text-xs text-destructive">
+              {errors.amount}
+            </p>
+          )}
         </div>
         <div className="space-y-1.5">
-          <Label>Fecha</Label>
-          <Input name="date" type="date" defaultValue={initial?.date ?? today()} required />
+          <Label htmlFor={`${id}-date`}>Fecha</Label>
+          <Input
+            id={`${id}-date`}
+            name="date"
+            type="date"
+            defaultValue={initial?.date ?? today()}
+            aria-invalid={!!errors.date}
+            aria-describedby={errors.date ? `${id}-date-error` : undefined}
+            required
+          />
+          {errors.date && (
+            <p id={`${id}-date-error`} role="alert" className="text-xs text-destructive">
+              {errors.date}
+            </p>
+          )}
         </div>
       </div>
 
       <div className="space-y-1.5">
-        <Label>Descripción</Label>
+        <Label htmlFor={`${id}-description`}>Descripción</Label>
         <Input
+          id={`${id}-description`}
           name="description"
           placeholder={isTransfer ? 'Entre cuentas' : 'Ej. Café, nómina, súper'}
           defaultValue={initial?.description ?? ''}
+          aria-invalid={!!errors.description}
+          aria-describedby={errors.description ? `${id}-description-error` : undefined}
           required
         />
+        {errors.description && (
+          <p id={`${id}-description-error`} role="alert" className="text-xs text-destructive">
+            {errors.description}
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1.5">
-          <Label>Cuenta</Label>
+          <Label htmlFor={`${id}-account`}>Cuenta</Label>
           <select
+            id={`${id}-account`}
             name="accountId"
             defaultValue={initial?.accountId ?? accounts[0]?.id}
+            aria-invalid={!!errors.accountId}
+            aria-describedby={errors.accountId ? `${id}-account-error` : undefined}
             className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
             required
           >
@@ -149,13 +199,23 @@ export function TransactionForm({
               </option>
             ))}
           </select>
+          {errors.accountId && (
+            <p id={`${id}-account-error`} role="alert" className="text-xs text-destructive">
+              {errors.accountId}
+            </p>
+          )}
         </div>
         <div className="space-y-1.5">
-          <Label>{isTransfer ? 'Destino' : 'Categoría'}</Label>
+          <Label htmlFor={isTransfer ? `${id}-destination` : `${id}-category`}>
+            {isTransfer ? 'Destino' : 'Categoría'}
+          </Label>
           {isTransfer ? (
             <select
+              id={`${id}-destination`}
               name="transferToAccountId"
               defaultValue={initial?.transferToAccountId ?? 'none'}
+              aria-invalid={!!errors.transferToAccountId}
+              aria-describedby={errors.transferToAccountId ? `${id}-destination-error` : undefined}
               className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
             >
               <option value="none">Sin destino</option>
@@ -167,6 +227,7 @@ export function TransactionForm({
             </select>
           ) : (
             <select
+              id={`${id}-category`}
               name="categoryId"
               defaultValue={initial?.categoryId ?? 'none'}
               className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
@@ -179,13 +240,19 @@ export function TransactionForm({
               ))}
             </select>
           )}
+          {errors.transferToAccountId && (
+            <p id={`${id}-destination-error`} role="alert" className="text-xs text-destructive">
+              {errors.transferToAccountId}
+            </p>
+          )}
         </div>
       </div>
 
       {!isTransfer && (
         <div className="space-y-1.5">
-          <Label>Comercio (opcional)</Label>
+          <Label htmlFor={`${id}-merchant`}>Comercio (opcional)</Label>
           <Input
+            id={`${id}-merchant`}
             name="merchant"
             placeholder="Ej. Uber, OXXO"
             defaultValue={initial?.merchant ?? ''}

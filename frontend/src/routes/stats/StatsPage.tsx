@@ -2,6 +2,7 @@ import { Header } from '@/components/layout/Header'
 import { Card, Badge, Progress } from '@/components/ui'
 import { EmptyState } from '@/components/common/EmptyState'
 import { formatMoney, formatMoneyCompact } from '@/lib/format'
+import { deriveBudgetProgressForDate, selectApplicableBudgets } from '@/lib/budget-period'
 import { cn } from '@/lib/utils'
 import { useTransactions, useCategories, useAccounts, useBudgets } from '@/hooks/useQueries'
 import type { Transaction, Category, Cents, AccentColor } from '@/types'
@@ -114,12 +115,14 @@ function MetricCard({
 
 function CategoryBarRow({
   name,
+  metric,
   color,
   amount,
   pct,
   maxAmount,
 }: {
   name: string
+  metric: string
   color: AccentColor
   amount: Cents
   pct: number
@@ -129,7 +132,12 @@ function CategoryBarRow({
   return (
     <div className="flex items-center gap-2 py-1.5">
       <span className="w-20 shrink-0 truncate text-xs text-foreground sm:w-24">{name}</span>
-      <Progress value={barPct} accent={color} className="h-2 flex-1" />
+      <Progress
+        value={barPct}
+        accent={color}
+        aria-label={`Participación de ${name} en ${metric}`}
+        className="h-2 flex-1"
+      />
       <span className="w-8 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
         {Math.round(pct * 100)}%
       </span>
@@ -192,6 +200,17 @@ export default function StatsPage() {
     )
   }
 
+  if (txQ.isError || catQ.isError || accQ.isError || budQ.isError) {
+    return (
+      <>
+        <Header title="Estadísticas" subtitle="Análisis financiero" />
+        <div role="alert" className="py-10 text-center text-sm text-destructive">
+          No se pudieron cargar las estadísticas.
+        </div>
+      </>
+    )
+  }
+
   const transactions = txQ.data ?? []
   const categories = catQ.data ?? []
   const accounts = accQ.data ?? []
@@ -222,6 +241,7 @@ export default function StatsPage() {
   const net = currentMonth.net
   const savingsRate = income > 0 ? net / income : 0
   const txCount = monthTxs.filter((t) => t.type !== 'transfer').length
+  const expenseTxCount = monthTxs.filter((t) => t.type === 'expense').length
 
   // Distributions
   const expenseDist = spendingByCategory(transactions, categories, monthKey, 'expense')
@@ -242,17 +262,15 @@ export default function StatsPage() {
 
   // Budget exceeded
   const catMap = new Map(categories.map((c) => [c.id, c]))
-  const exceededBudgets = budgets
-    .map((b) => {
-      const spent = transactions
-        .filter(
-          (t) =>
-            t.type === 'expense' && t.categoryId === b.categoryId && t.date.startsWith(monthKey),
-        )
-        .reduce((s, t) => s + t.amount, 0)
-      return { budget: b, spent, progress: b.amount > 0 ? spent / b.amount : 0 }
-    })
-    .filter((x) => x.progress > 1)
+  const referenceDate = monthTxs.reduce(
+    (latest, transaction) => (transaction.date > latest ? transaction.date : latest),
+    `${monthKey}-01`,
+  )
+  const exceededBudgets = selectApplicableBudgets(
+    deriveBudgetProgressForDate(budgets, transactions, referenceDate),
+    referenceDate,
+  )
+    .filter((budget) => budget.progress > 1)
     .sort((a, b) => b.progress - a.progress)
   const topExceeded = exceededBudgets[0]
 
@@ -291,7 +309,7 @@ export default function StatsPage() {
           <MetricCard label="Promedio diario" value={formatMoney(Math.round(expense / 30))} />
           <MetricCard
             label="Gasto por mov."
-            value={formatMoney(txCount > 0 ? Math.round(expense / txCount) : 0)}
+            value={formatMoney(expenseTxCount > 0 ? Math.round(expense / expenseTxCount) : 0)}
           />
         </div>
 
@@ -306,6 +324,7 @@ export default function StatsPage() {
                 <CategoryBarRow
                   key={item.category.id}
                   name={item.category.name}
+                  metric="gastos por categoría"
                   color={item.category.color}
                   amount={item.amount}
                   pct={item.pct}
@@ -327,6 +346,7 @@ export default function StatsPage() {
                 <CategoryBarRow
                   key={item.category.id}
                   name={item.category.name}
+                  metric="ingresos por categoría"
                   color={item.category.color}
                   amount={item.amount}
                   pct={item.pct}
@@ -393,8 +413,8 @@ export default function StatsPage() {
               <InsightRow
                 label="Presupuesto más excedido"
                 value={`${
-                  topExceeded.budget.categoryId
-                    ? (catMap.get(topExceeded.budget.categoryId)?.name ?? '—')
+                  topExceeded.categoryId
+                    ? (catMap.get(topExceeded.categoryId)?.name ?? '—')
                     : 'General'
                 } · ${Math.round(topExceeded.progress * 100)}%`}
                 accent="red"

@@ -82,11 +82,13 @@ Use static loading states. Avoid new animations. Empty states should explain the
 
 ## Testing Status
 
-There are no automated frontend tests yet. Before backend integration, the minimum useful test coverage would be:
+Vitest and Testing Library cover business logic and observable behavior across:
 
-- Formatter and date helper tests.
-- Derived financial helper tests.
-- Transaction filter tests.
-- Basic route rendering smoke tests.
+- Money/date helpers and derived financial calculations.
+- Zustand stores, API mock contracts, and TanStack Query hooks.
+- Shared UI, authenticated navigation, and transaction workflows.
+- Dashboard, account, budget, goal, category, rule, statistics, and settings pages.
 
-Do not add a test dependency until we intentionally choose the test stack.
+CI enforces at least 80% globally for statements, branches, functions, and lines.
+Tests assert user-visible behavior and business outcomes; avoid snapshots, styling
+details, and calls added only to increase coverage.

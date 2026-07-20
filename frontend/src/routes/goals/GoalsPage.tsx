@@ -98,9 +98,11 @@ export default function GoalsPage() {
   const [fCurrent, setFCurrent] = useState('')
   const [fAccount, setFAccount] = useState('')
   const [fDate, setFDate] = useState('')
+  const [showGoalErrors, setShowGoalErrors] = useState(false)
 
   // Contribution form
   const [fContribute, setFContribute] = useState('')
+  const [showContributionError, setShowContributionError] = useState(false)
 
   const createMut = useMutation({
     mutationFn: api.createSavingsGoal,
@@ -119,22 +121,42 @@ export default function GoalsPage() {
   })
 
   const openGoalPanel = () => {
+    createMut.reset()
     setFName('')
     setFTarget('')
     setFCurrent('')
     setFAccount('')
     setFDate('')
+    setShowGoalErrors(false)
     setIsGoalPanelOpen(true)
   }
 
+  const closeGoalPanel = () => {
+    createMut.reset()
+    setShowGoalErrors(false)
+    setIsGoalPanelOpen(false)
+  }
+
   const openContributePanel = (goalId: string) => {
+    contributeMut.reset()
     setFContribute('')
+    setShowContributionError(false)
     setContributeGoalId(goalId)
+  }
+
+  const closeContributePanel = () => {
+    contributeMut.reset()
+    setShowContributionError(false)
+    setContributeGoalId(null)
   }
 
   const handleCreate = () => {
     const target = toCents(fTarget)
-    if (!fName.trim() || target <= 0) return
+    if (!fName.trim() || target <= 0) {
+      setShowGoalErrors(true)
+      return
+    }
+    createMut.reset()
     createMut.mutate(
       {
         name: fName.trim(),
@@ -144,17 +166,29 @@ export default function GoalsPage() {
         accountId: fAccount || null,
         isCompleted: false,
       },
-      { onSuccess: () => setIsGoalPanelOpen(false) },
+      { onSuccess: closeGoalPanel },
     )
   }
 
   const handleContribute = () => {
     if (!contributeGoalId) return
     const amount = toCents(fContribute)
-    if (amount === 0) return
-    contributeMut.mutate(
-      { id: contributeGoalId, amount },
-      { onSuccess: () => setContributeGoalId(null) },
+    if (amount === 0) {
+      setShowContributionError(true)
+      return
+    }
+    contributeMut.reset()
+    contributeMut.mutate({ id: contributeGoalId, amount }, { onSuccess: closeContributePanel })
+  }
+
+  if (goalsQuery.isError || accountsQuery.isError) {
+    return (
+      <>
+        <Header title="Metas" subtitle="Ahorro y objetivos" />
+        <Card role="alert" className="my-4 p-3 text-sm text-destructive">
+          No se pudieron cargar las metas. Intenta de nuevo.
+        </Card>
+      </>
     )
   }
 
@@ -183,6 +217,99 @@ export default function GoalsPage() {
 
   const goals = goalsQuery.data ?? []
   const accounts = accountsQuery.data ?? []
+  const goalNameInvalid = showGoalErrors && !fName.trim()
+  const goalTargetInvalid = showGoalErrors && toCents(fTarget) <= 0
+  const goalPanel = (
+    <MockActionPanel
+      open={isGoalPanelOpen}
+      title="Nueva meta"
+      description="Define una meta de ahorro con cuenta y fecha objetivo."
+      submitLabel="Crear"
+      submitting={createMut.isPending}
+      onClose={closeGoalPanel}
+      onSubmit={handleCreate}
+    >
+      <div className="space-y-1.5">
+        <Label htmlFor="goal-name">Nombre</Label>
+        <Input
+          id="goal-name"
+          placeholder="Ej. Fondo de emergencia"
+          value={fName}
+          onChange={(e) => setFName(e.target.value)}
+          aria-invalid={goalNameInvalid || Boolean(createMut.error) || undefined}
+          aria-describedby={
+            goalNameInvalid ? 'goal-name-error' : createMut.error ? 'goal-create-error' : undefined
+          }
+        />
+        {goalNameInvalid && (
+          <p id="goal-name-error" role="alert" className="text-xs text-destructive">
+            El nombre es obligatorio.
+          </p>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="goal-target">Objetivo</Label>
+          <Input
+            id="goal-target"
+            placeholder="$0.00"
+            inputMode="decimal"
+            value={fTarget}
+            onChange={(e) => setFTarget(e.target.value)}
+            aria-invalid={goalTargetInvalid || undefined}
+            aria-describedby={goalTargetInvalid ? 'goal-target-error' : undefined}
+          />
+          {goalTargetInvalid && (
+            <p id="goal-target-error" role="alert" className="text-xs text-destructive">
+              El objetivo debe ser mayor que cero.
+            </p>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="goal-current">Ahorrado actual</Label>
+          <Input
+            id="goal-current"
+            placeholder="$0.00"
+            inputMode="decimal"
+            value={fCurrent}
+            onChange={(e) => setFCurrent(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="goal-account">Cuenta vinculada</Label>
+          <select
+            id="goal-account"
+            className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+            value={fAccount}
+            onChange={(e) => setFAccount(e.target.value)}
+          >
+            <option value="">Sin cuenta</option>
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="goal-date">Fecha objetivo</Label>
+          <Input
+            id="goal-date"
+            type="date"
+            value={fDate}
+            onChange={(e) => setFDate(e.target.value)}
+          />
+        </div>
+      </div>
+      {createMut.error && (
+        <p id="goal-create-error" role="alert" className="text-xs text-destructive">
+          No se pudo crear la meta. Intenta de nuevo.
+        </p>
+      )}
+    </MockActionPanel>
+  )
 
   if (goals.length === 0) {
     return (
@@ -207,6 +334,7 @@ export default function GoalsPage() {
             }
           />
         </div>
+        {goalPanel}
       </>
     )
   }
@@ -264,6 +392,7 @@ export default function GoalsPage() {
               <Progress
                 value={totalProgress}
                 variant={totalProgress >= 1 ? 'success' : 'default'}
+                aria-label="Progreso total de metas"
                 className="flex-1"
               />
               <span className="w-11 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
@@ -306,7 +435,12 @@ export default function GoalsPage() {
                   <GoalStatusBadge goal={nextGoal} />
                 </div>
                 <div className="mt-3 flex items-center gap-2">
-                  <Progress value={nextGoal.progress} accent="blue" className="flex-1" />
+                  <Progress
+                    value={nextGoal.progress}
+                    accent="blue"
+                    aria-label={`Progreso de la meta ${nextGoal.name}`}
+                    className="flex-1"
+                  />
                   <span className="w-11 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
                     {formatPercent(nextGoal.progress)}
                   </span>
@@ -371,6 +505,7 @@ export default function GoalsPage() {
                     value={goal.progress}
                     variant={isComplete ? 'success' : 'default'}
                     accent={isComplete ? undefined : 'blue'}
+                    aria-label={`Progreso de la meta ${goal.name}`}
                     className="mt-3"
                   />
 
@@ -454,65 +589,7 @@ export default function GoalsPage() {
         )}
       </div>
 
-      <MockActionPanel
-        open={isGoalPanelOpen}
-        title="Nueva meta"
-        description="Define una meta de ahorro con cuenta y fecha objetivo."
-        submitLabel="Crear"
-        submitting={createMut.isPending}
-        onClose={() => setIsGoalPanelOpen(false)}
-        onSubmit={handleCreate}
-      >
-        <div className="space-y-1.5">
-          <Label>Nombre</Label>
-          <Input
-            placeholder="Ej. Fondo de emergencia"
-            value={fName}
-            onChange={(e) => setFName(e.target.value)}
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1.5">
-            <Label>Objetivo</Label>
-            <Input
-              placeholder="$0.00"
-              inputMode="decimal"
-              value={fTarget}
-              onChange={(e) => setFTarget(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Ahorrado actual</Label>
-            <Input
-              placeholder="$0.00"
-              inputMode="decimal"
-              value={fCurrent}
-              onChange={(e) => setFCurrent(e.target.value)}
-            />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1.5">
-            <Label>Cuenta vinculada</Label>
-            <select
-              className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-              value={fAccount}
-              onChange={(e) => setFAccount(e.target.value)}
-            >
-              <option value="">Sin cuenta</option>
-              {(accountsQuery.data ?? []).map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Fecha objetivo</Label>
-            <Input type="date" value={fDate} onChange={(e) => setFDate(e.target.value)} />
-          </div>
-        </div>
-      </MockActionPanel>
+      {goalPanel}
 
       <MockActionPanel
         open={contributeGoalId !== null}
@@ -520,22 +597,41 @@ export default function GoalsPage() {
         description="Suma fondos al ahorro de esta meta."
         submitLabel="Aportar"
         submitting={contributeMut.isPending}
-        onClose={() => setContributeGoalId(null)}
+        onClose={closeContributePanel}
         onSubmit={handleContribute}
       >
         <div className="space-y-1.5">
-          <Label>Monto</Label>
+          <Label htmlFor="goal-contribution">Monto</Label>
           <Input
+            id="goal-contribution"
             placeholder="$0.00"
             inputMode="decimal"
             value={fContribute}
             onChange={(e) => setFContribute(e.target.value)}
+            aria-invalid={showContributionError || Boolean(contributeMut.error) || undefined}
+            aria-describedby={
+              showContributionError
+                ? 'goal-contribution-error goal-contribution-help'
+                : contributeMut.error
+                  ? 'goal-contribution-api-error goal-contribution-help'
+                  : 'goal-contribution-help'
+            }
             autoFocus
           />
-          <p className="text-[11px] text-muted-foreground">
+          {showContributionError && (
+            <p id="goal-contribution-error" role="alert" className="text-xs text-destructive">
+              El monto debe ser distinto de cero.
+            </p>
+          )}
+          <p id="goal-contribution-help" className="text-[11px] text-muted-foreground">
             Usa un valor negativo para retirar fondos.
           </p>
         </div>
+        {contributeMut.error && (
+          <p id="goal-contribution-api-error" role="alert" className="text-xs text-destructive">
+            No se pudo registrar el aporte. Intenta de nuevo.
+          </p>
+        )}
       </MockActionPanel>
     </>
   )

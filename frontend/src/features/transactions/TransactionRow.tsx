@@ -21,7 +21,6 @@ export function TransactionRow({
   onClick,
 }: TransactionRowProps) {
   const isIncome = tx.type === 'income'
-  const isTransfer = tx.type === 'transfer'
   const isMSI = !!tx.msiPurchaseId
 
   return (
@@ -54,7 +53,7 @@ export function TransactionRow({
       </div>
 
       <div className="shrink-0 text-right">
-        <Amount value={isIncome || isTransfer ? tx.amount : -tx.amount} signed size="sm" />
+        <Amount value={isIncome ? tx.amount : -tx.amount} signed size="sm" />
         {!tx.isReconciled && <p className="text-[10px] text-muted-foreground">pendiente</p>}
       </div>
     </button>

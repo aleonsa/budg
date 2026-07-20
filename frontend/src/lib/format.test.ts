@@ -5,10 +5,14 @@ describe('money formatting', () => {
   it('formats MXN and USD cents without losing precision', () => {
     expect(formatMoney(199_990)).toBe('$1,999.90')
     expect(formatMoney(199_990, 'USD')).toBe('US$1,999.90')
+    expect(formatMoney(-50_000)).toBe('-$500.00')
   })
 
   it('formats large amounts compactly', () => {
     expect(formatMoneyCompact(1_250_000)).toBe('$12.5 k')
+    expect(formatMoneyCompact(-1_250_000, 'USD')).toBe('-US$12.5 k')
+    expect(formatMoneyCompact(-49)).toBe('$0')
+    expect(formatMoneyCompact(-50)).toBe('-$1')
   })
 
   it('converts user input to cents', () => {
@@ -16,7 +20,10 @@ describe('money formatting', () => {
     expect(toCents('-19.995')).toBe(-2_000)
     expect(toCents('10.075')).toBe(1_008)
     expect(toCents('-10.075')).toBe(-1_008)
+    expect(toCents('.75')).toBe(75)
+    expect(toCents('12.')).toBe(1_200)
     expect(toCents('not a number')).toBe(0)
+    expect(toCents('9007199254740991')).toBe(0)
   })
 
   it('converts cents to fixed decimal input', () => {

@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Header } from '@/components/layout/Header'
 import { Button, Card } from '@/components/ui'
 import { EmptyState } from '@/components/common/EmptyState'
+import { MockActionPanel } from '@/components/common/MockActionPanel'
 import { FilterBar } from '@/features/transactions/FilterBar'
 import { TransactionRow, DayGroupHeader } from '@/features/transactions/TransactionRow'
 import { TransactionDetail } from '@/features/transactions/TransactionDetail'
@@ -18,7 +19,6 @@ import {
 } from '@/hooks/useTransactionMutations'
 import type { Transaction } from '@/types'
 
-/** Lightweight centered modal wrapping the transaction form. */
 function TransactionModal({
   open,
   title,
@@ -40,13 +40,26 @@ function TransactionModal({
 }) {
   const createMut = useCreateTransaction()
   const updateMut = useUpdateTransaction()
+  const isEditing = !!initial
+  const activeReset = isEditing ? updateMut.reset : createMut.reset
+
+  useEffect(() => {
+    if (open) activeReset()
+  }, [activeReset, open])
 
   if (!open) return null
 
-  const isEditing = !!initial
   const submitting = createMut.isPending || updateMut.isPending
+  const mutationError = isEditing ? updateMut.error : createMut.error
+
+  const handleClose = () => {
+    if (submitting) return
+    activeReset()
+    onClose()
+  }
 
   const handleSubmit = (value: TransactionFormValue) => {
+    activeReset()
     if (isEditing && initial) {
       updateMut.mutate(
         {
@@ -62,7 +75,7 @@ function TransactionModal({
             transferToAccountId: value.transferToAccountId || undefined,
           },
         },
-        { onSuccess: onClose },
+        { onSuccess: handleClose },
       )
     } else {
       createMut.mutate(
@@ -76,45 +89,148 @@ function TransactionModal({
           merchant: value.merchant,
           transferToAccountId: value.transferToAccountId || undefined,
         },
-        { onSuccess: onClose },
+        { onSuccess: handleClose },
       )
+    }
+  }
+
+  return (
+    <MockActionPanel
+      open={open}
+      title={title}
+      description={description}
+      onClose={handleClose}
+      submitting={submitting}
+    >
+      <TransactionForm
+        accounts={accounts}
+        categories={categories}
+        initial={initial}
+        lockedType={lockedType}
+        onSubmit={handleSubmit}
+        onCancel={handleClose}
+        submitting={submitting}
+        submitLabel={isEditing ? 'Guardar cambios' : 'Agregar'}
+      />
+      {mutationError && (
+        <p role="alert" className="text-xs text-destructive">
+          {mutationError instanceof Error
+            ? mutationError.message
+            : 'No se pudo guardar el movimiento.'}
+        </p>
+      )}
+    </MockActionPanel>
+  )
+}
+
+const FOCUSABLE_SELECTOR = [
+  'button:not([disabled])',
+  'a[href]',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
+
+function DeleteConfirmation({
+  transaction,
+  pending,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  transaction: Transaction | null
+  pending: boolean
+  error: unknown
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const titleId = useId()
+  const descriptionId = useId()
+  const cancelButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!transaction) return
+
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    cancelButtonRef.current?.focus()
+
+    return () => {
+      if (previousFocus?.isConnected) previousFocus.focus()
+    }
+  }, [transaction])
+
+  if (!transaction) return null
+
+  const handleClose = () => {
+    if (!pending) onCancel()
+  }
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      handleClose()
+      return
+    }
+    if (event.key !== 'Tab') return
+
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+    )
+    const first = focusable[0]
+    const last = focusable.at(-1)
+    if (!first || !last) return
+
+    const active = document.activeElement
+    if (event.shiftKey && (active === first || !event.currentTarget.contains(active))) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && (active === last || !event.currentTarget.contains(active))) {
+      event.preventDefault()
+      first.focus()
     }
   }
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/25 p-3 backdrop-blur-[1px] sm:items-center"
-      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-3 backdrop-blur-[1px]"
+      onClick={handleClose}
     >
       <Card
-        className="max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto bg-[hsl(var(--card))] p-3.5 shadow-[0_16px_48px_rgba(0,0,0,0.14)]"
-        onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        onKeyDown={handleKeyDown}
+        onClick={(event: React.MouseEvent) => event.stopPropagation()}
+        className="w-full max-w-sm bg-[hsl(var(--card))] p-4 shadow-[0_16px_48px_rgba(0,0,0,0.14)]"
       >
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[13px] font-semibold">{title}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-          </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Cerrar
+        <p id={titleId} className="text-sm font-semibold">
+          Eliminar movimiento
+        </p>
+        <p id={descriptionId} className="mt-1 text-xs text-muted-foreground">
+          ¿Eliminar “{transaction.description}”? Esta acción no se puede deshacer.
+        </p>
+        {error != null && (
+          <p role="alert" className="mt-2 text-xs text-destructive">
+            {error instanceof Error ? error.message : 'No se pudo eliminar el movimiento.'}
+          </p>
+        )}
+        <div className="mt-4 flex justify-end gap-2">
+          <Button
+            ref={cancelButtonRef}
+            variant="outline"
+            size="sm"
+            onClick={handleClose}
+            disabled={pending}
+          >
+            Cancelar
           </Button>
-        </div>
-
-        <div className="mt-3.5">
-          <TransactionForm
-            accounts={accounts}
-            categories={categories}
-            initial={initial}
-            lockedType={lockedType}
-            onSubmit={handleSubmit}
-            onCancel={onClose}
-            submitting={submitting}
-            submitLabel={isEditing ? 'Guardar cambios' : 'Agregar'}
-          />
-        </div>
-
-        <div className="mt-3.5 rounded-[7px] bg-muted p-2 text-[11px] text-muted-foreground">
-          Ambiente demo: los cambios se guardan en memoria y se reinician al recargar.
+          <Button variant="destructive" size="sm" onClick={onConfirm} disabled={pending}>
+            {pending ? 'Eliminando…' : 'Eliminar movimiento'}
+          </Button>
         </div>
       </Card>
     </div>,
@@ -129,8 +245,10 @@ export default function TransactionsPage() {
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null)
   const [action, setAction] = useState<'expense' | 'income' | 'transfer' | 'edit' | null>(null)
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
+  const [deletingTx, setDeletingTx] = useState<Transaction | null>(null)
 
   const isLoading = txQ.isLoading || catQ.isLoading || accQ.isLoading
+  const hasQueryError = txQ.isError || catQ.isError || accQ.isError
   const deleteMut = useDeleteTransaction()
 
   const openAdd = (type: 'expense' | 'income' | 'transfer') => {
@@ -145,8 +263,37 @@ export default function TransactionsPage() {
   }
 
   const handleDelete = (tx: Transaction) => {
-    setSelectedTx(null)
-    deleteMut.mutate(tx.id)
+    deleteMut.reset()
+    setDeletingTx(tx)
+  }
+
+  const closeDelete = () => {
+    deleteMut.reset()
+    setDeletingTx(null)
+  }
+
+  const confirmDelete = () => {
+    if (!deletingTx) return
+    deleteMut.reset()
+    deleteMut.mutate(deletingTx.id, {
+      onSuccess: () => {
+        closeDelete()
+        setSelectedTx(null)
+      },
+    })
+  }
+
+  if (hasQueryError) {
+    return (
+      <>
+        <Header title="Movimientos" subtitle="Historial de transacciones" />
+        <div className="flex h-64 items-center justify-center px-4">
+          <p role="alert" className="text-center text-sm text-destructive">
+            No se pudieron cargar los movimientos. Intenta de nuevo más tarde.
+          </p>
+        </div>
+      </>
+    )
   }
 
   if (isLoading) {
@@ -245,6 +392,14 @@ export default function TransactionsPage() {
           setAction(null)
           setEditingTx(null)
         }}
+      />
+
+      <DeleteConfirmation
+        transaction={deletingTx}
+        pending={deleteMut.isPending}
+        error={deleteMut.error}
+        onCancel={closeDelete}
+        onConfirm={confirmDelete}
       />
     </>
   )

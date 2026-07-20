@@ -27,6 +27,10 @@ const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
     return (
       <div
         ref={ref}
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={clamped * 100}
         className={cn('h-1 w-full overflow-hidden rounded-full bg-input', className)}
         {...props}
       >

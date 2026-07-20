@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { today } from '@/lib/date'
 import type { TransactionType, ID } from '@/types'
 
 export type TransactionFilterType = TransactionType | 'all'
@@ -19,7 +20,7 @@ interface TransactionFilters {
   reset: () => void
 }
 
-const currentMonth = () => new Date().toISOString().slice(0, 7)
+const currentMonth = () => today().slice(0, 7)
 
 const DEFAULTS = {
   search: '',

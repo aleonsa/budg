@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { today } from '@/lib/date'
 import type {
   Account,
   Budget,
@@ -77,7 +78,7 @@ export function genId(prefix: string): string {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10)
+  return today()
 }
 
 // ── Date rebasing ────────────────────────────────────────────
@@ -174,7 +175,7 @@ interface MockDataState {
   deleteRule: (id: string) => void
 }
 
-export const useMockData = create<MockDataState>((set) => ({
+export const useMockData = create<MockDataState>((set, get) => ({
   categories: [...mockCategories],
   accounts: [...mockAccounts],
   transactions: rebaseTransactions(mockTransactions),
@@ -227,12 +228,12 @@ export const useMockData = create<MockDataState>((set) => ({
 
   // ── Savings goals ─────────────────────────────────────────
   addSavingsGoal: (input) => {
-    const goal: SavingsGoal = { ...input, id: genId('goal'), order: 0 }
-    set((s) => {
-      const order = s.savingsGoals.length
-      const withOrder = { ...goal, order }
-      return { savingsGoals: [...s.savingsGoals, withOrder] }
-    })
+    const goal: SavingsGoal = {
+      ...input,
+      id: genId('goal'),
+      order: get().savingsGoals.length,
+    }
+    set((s) => ({ savingsGoals: [...s.savingsGoals, goal] }))
     return goal
   },
   updateSavingsGoal: (id, patch) =>
@@ -253,18 +254,15 @@ export const useMockData = create<MockDataState>((set) => ({
 
   // ── Categories ────────────────────────────────────────────
   addCategory: (input) => {
+    const sameKind = get().categories.filter((c) => c.kind === input.kind)
+    const order = sameKind.reduce((max, c) => Math.max(max, c.order), 0) + 1
     const cat: Category = {
       ...input,
       id: genId('cat'),
       isSystem: false,
-      order: 0,
+      order,
     }
-    set((s) => {
-      // Place at the end of its kind group; system cats keep low orders.
-      const sameKind = s.categories.filter((c) => c.kind === input.kind)
-      const order = sameKind.reduce((max, c) => Math.max(max, c.order), 0) + 1
-      return { categories: [...s.categories, { ...cat, order }] }
-    })
+    set((s) => ({ categories: [...s.categories, cat] }))
     return cat
   },
   updateCategory: (id, patch) =>

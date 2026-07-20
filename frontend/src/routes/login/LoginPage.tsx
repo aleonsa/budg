@@ -41,6 +41,9 @@ export default function LoginPage() {
     submit(DEMO_EMAIL, DEMO_PASSWORD)
   }
 
+  const emailInvalid = error !== null && !email.trim()
+  const passwordInvalid = error !== null && !password.trim()
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-[hsl(var(--sidebar-bg))] p-4">
       <div className="w-full max-w-[340px] space-y-3.5">
@@ -58,6 +61,8 @@ export default function LoginPage() {
                 id="email"
                 type="email"
                 autoComplete="username"
+                aria-invalid={emailInvalid ? true : undefined}
+                aria-describedby={emailInvalid ? 'login-error' : undefined}
                 placeholder="tu@correo.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -69,13 +74,19 @@ export default function LoginPage() {
                 id="password"
                 type="password"
                 autoComplete="current-password"
+                aria-invalid={passwordInvalid ? true : undefined}
+                aria-describedby={passwordInvalid ? 'login-error' : undefined}
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
 
-            {error && <p className="text-xs text-destructive">{error}</p>}
+            {error && (
+              <p id="login-error" role="alert" className="text-xs text-destructive">
+                {error}
+              </p>
+            )}
 
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? 'Ingresando…' : 'Iniciar sesión'}

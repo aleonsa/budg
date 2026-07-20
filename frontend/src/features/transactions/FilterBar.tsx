@@ -31,6 +31,7 @@ export function FilterBar({ categories, accounts }: FilterBarProps) {
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
+            aria-label="Buscar movimientos"
             placeholder="Buscar…"
             value={filters.search}
             onChange={(e) => filters.setSearch(e.target.value)}
@@ -38,6 +39,7 @@ export function FilterBar({ categories, accounts }: FilterBarProps) {
           />
           {filters.search && (
             <button
+              aria-label="Limpiar búsqueda"
               onClick={() => filters.setSearch('')}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
@@ -47,6 +49,7 @@ export function FilterBar({ categories, accounts }: FilterBarProps) {
         </div>
 
         <Button
+          aria-label="Abrir filtros"
           variant="outline"
           size="icon"
           className="relative shrink-0"
@@ -54,7 +57,10 @@ export function FilterBar({ categories, accounts }: FilterBarProps) {
         >
           <SlidersHorizontal className="h-4 w-4" />
           {activeFilterCount > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+            <span
+              aria-hidden="true"
+              className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground"
+            >
               {activeFilterCount}
             </span>
           )}
@@ -118,6 +124,7 @@ export function FilterBar({ categories, accounts }: FilterBarProps) {
                 active={!filters.accountId}
                 onClick={() => filters.setAccount(null)}
                 label="Todas"
+                ariaLabel="Todas las cuentas"
               />
               {accounts.map((acc) => (
                 <FilterPill
@@ -142,6 +149,7 @@ export function FilterBar({ categories, accounts }: FilterBarProps) {
                 active={!filters.categoryId}
                 onClick={() => filters.setCategory(null)}
                 label="Todas"
+                ariaLabel="Todas las categorías"
               />
               {categories
                 .filter((c) => c.kind === 'expense')
@@ -177,6 +185,7 @@ export function FilterBar({ categories, accounts }: FilterBarProps) {
 function FilterChip({ label, onClear }: { label: string; onClear: () => void }) {
   return (
     <button
+      aria-label={`Quitar filtro ${label}`}
       onClick={onClear}
       className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground"
     >
@@ -190,13 +199,16 @@ function FilterPill({
   active,
   onClick,
   label,
+  ariaLabel,
 }: {
   active: boolean
   onClick: () => void
   label: string
+  ariaLabel?: string
 }) {
   return (
     <button
+      aria-label={ariaLabel}
       onClick={onClick}
       className={cn(
         'rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
@@ -218,12 +230,15 @@ function MonthSelector({ value, onChange }: { value: string; onChange: (m: strin
 
   const shift = (delta: number) => {
     const next = new Date(year, month - 1 + delta, 1)
-    onChange(next.toISOString().slice(0, 7))
+    const nextYear = next.getFullYear()
+    const nextMonth = String(next.getMonth() + 1).padStart(2, '0')
+    onChange(`${nextYear}-${nextMonth}`)
   }
 
   return (
     <div className="flex items-center justify-between">
       <button
+        aria-label="Mes anterior"
         onClick={() => shift(-1)}
         className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
       >
@@ -239,6 +254,7 @@ function MonthSelector({ value, onChange }: { value: string; onChange: (m: strin
       </button>
       <span className="text-xs font-medium capitalize">{label}</span>
       <button
+        aria-label="Mes siguiente"
         onClick={() => shift(1)}
         className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
       >

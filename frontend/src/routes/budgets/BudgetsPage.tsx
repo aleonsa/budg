@@ -6,13 +6,9 @@ import { Amount } from '@/components/common/Amount'
 import { CategoryIcon } from '@/components/common/CategoryIcon'
 import { MockActionPanel } from '@/components/common/MockActionPanel'
 import { Badge, Button, Card, Input, Label, Progress, Separator } from '@/components/ui'
-import {
-  deriveBudgetProgress,
-  useBudgets,
-  useCategories,
-  useTransactions,
-} from '@/hooks/useQueries'
+import { useBudgets, useCategories, useTransactions } from '@/hooks/useQueries'
 import { formatMoney, toCents } from '@/lib/format'
+import { deriveBudgetProgressForDate, selectApplicableBudgets } from '@/lib/budget-period'
 import { today } from '@/lib/date'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
@@ -33,9 +29,16 @@ function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`
 }
 
+function localDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 function getMonthStart() {
   const now = new Date()
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+  return localDateKey(new Date(now.getFullYear(), now.getMonth(), 1))
 }
 
 function getCurrentPeriodLabel() {
@@ -47,7 +50,9 @@ function getUnbudgetedSpending(
   transactions: Transaction[],
   categories: Category[],
   budgetedCategoryIds: Set<string>,
+  hasGlobalBudget: boolean,
 ) {
+  if (hasGlobalBudget) return []
   const monthStart = getMonthStart()
   const spentByCategory = new Map<string, Cents>()
 
@@ -86,6 +91,7 @@ export default function BudgetsPage() {
   const [fCategory, setFCategory] = useState('')
   const [fLimit, setFLimit] = useState('')
   const [fPeriod, setFPeriod] = useState<BudgetPeriod>('monthly')
+  const [limitValidationError, setLimitValidationError] = useState(false)
 
   const createMut = useMutation({
     mutationFn: api.createBudget,
@@ -96,15 +102,28 @@ export default function BudgetsPage() {
   })
 
   const openPanel = () => {
+    createMut.reset()
     setFCategory('')
     setFLimit('')
     setFPeriod('monthly')
+    setLimitValidationError(false)
     setIsBudgetPanelOpen(true)
+  }
+
+  const closePanel = () => {
+    createMut.reset()
+    setLimitValidationError(false)
+    setIsBudgetPanelOpen(false)
   }
 
   const handleSubmit = () => {
     const amount = toCents(fLimit)
-    if (amount <= 0) return
+    if (amount <= 0) {
+      setLimitValidationError(true)
+      return
+    }
+    setLimitValidationError(false)
+    createMut.reset()
     createMut.mutate(
       {
         categoryId: fCategory || null,
@@ -112,7 +131,7 @@ export default function BudgetsPage() {
         period: fPeriod,
         startDate: today(),
       },
-      { onSuccess: () => setIsBudgetPanelOpen(false) },
+      { onSuccess: closePanel },
     )
   }
 
@@ -140,9 +159,88 @@ export default function BudgetsPage() {
     )
   }
 
+  if (budgetsQuery.isError || transactionsQuery.isError || categoriesQuery.isError) {
+    return (
+      <>
+        <Header title="Presupuestos" subtitle="Límites por categoría" />
+        <div role="alert" className="py-10 text-center text-sm text-destructive">
+          No se pudieron cargar los presupuestos.
+        </div>
+      </>
+    )
+  }
+
   const budgets = budgetsQuery.data ?? []
   const transactions = transactionsQuery.data ?? []
   const categories = categoriesQuery.data ?? []
+  const budgetError = createMut.error
+    ? 'No se pudo crear el presupuesto. Intenta de nuevo.'
+    : limitValidationError
+      ? 'Ingresa un límite mayor a cero.'
+      : null
+  const budgetPanel = (
+    <MockActionPanel
+      open={isBudgetPanelOpen}
+      title="Crear presupuesto"
+      description="Define límite, categoría y periodo."
+      submitLabel="Crear"
+      submitting={createMut.isPending}
+      onClose={closePanel}
+      onSubmit={handleSubmit}
+    >
+      <div className="space-y-1.5">
+        <Label htmlFor="budget-category">Categoría</Label>
+        <select
+          id="budget-category"
+          className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+          value={fCategory}
+          onChange={(e) => setFCategory(e.target.value)}
+        >
+          <option value="">General (sin categoría)</option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="budget-limit">Límite</Label>
+          <Input
+            id="budget-limit"
+            placeholder="$0.00"
+            inputMode="decimal"
+            value={fLimit}
+            aria-invalid={Boolean(budgetError)}
+            aria-describedby={budgetError ? 'budget-limit-error' : undefined}
+            onChange={(e) => {
+              setFLimit(e.target.value)
+              setLimitValidationError(false)
+            }}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="budget-period">Periodo</Label>
+          <select
+            id="budget-period"
+            className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+            value={fPeriod}
+            onChange={(e) => setFPeriod(e.target.value as BudgetPeriod)}
+          >
+            <option value="monthly">Mensual</option>
+            <option value="weekly">Semanal</option>
+            <option value="yearly">Anual</option>
+          </select>
+        </div>
+      </div>
+      {budgetError && (
+        <p id="budget-limit-error" role="alert" className="text-xs text-destructive">
+          {budgetError}
+        </p>
+      )}
+    </MockActionPanel>
+  )
 
   if (budgets.length === 0) {
     return (
@@ -167,32 +265,42 @@ export default function BudgetsPage() {
             }
           />
         </div>
+        {budgetPanel}
       </>
     )
   }
 
   const categoryMap = new Map(categories.map((category) => [category.id, category]))
-  const budgetsWithProgress = deriveBudgetProgress(budgets, transactions).sort((a, b) => {
-    const aExceeded = a.progress > 1
-    const bExceeded = b.progress > 1
-    if (aExceeded !== bExceeded) return aExceeded ? -1 : 1
-    return b.progress - a.progress
-  })
-  const totalSpent = budgetsWithProgress.reduce((sum, budget) => sum + budget.spent, 0)
-  const totalLimit = budgetsWithProgress.reduce((sum, budget) => sum + budget.amount, 0)
+  const currentDate = today()
+  const budgetsWithProgress = deriveBudgetProgressForDate(budgets, transactions, currentDate).sort(
+    (a, b) => {
+      const aExceeded = a.progress > 1
+      const bExceeded = b.progress > 1
+      if (aExceeded !== bExceeded) return aExceeded ? -1 : 1
+      return b.progress - a.progress
+    },
+  )
+  const applicableBudgets = selectApplicableBudgets(budgetsWithProgress, currentDate)
+  const totalSpent = applicableBudgets.reduce((sum, budget) => sum + budget.spent, 0)
+  const totalLimit = applicableBudgets.reduce((sum, budget) => sum + budget.amount, 0)
   const totalRemaining = totalLimit - totalSpent
   const totalProgress = totalLimit > 0 ? totalSpent / totalLimit : 0
-  const exceededBudgets = budgetsWithProgress.filter((budget) => budget.progress > 1)
-  const nearLimitBudgets = budgetsWithProgress.filter(
+  const exceededBudgets = applicableBudgets.filter((budget) => budget.progress > 1)
+  const nearLimitBudgets = applicableBudgets.filter(
     (budget) => budget.progress >= 0.8 && budget.progress <= 1,
   )
   const criticalBudgets = [...exceededBudgets, ...nearLimitBudgets].slice(0, 3)
   const budgetedCategoryIds = new Set(
-    budgets
+    applicableBudgets
       .map((budget) => budget.categoryId)
       .filter((categoryId): categoryId is string => Boolean(categoryId)),
   )
-  const unbudgetedSpending = getUnbudgetedSpending(transactions, categories, budgetedCategoryIds)
+  const unbudgetedSpending = getUnbudgetedSpending(
+    transactions,
+    categories,
+    budgetedCategoryIds,
+    applicableBudgets.some((budget) => budget.categoryId === null),
+  )
 
   return (
     <>
@@ -241,6 +349,7 @@ export default function BudgetsPage() {
             <Progress
               value={totalProgress}
               variant={totalProgress > 1 ? 'warning' : 'default'}
+              aria-label="Uso total del presupuesto"
               className="mt-4"
             />
             <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
@@ -320,6 +429,7 @@ export default function BudgetsPage() {
                           value={budget.progress}
                           variant={isExceeded ? 'warning' : 'default'}
                           accent={isExceeded ? undefined : category?.color}
+                          aria-label={`Uso del presupuesto de ${category?.name ?? 'General'}`}
                           className="mt-1.5"
                         />
                       </div>
@@ -403,6 +513,7 @@ export default function BudgetsPage() {
                         value={budget.progress}
                         variant={isExceeded ? 'warning' : 'default'}
                         accent={isExceeded ? undefined : category?.color}
+                        aria-label={`Uso del presupuesto de ${category?.name ?? 'General'}`}
                         className="flex-1"
                       />
                       <span
@@ -449,54 +560,7 @@ export default function BudgetsPage() {
         )}
       </div>
 
-      <MockActionPanel
-        open={isBudgetPanelOpen}
-        title="Crear presupuesto"
-        description="Define límite, categoría y periodo."
-        submitLabel="Crear"
-        submitting={createMut.isPending}
-        onClose={() => setIsBudgetPanelOpen(false)}
-        onSubmit={handleSubmit}
-      >
-        <div className="space-y-1.5">
-          <Label>Categoría</Label>
-          <select
-            className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-            value={fCategory}
-            onChange={(e) => setFCategory(e.target.value)}
-          >
-            <option value="">General (sin categoría)</option>
-            {(categoriesQuery.data ?? []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1.5">
-            <Label>Límite</Label>
-            <Input
-              placeholder="$0.00"
-              inputMode="decimal"
-              value={fLimit}
-              onChange={(e) => setFLimit(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Periodo</Label>
-            <select
-              className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-              value={fPeriod}
-              onChange={(e) => setFPeriod(e.target.value as BudgetPeriod)}
-            >
-              <option value="monthly">Mensual</option>
-              <option value="weekly">Semanal</option>
-              <option value="yearly">Anual</option>
-            </select>
-          </div>
-        </div>
-      </MockActionPanel>
+      {budgetPanel}
     </>
   )
 }

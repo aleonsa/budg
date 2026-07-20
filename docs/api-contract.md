@@ -163,6 +163,9 @@ Amounts are always positive. Direction is derived from `type`.
 
 - `period`: `weekly | monthly | yearly`
 - `categoryId: null` represents a global budget.
+- `startDate` anchors recurring cycles: every seven days for `weekly`, same
+  calendar day for `monthly`, and same month/day for `yearly`. Month-end and leap
+  anchors clamp to the last valid day. Cycle date boundaries are inclusive.
 
 ### Savings Goal
 

@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { deriveBudgetProgressForDate } from '@/lib/budget-period'
+import { today } from '@/lib/date'
 import { queryKeys } from '@/lib/query-keys'
 import type {
   AccountWithSummary,
@@ -42,6 +44,10 @@ export function useRules() {
 
 // ── Derived helpers ─────────────────────────────────────────
 
+function toLocalISO(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
 /** Compute account summaries including balances and MSI info. */
 export function deriveAccountSummary(
   accounts: Account[],
@@ -74,21 +80,7 @@ export function deriveBudgetProgress(
   budgets: Budget[],
   transactions: Transaction[],
 ): BudgetWithProgress[] {
-  const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
-
-  return budgets.map((budget) => {
-    const spent = transactions
-      .filter(
-        (t) => t.type === 'expense' && t.categoryId === budget.categoryId && t.date >= monthStart,
-      )
-      .reduce((sum, t) => sum + t.amount, 0)
-
-    const remaining = budget.amount - spent
-    const progress = budget.amount > 0 ? spent / budget.amount : 0
-
-    return { ...budget, spent, remaining, progress }
-  })
+  return deriveBudgetProgressForDate(budgets, transactions, today())
 }
 
 /** Compute savings goal progress. */
@@ -115,7 +107,7 @@ export function deriveTotalDebt(accounts: AccountWithSummary[]): Cents {
 /** Sum of expenses in the current month. */
 export function deriveMonthSpending(transactions: Transaction[]): Cents {
   const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+  const monthStart = toLocalISO(new Date(now.getFullYear(), now.getMonth(), 1))
 
   return transactions
     .filter((t) => t.type === 'expense' && t.date >= monthStart)
