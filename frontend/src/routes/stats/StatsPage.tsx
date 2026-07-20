@@ -245,7 +245,10 @@ export default function StatsPage() {
   const exceededBudgets = budgets
     .map((b) => {
       const spent = transactions
-        .filter((t) => t.type === 'expense' && t.categoryId === b.categoryId && t.date.startsWith(monthKey))
+        .filter(
+          (t) =>
+            t.type === 'expense' && t.categoryId === b.categoryId && t.date.startsWith(monthKey),
+        )
         .reduce((s, t) => s + t.amount, 0)
       return { budget: b, spent, progress: b.amount > 0 ? spent / b.amount : 0 }
     })
@@ -286,7 +289,10 @@ export default function StatsPage() {
             accent={savingsRate >= 0.1 ? 'green' : savingsRate >= 0 ? 'yellow' : 'red'}
           />
           <MetricCard label="Promedio diario" value={formatMoney(Math.round(expense / 30))} />
-          <MetricCard label="Gasto por mov." value={formatMoney(txCount > 0 ? Math.round(expense / txCount) : 0)} />
+          <MetricCard
+            label="Gasto por mov."
+            value={formatMoney(txCount > 0 ? Math.round(expense / txCount) : 0)}
+          />
         </div>
 
         {/* Expense distribution */}
@@ -360,9 +366,7 @@ export default function StatsPage() {
                 <span
                   className={cn(
                     'text-right text-[11px] font-medium tabular-nums',
-                    m.net >= 0
-                      ? 'text-[hsl(var(--color-green))]'
-                      : 'text-[hsl(var(--color-red))]',
+                    m.net >= 0 ? 'text-[hsl(var(--color-green))]' : 'text-[hsl(var(--color-red))]',
                   )}
                 >
                   {formatMoneyCompact(m.net)}
@@ -390,7 +394,7 @@ export default function StatsPage() {
                 label="Presupuesto más excedido"
                 value={`${
                   topExceeded.budget.categoryId
-                    ? catMap.get(topExceeded.budget.categoryId)?.name ?? '—'
+                    ? (catMap.get(topExceeded.budget.categoryId)?.name ?? '—')
                     : 'General'
                 } · ${Math.round(topExceeded.progress * 100)}%`}
                 accent="red"

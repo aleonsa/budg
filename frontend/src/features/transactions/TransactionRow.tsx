@@ -33,9 +33,7 @@ export function TransactionRow({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <p className="truncate text-sm font-medium leading-tight">
-            {tx.description}
-          </p>
+          <p className="truncate text-sm font-medium leading-tight">{tx.description}</p>
           {isMSI && (
             <Badge accent="purple" className="shrink-0">
               MSI
@@ -44,9 +42,7 @@ export function TransactionRow({
         </div>
         <div className="flex items-center gap-1.5">
           {showAccount && account && (
-            <span className="truncate text-[11px] text-muted-foreground">
-              {account.name}
-            </span>
+            <span className="truncate text-[11px] text-muted-foreground">{account.name}</span>
           )}
           {tx.merchant && (
             <span className="truncate text-[11px] text-muted-foreground">
@@ -58,14 +54,8 @@ export function TransactionRow({
       </div>
 
       <div className="shrink-0 text-right">
-        <Amount
-          value={isIncome || isTransfer ? tx.amount : -tx.amount}
-          signed
-          size="sm"
-        />
-        {!tx.isReconciled && (
-          <p className="text-[10px] text-muted-foreground">pendiente</p>
-        )}
+        <Amount value={isIncome || isTransfer ? tx.amount : -tx.amount} signed size="sm" />
+        {!tx.isReconciled && <p className="text-[10px] text-muted-foreground">pendiente</p>}
       </div>
     </button>
   )

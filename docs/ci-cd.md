@@ -19,16 +19,19 @@ CI y CD son workflows separados:
 Frontend ya tiene:
 
 - `npm ci` reproducible mediante lockfile.
-- `npm run lint` con Oxlint.
-- `npm run build`, que ejecuta TypeScript y Vite.
+- Prettier con `format` y `format:check`.
+- Oxlint sin warnings permitidos.
+- TypeScript 7 con `strict: true` y gate `typecheck` separado.
+- Vitest, Testing Library y coverage visible.
+- Build Vite separado de typecheck.
 
-Frontend todavía no tiene scripts separados de typecheck, format o tests, y sus
-tsconfig no declaran `strict: true`. Oxlint actual puede terminar exitosamente
-con warnings; Fase 0 debe resolverlos o registrar baseline antes de convertir
-warnings nuevos en fallo. No existe configuración GitHub Actions. Backend nuevo
-todavía no tiene baseline canónico.
+CI, Makefile, Dependabot, secret scanning, audit completo de dependencias npm y
+gate backend están implementados. Backend canónico sigue reservado para Fase 1.
+Protección de `main` no está disponible mientras repositorio sea privado bajo
+GitHub Free; APIs de branch protection y rulesets responden `403` y requieren
+GitHub Pro o repo público.
 
-## Archivos planeados
+## Archivos implementados y futuros
 
 ```txt
 .github/
@@ -44,7 +47,7 @@ docs/
 frontend/
   package.json
   package-lock.json
-  test setup                  # Vitest + Testing Library
+  src/test/setup.ts           # Vitest + Testing Library
 backend/
   go.mod                       # creado y activado en Fase 1
   go.sum
@@ -56,12 +59,14 @@ Workflows de deploy se agregan cuando infraestructura correspondiente existe.
 
 ## Toolchains reproducibles
 
-Durante setup se fijan, no se adivinan:
+Versiones investigadas y seleccionadas están en
+[`toolchain-versions.md`](toolchain-versions.md). Durante setup se fijan, no se
+adivinan:
 
-- Node compatible con Vite actual, registrado en `engines` y archivo de versión.
-- npm correspondiente y `package-lock.json` versionado.
-- Versión Go objetivo fijada en CI; Fase 1 la declara en `go.mod` y Fase 9 fija
-  misma versión en Dockerfile.
+- Node 24.18.0 LTS, registrado en `engines` y `.node-version`.
+- npm 12.0.1 compatible, `engine-strict=true` y `package-lock.json` versionado.
+- Go 1.26.5 fijado en `.go-version`; Fase 1 lo declara en `go.mod` y CI, y
+  Fase 9 fija misma versión en Dockerfile.
 - Goose fijado a versión concreta en CI de migraciones.
 - Supabase CLI fijada cuando entren tests de integración.
 - GitHub Actions fijadas a commit SHA con comentario de versión humana.
@@ -76,14 +81,15 @@ Triggers:
 ```txt
 pull_request -> main
 push -> main
-workflow_dispatch
 ```
 
 Política:
 
 - Permisos default `contents: read`.
+- Repository settings permiten solo Actions de GitHub y exigen commit SHA.
 - Sin secretos para validación de PR.
-- `concurrency` cancela ejecución anterior de misma rama.
+- `concurrency` cancela ejecución anterior de misma rama/PR; no existe trigger
+  manual capaz de cancelar o eludir comparación backend.
 - Jobs corren en paralelo cuando son independientes.
 - Monorepo pequeño ejecuta frontend siempre. Gate backend comprueba que no haya
   `.go` nuevo antes del módulo canónico; desde Fase 1 ejecuta suite Go completa.
@@ -95,9 +101,10 @@ Política:
 
 Working directory: `frontend/`.
 
-Orden planeado:
+Orden implementado:
 
 ```bash
+npm install --global npm@12.0.1
 npm ci
 npm run format:check
 npm run lint
@@ -106,7 +113,7 @@ npm run test:coverage
 npm run build
 ```
 
-Fase 0 agrega scripts explícitos:
+Scripts instalados:
 
 - `typecheck`: TypeScript sin emitir.
 - `format` y `format:check`: formatter elegido y fijado.
@@ -115,8 +122,9 @@ Fase 0 agrega scripts explícitos:
 - `strict: true` explícito en configs de aplicación y tooling.
 - `build`: solo Vite; typecheck queda como gate separado sin ejecutarse dos veces.
 
-Build no sustituye typecheck separado: ambos permanecen visibles en CI. Warnings
-Oxlint existentes se resuelven o registran y luego warnings nuevos fallan CI.
+Build no sustituye typecheck separado: ambos permanecen visibles en CI. Los 13
+warnings Oxlint del baseline fueron resueltos y `--deny-warnings` hace fallar
+cualquier warning nuevo.
 
 ## Job backend-quality
 
@@ -135,11 +143,11 @@ go build ./cmd/api
 `gofmt -l` solo detecta en CI; developer ejecuta `gofmt -w`. Coverage se publica
 como artefacto/resumen.
 
-Fase 0 configura job, pero no finge build sin código. Mientras módulo canónico
-no exista, job falla si detecta nuevos `.go` destinados al backend y reporta
-`backend not initialized`; de otro modo termina verde. Fase 1 reemplaza
-experimento ignorado, crea `go.mod`, `/healthz` y tests en mismo cambio que
-activa comandos completos. Ninguna línea Go nueva entra sin gate Go.
+Fase 0 no finge build sin código canónico. `scripts/check-backend-phase0.sh`
+compara cambios contra base de PR/push y falla ante cualquier cambio en
+`backend/`; localmente también revisa worktree e index. Fase 1 reemplaza
+experimento ignorado, crea módulo canónico, `/healthz` y tests en mismo cambio
+que activa comandos completos. Ninguna línea Go nueva entra sin gate Go.
 
 ## Job migrations
 
@@ -163,7 +171,7 @@ Gates mínimos:
 - Secret scan del diff y repositorio.
 - Dependency review para nuevas dependencias cuando plan GitHub lo soporte.
 - `govulncheck` para código Go alcanzable.
-- Audit de dependencias npm runtime.
+- Audit de todas las dependencias npm, incluidas herramientas de build/test.
 - Actions sin permisos de escritura innecesarios.
 - Ningún workflow `pull_request_target` ejecutando código de PR.
 
@@ -171,9 +179,14 @@ Escaneos más costosos pueden correr programados, pero findings críticos siguen
 bloqueando releases.
 
 Dependency Review Action requiere repositorio público o GitHub Code
-Security/GHAS en repositorio privado. Fase 0 detecta capacidad. Si no existe,
-usa Dependabot alerts, revisión de lockfile y audits, documentando control
-reducido sin bloquear CI por feature no disponible.
+Security/GHAS en repositorio privado. Repo privado actual no tiene capacidad;
+fallback activo usa Dependabot, lockfile, `npm audit` completo y Gitleaks
+8.30.1 con binario/checksum fijados. `govulncheck` se activa en Fase 1 junto con
+módulo Go canónico.
+
+Dependabot vulnerability alerts y automated security fixes están habilitados en
+settings del repositorio. Version updates quedan activas al publicar
+`.github/dependabot.yml`.
 
 ## Job ci
 
@@ -186,15 +199,15 @@ ci uses if: always()
 ci succeeds only if every required needs.<job>.result is success
 ```
 
-Branch protection exige solo nombre estable `ci`. Internamente puede crecer sin
-reconfigurar protección cada vez. Agregador siempre corre aunque dependencia
-falle/cancele; trata `failure`, `cancelled` y `skipped` inesperado como fallo.
-Jobs todavía no aplicables terminan explícitamente `success`, no se saltan a
-nivel job.
+Branch protection exigirá solo nombre estable `ci` cuando plan GitHub lo permita.
+Internamente puede crecer sin reconfigurar protección cada vez. Agregador siempre
+corre aunque dependencia falle/cancele; trata `failure`, `cancelled` y `skipped`
+inesperado como fallo. Jobs todavía no aplicables terminan explícitamente
+`success`, no se saltan a nivel job.
 
 ## Branch protection
 
-Cuando remoto GitHub exista:
+Configuración objetivo:
 
 - PR requerido para `main`.
 - Required check `ci`.
@@ -205,6 +218,11 @@ Cuando remoto GitHub exista:
 
 Si proyecto sigue con una sola persona, review humana obligatoria puede esperar;
 CI y protección contra push directo no.
+
+Estado actual: remoto privado existe, pero GitHub Free rechaza branch protection
+y rulesets con `403`. No se simula enforcement inexistente. Para activar required
+check `ci`, usuario debe elegir GitHub Pro o hacer repo público; hasta entonces CI
+es visible pero no puede impedir push directo desde servidor.
 
 Strict branch freshness queda desactivado inicialmente para evitar reruns sin
 valor. Se habilita merge queue o strict mode cuando haya PRs concurrentes.
@@ -218,6 +236,7 @@ coordinado con targets pequeños y transparentes:
 make check
 make check-frontend
 make check-backend
+make check-security
 ```
 
 Targets muestran y ejecutan comandos ya documentados; no añaden lógica de
@@ -227,12 +246,14 @@ Antes de push se ejecutan checks del área cambiada. Antes de merge se ejecuta
 suite completa en CI limpio.
 
 Pre-commit hooks pueden acelerar feedback, pero nunca son source of truth porque
-pueden omitirse. CI sí es gate.
+pueden omitirse. CI es validación visible ahora y será gate autoritativo cuando
+branch protection esté disponible.
 
 ## Coverage
 
-Fase 0 mide baseline. No se inventa porcentaje que obligue a escribir tests sin
-valor para frontend existente.
+Baseline Fase 0 medido el 20 de julio de 2026: 2.87% statements, 1.91%
+branches, 1.79% functions y 3.20% lines. Es bajo porque frontend existente nació
+sin suite; se publica sin disfrazarlo ni inventar tests de bajo valor.
 
 Política inicial:
 
@@ -284,26 +305,24 @@ migración. Antes de migrar verifica backup/PITR disponible. Fallo de Goose cort
 pipeline antes del deploy. Esta serialización es obligatoria; no asumimos que
 Goose resuelva carreras entre dos despliegues.
 
-## Orden de setup de Fase 0
+## Estado de setup de Fase 0
 
-1. Medir baseline actual frontend: install, lint y build.
-2. Resolver fallos existentes o registrarlos antes de endurecer gates.
-3. Fijar Node/npm, habilitar `strict: true` y agregar scripts
-   format/typecheck/test.
-4. Instalar/configurar Vitest y primeras pruebas de infraestructura crítica.
-5. Crear `ci.yml`, Makefile raíz, security checks y coverage frontend.
-6. Definir gate Go que impide código nuevo hasta módulo canónico.
-7. Configurar Dependabot y capacidad real de dependency review.
-8. Crear remoto/protección de branch si falta.
-9. Obtener CI frontend/security verde desde checkout limpio.
-10. En Fase 1, crear módulo + `/healthz` + tests y activar suite Go en mismo PR.
+1. Completado: baseline frontend y fallos previos resueltos.
+2. Completado: Node/npm/Go fijados, TypeScript strict y scripts explícitos.
+3. Completado: Vitest, Testing Library, pruebas iniciales y coverage.
+4. Completado: `ci.yml`, Makefile, Gitleaks, npm audit y agregador fail-closed.
+5. Completado: gate que congela `backend/` hasta módulo canónico.
+6. Completado: Dependabot y fallback por Dependency Review no disponible.
+7. Bloqueado por servicio: branch protection requiere GitHub Pro o repo público.
+8. Pendiente de publicación autorizada: ejecutar workflow desde checkout remoto.
+9. Fase 1: crear módulo + `/healthz` + tests y activar suite Go en mismo PR.
 
 ## Criterio de salida
 
-- Checkout limpio reproduce frontend.
-- CI TypeScript/security pasa en PR y `main`.
+- Checkout limpio reproduce frontend localmente.
+- CI TypeScript/security está versionado; ejecución remota requiere publicar cambio.
 - Gate Go está definido y bloquea código antes de activación en Fase 1.
-- Checks required no pueden omitirse normalmente.
+- Required check queda bloqueado por limitación GitHub Free/private.
 - Secret/dependency checks básicos están activos.
 - Coverage frontend baseline queda visible; backend comienza en Fase 1.
 - Versiones de toolchain están fijadas.

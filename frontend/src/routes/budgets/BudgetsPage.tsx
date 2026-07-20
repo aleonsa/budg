@@ -125,7 +125,11 @@ export default function BudgetsPage() {
         <Header
           title="Presupuestos"
           subtitle="Límites por categoría"
-          action={<Button size="sm" onClick={() => openPanel()}>Crear</Button>}
+          action={
+            <Button size="sm" onClick={() => openPanel()}>
+              Crear
+            </Button>
+          }
         />
         <div className="space-y-3 py-4">
           <Card className="h-24 animate-pulse bg-muted/40" />
@@ -146,13 +150,21 @@ export default function BudgetsPage() {
         <Header
           title="Presupuestos"
           subtitle="Límites por categoría"
-          action={<Button size="sm" onClick={() => openPanel()}>Crear</Button>}
+          action={
+            <Button size="sm" onClick={() => openPanel()}>
+              Crear
+            </Button>
+          }
         />
         <div className="py-4">
           <EmptyState
             title="Sin presupuestos"
             description="Crea un presupuesto para trackear tu gasto por categoría."
-            action={<Button size="sm" onClick={() => openPanel()}>Crear presupuesto</Button>}
+            action={
+              <Button size="sm" onClick={() => openPanel()}>
+                Crear presupuesto
+              </Button>
+            }
           />
         </div>
       </>
@@ -180,18 +192,18 @@ export default function BudgetsPage() {
       .map((budget) => budget.categoryId)
       .filter((categoryId): categoryId is string => Boolean(categoryId)),
   )
-  const unbudgetedSpending = getUnbudgetedSpending(
-    transactions,
-    categories,
-    budgetedCategoryIds,
-  )
+  const unbudgetedSpending = getUnbudgetedSpending(transactions, categories, budgetedCategoryIds)
 
   return (
     <>
       <Header
         title="Presupuestos"
         subtitle="Límites por categoría"
-        action={<Button size="sm" onClick={() => openPanel()}>Crear</Button>}
+        action={
+          <Button size="sm" onClick={() => openPanel()}>
+            Crear
+          </Button>
+        }
       />
       <div className="space-y-3 py-3">
         <div className="flex items-center justify-between gap-3">
@@ -199,7 +211,10 @@ export default function BudgetsPage() {
             <p className="text-xs font-medium text-muted-foreground">Periodo actual</p>
             <p className="text-sm font-semibold capitalize">{getCurrentPeriodLabel()}</p>
           </div>
-          <Badge variant={totalRemaining < 0 ? 'outline' : 'muted'} className={totalRemaining < 0 ? 'border-destructive text-destructive' : undefined}>
+          <Badge
+            variant={totalRemaining < 0 ? 'outline' : 'muted'}
+            className={totalRemaining < 0 ? 'border-destructive text-destructive' : undefined}
+          >
             {totalRemaining < 0 ? 'Excedido' : 'En control'}
           </Badge>
         </div>
@@ -213,9 +228,7 @@ export default function BudgetsPage() {
               </div>
               <div className="text-right">
                 <p className="text-[11px] text-muted-foreground">Presupuestado</p>
-                <p className="mt-1 text-sm font-semibold tabular-nums">
-                  {formatMoney(totalLimit)}
-                </p>
+                <p className="mt-1 text-sm font-semibold tabular-nums">{formatMoney(totalLimit)}</p>
                 <p
                   className={`mt-1 text-xs font-medium tabular-nums ${
                     totalProgress > 1 ? 'text-destructive' : 'text-muted-foreground'
@@ -233,13 +246,25 @@ export default function BudgetsPage() {
             <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
               <div className="rounded-md bg-muted/40 p-2">
                 <p className="text-muted-foreground">Restante</p>
-                <p className={totalRemaining < 0 ? 'mt-1 font-semibold tabular-nums text-destructive' : 'mt-1 font-semibold tabular-nums'}>
+                <p
+                  className={
+                    totalRemaining < 0
+                      ? 'mt-1 font-semibold tabular-nums text-destructive'
+                      : 'mt-1 font-semibold tabular-nums'
+                  }
+                >
                   {formatMoney(Math.abs(totalRemaining))}
                 </p>
               </div>
               <div className="rounded-md bg-muted/40 p-2">
                 <p className="text-muted-foreground">Excedidas</p>
-                <p className={exceededBudgets.length > 0 ? 'mt-1 font-semibold tabular-nums text-destructive' : 'mt-1 font-semibold tabular-nums'}>
+                <p
+                  className={
+                    exceededBudgets.length > 0
+                      ? 'mt-1 font-semibold tabular-nums text-destructive'
+                      : 'mt-1 font-semibold tabular-nums'
+                  }
+                >
                   {exceededBudgets.length}
                 </p>
               </div>
@@ -265,7 +290,9 @@ export default function BudgetsPage() {
                 </p>
               ) : (
                 criticalBudgets.map((budget) => {
-                  const category = budget.categoryId ? categoryMap.get(budget.categoryId) : undefined
+                  const category = budget.categoryId
+                    ? categoryMap.get(budget.categoryId)
+                    : undefined
                   const isExceeded = budget.progress > 1
                   return (
                     <div key={budget.id} className="flex items-center gap-2">
@@ -276,8 +303,16 @@ export default function BudgetsPage() {
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2 text-xs">
-                          <span className="truncate font-medium">{category?.name ?? 'General'}</span>
-                          <span className={isExceeded ? 'shrink-0 tabular-nums text-destructive' : 'shrink-0 tabular-nums text-muted-foreground'}>
+                          <span className="truncate font-medium">
+                            {category?.name ?? 'General'}
+                          </span>
+                          <span
+                            className={
+                              isExceeded
+                                ? 'shrink-0 tabular-nums text-destructive'
+                                : 'shrink-0 tabular-nums text-muted-foreground'
+                            }
+                          >
                             {formatPercent(budget.progress)}
                           </span>
                         </div>

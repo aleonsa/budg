@@ -74,10 +74,7 @@ export async function createTransaction(
   return state().addTransaction(input)
 }
 
-export async function updateTransaction(
-  id: string,
-  patch: Partial<Transaction>,
-): Promise<void> {
+export async function updateTransaction(id: string, patch: Partial<Transaction>): Promise<void> {
   await delay()
   state().updateTransaction(id, patch)
 }
@@ -87,9 +84,7 @@ export async function deleteTransaction(id: string): Promise<void> {
   state().deleteTransaction(id)
 }
 
-export async function createAccount(
-  input: Omit<Account, 'id' | 'isActive'>,
-): Promise<Account> {
+export async function createAccount(input: Omit<Account, 'id' | 'isActive'>): Promise<Account> {
   await delay()
   return state().addAccount(input)
 }
@@ -126,10 +121,7 @@ export async function createSavingsGoal(
   return state().addSavingsGoal(input)
 }
 
-export async function updateSavingsGoal(
-  id: string,
-  patch: Partial<SavingsGoal>,
-): Promise<void> {
+export async function updateSavingsGoal(id: string, patch: Partial<SavingsGoal>): Promise<void> {
   await delay()
   state().updateSavingsGoal(id, patch)
 }

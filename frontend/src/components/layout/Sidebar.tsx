@@ -79,9 +79,7 @@ export function Sidebar() {
     >
       {/* Logo / Brand */}
       <div className="flex h-12 items-center border-b border-[hsl(var(--sidebar-border))] px-4">
-        <span className="text-[15px] font-semibold tracking-[-0.045em] text-foreground">
-          budg
-        </span>
+        <span className="text-[15px] font-semibold tracking-[-0.045em] text-foreground">budg</span>
       </div>
 
       {/* Nav */}
@@ -111,10 +109,7 @@ export function Sidebar() {
       </nav>
 
       {/* User menu */}
-      <div
-        ref={userMenuRef}
-        className="relative border-t border-[hsl(var(--sidebar-border))] p-2"
-      >
+      <div ref={userMenuRef} className="relative border-t border-[hsl(var(--sidebar-border))] p-2">
         {isUserMenuOpen && (
           <div className="absolute bottom-[3.75rem] left-2 right-2 rounded-[10px] border border-border bg-card p-3 text-card-foreground shadow-[0_8px_24px_rgba(0,0,0,0.08)]">
             <div className="flex items-start gap-3">

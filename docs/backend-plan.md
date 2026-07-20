@@ -132,7 +132,8 @@ Entregables:
 - Reglas de desarrollo versionadas y Definition of Done común.
 - CI frontend/security verde y gate Go definido antes de código backend.
 - Toolchains, lockfiles y GitHub Actions fijados.
-- Branch protection con required check `ci` cuando exista remoto.
+- Check estable `ci`; branch protection se activa al tener GitHub Pro o repo
+  público, porque GitHub Free no la ofrece para repo privado.
 - Estrategia CD, artefactos, permisos y environments definida.
 - Destino Cloud Run documentado; proyecto GCP se crea en Fase 9.
 - Versiones Node/npm y versión Go objetivo registradas.
@@ -140,9 +141,10 @@ Entregables:
 
 Detalle ejecutable: [Fase 0: entorno y decisiones](backend/00-environment.md).
 
-Criterio de salida: checkout limpio obtiene CI frontend/security verde y gate
-Go rechaza código prematuro; cualquier persona puede explicar reglas,
-topología, límites de seguridad y orden de implementación.
+Criterio de salida técnico: checkout limpio obtiene frontend/security verde y
+gate Go rechaza código prematuro; cualquier persona puede explicar reglas,
+topología, límites de seguridad y orden de implementación. Enforcement remoto
+queda como capacidad externa explícita, no como gate fingido.
 
 ### Fase 1: proceso HTTP mínimo
 

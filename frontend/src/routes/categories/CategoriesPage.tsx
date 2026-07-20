@@ -12,7 +12,15 @@ import { useCategories, useTransactions, useBudgets } from '@/hooks/useQueries'
 import type { AccentColor, Category, CategoryKind, Transaction, Budget, Cents } from '@/types'
 
 const COLOR_OPTIONS: AccentColor[] = [
-  'blue', 'green', 'red', 'purple', 'yellow', 'orange', 'cyan', 'pink', 'gray',
+  'blue',
+  'green',
+  'red',
+  'purple',
+  'yellow',
+  'orange',
+  'cyan',
+  'pink',
+  'gray',
 ]
 
 // ── Local helpers ────────────────────────────────────────────
@@ -26,14 +34,18 @@ function latestMonthKey(txs: Transaction[]): string {
 /** Sum expenses in a month for a given category. */
 function spentInMonth(txs: Transaction[], monthKey: string, categoryId: string): Cents {
   return txs
-    .filter((t) => t.type === 'expense' && t.categoryId === categoryId && t.date.startsWith(monthKey))
+    .filter(
+      (t) => t.type === 'expense' && t.categoryId === categoryId && t.date.startsWith(monthKey),
+    )
     .reduce((s, t) => s + t.amount, 0)
 }
 
 /** Sum income in a month for a given category. */
 function incomeInMonth(txs: Transaction[], monthKey: string, categoryId: string): Cents {
   return txs
-    .filter((t) => t.type === 'income' && t.categoryId === categoryId && t.date.startsWith(monthKey))
+    .filter(
+      (t) => t.type === 'income' && t.categoryId === categoryId && t.date.startsWith(monthKey),
+    )
     .reduce((s, t) => s + t.amount, 0)
 }
 
@@ -116,9 +128,7 @@ function CategoryRow({
       <div className="shrink-0 text-right">
         {spent > 0 ? (
           <>
-            <p className="text-xs font-medium tabular-nums">
-              {formatMoney(spent)}
-            </p>
+            <p className="text-xs font-medium tabular-nums">{formatMoney(spent)}</p>
             <p className="text-[10px] text-muted-foreground">este mes</p>
           </>
         ) : (
@@ -181,7 +191,11 @@ export default function CategoriesPage() {
         <Header
           title="Categorías"
           subtitle="Clasificación de transacciones"
-          action={<Button size="sm" onClick={() => openPanel()}>Crear</Button>}
+          action={
+            <Button size="sm" onClick={() => openPanel()}>
+              Crear
+            </Button>
+          }
         />
         <div className="flex h-64 items-center justify-center">
           <span className="text-xs text-muted-foreground">Cargando…</span>
@@ -200,13 +214,21 @@ export default function CategoriesPage() {
         <Header
           title="Categorías"
           subtitle="Clasificación de transacciones"
-          action={<Button size="sm" onClick={() => openPanel()}>Crear</Button>}
+          action={
+            <Button size="sm" onClick={() => openPanel()}>
+              Crear
+            </Button>
+          }
         />
         <div className="py-4">
           <EmptyState
             title="Sin categorías"
             description="No hay categorías configuradas todavía."
-            action={<Button size="sm" onClick={() => openPanel()}>Crear categoría</Button>}
+            action={
+              <Button size="sm" onClick={() => openPanel()}>
+                Crear categoría
+              </Button>
+            }
           />
         </div>
       </>
@@ -216,7 +238,9 @@ export default function CategoriesPage() {
   const monthKey = latestMonthKey(transactions)
   const monthLabel = formatMonthLabel(monthKey)
 
-  const expenseCats = categories.filter((c) => c.kind === 'expense').sort((a, b) => a.order - b.order)
+  const expenseCats = categories
+    .filter((c) => c.kind === 'expense')
+    .sort((a, b) => a.order - b.order)
   const incomeCats = categories.filter((c) => c.kind === 'income').sort((a, b) => a.order - b.order)
   const budgetByCat = new Map(budgets.map((b) => [b.categoryId, b]))
 
@@ -229,7 +253,11 @@ export default function CategoriesPage() {
       <Header
         title="Categorías"
         subtitle="Clasificación de transacciones"
-        action={<Button size="sm" onClick={() => openPanel()}>Crear</Button>}
+        action={
+          <Button size="sm" onClick={() => openPanel()}>
+            Crear
+          </Button>
+        }
       />
       <div className="space-y-3.5 py-3">
         {/* Summary */}
@@ -276,13 +304,7 @@ export default function CategoriesPage() {
           <Card className="divide-y divide-border px-3">
             {incomeCats.map((cat) => {
               const income = incomeInMonth(transactions, monthKey, cat.id)
-              return (
-                <CategoryRow
-                  key={cat.id}
-                  category={cat}
-                  spent={income}
-                />
-              )
+              return <CategoryRow key={cat.id} category={cat} spent={income} />
             })}
           </Card>
         </div>

@@ -45,9 +45,7 @@ export function MSISummary({ purchases }: MSISummaryProps) {
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
                       <div className={`h-2 w-2 shrink-0 rounded-full ${colorSoftClass}`} />
-                      <span className="truncate text-sm font-medium">
-                        {purchase.description}
-                      </span>
+                      <span className="truncate text-sm font-medium">{purchase.description}</span>
                     </div>
                     <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                       {formatMoney(purchase.installmentAmount)}/mes

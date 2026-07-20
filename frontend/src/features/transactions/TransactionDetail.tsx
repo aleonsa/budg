@@ -71,12 +71,8 @@ export function TransactionDetail({
           ) : (
             <Badge accent="red">Gasto</Badge>
           )}
-          {tx.msiPurchaseId && (
-            <Badge accent="purple">MSI</Badge>
-          )}
-          {!tx.isReconciled && (
-            <Badge variant="muted">Pendiente</Badge>
-          )}
+          {tx.msiPurchaseId && <Badge accent="purple">MSI</Badge>}
+          {!tx.isReconciled && <Badge variant="muted">Pendiente</Badge>}
         </div>
       </div>
 
@@ -97,12 +93,7 @@ export function TransactionDetail({
       {/* Actions */}
       <div className="flex gap-2">
         {onEdit && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1"
-            onClick={() => onEdit(tx)}
-          >
+          <Button variant="outline" size="sm" className="flex-1" onClick={() => onEdit(tx)}>
             Editar
           </Button>
         )}

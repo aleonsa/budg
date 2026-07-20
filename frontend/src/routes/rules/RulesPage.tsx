@@ -50,7 +50,15 @@ function StatChip({ label, value }: { label: string; value: string | number }) {
   )
 }
 
-function RuleRow({ rule, category, onToggle }: { rule: Rule; category?: { name: string; color: import('@/types').AccentColor }; onToggle: () => void }) {
+function RuleRow({
+  rule,
+  category,
+  onToggle,
+}: {
+  rule: Rule
+  category?: { name: string; color: import('@/types').AccentColor }
+  onToggle: () => void
+}) {
   const fieldLabel = rule.field === 'merchant' ? 'Comercio' : 'Descripción'
 
   return (
@@ -170,15 +178,19 @@ export default function RulesPage() {
       <Header
         title="Reglas"
         subtitle="Categorización automática"
-        action={<Button size="sm" onClick={() => openPanel()}>Crear regla</Button>}
+        action={
+          <Button size="sm" onClick={() => openPanel()}>
+            Crear regla
+          </Button>
+        }
       />
       <div className="space-y-3.5 py-3">
         {/* Explanation */}
         <Card className="flex items-start gap-2.5 p-3">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            Las reglas categorizan movimientos automáticamente según comercio o descripción.
-            Ahorra tiempo al mantener tus transacciones organizadas sin esfuerzo manual.
+            Las reglas categorizan movimientos automáticamente según comercio o descripción. Ahorra
+            tiempo al mantener tus transacciones organizadas sin esfuerzo manual.
             <span className="mt-1 block font-medium text-foreground">
               Ambiente demo: las reglas se guardan en memoria y se reinician al recargar.
             </span>
@@ -233,9 +245,7 @@ export default function RulesPage() {
                   key={s.merchant}
                   merchant={s.merchant}
                   count={s.count}
-                  onCreate={() =>
-                    openPanel({ field: 'merchant', value: s.merchant })
-                  }
+                  onCreate={() => openPanel({ field: 'merchant', value: s.merchant })}
                 />
               ))}
             </Card>

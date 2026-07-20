@@ -10,11 +10,7 @@ import { TransactionForm, type TransactionFormValue } from '@/features/transacti
 import { useFilteredTransactions } from '@/features/transactions/useFilteredTransactions'
 import { groupByDate } from '@/lib/date'
 import { formatMoney } from '@/lib/format'
-import {
-  useTransactions,
-  useCategories,
-  useAccounts,
-} from '@/hooks/useQueries'
+import { useTransactions, useCategories, useAccounts } from '@/hooks/useQueries'
 import {
   useCreateTransaction,
   useUpdateTransaction,
@@ -159,7 +155,11 @@ export default function TransactionsPage() {
         <Header
           title="Movimientos"
           subtitle="Historial de transacciones"
-          action={<Button size="sm" onClick={() => openAdd('expense')}>Agregar</Button>}
+          action={
+            <Button size="sm" onClick={() => openAdd('expense')}>
+              Agregar
+            </Button>
+          }
         />
         <div className="flex h-64 items-center justify-center">
           <span className="text-xs text-muted-foreground">Cargando…</span>
@@ -198,7 +198,11 @@ export default function TransactionsPage() {
       <Header
         title="Movimientos"
         subtitle="Historial de transacciones"
-        action={<Button size="sm" onClick={() => openAdd('expense')}>Agregar</Button>}
+        action={
+          <Button size="sm" onClick={() => openAdd('expense')}>
+            Agregar
+          </Button>
+        }
       />
 
       <div className="space-y-3 py-3">
@@ -268,7 +272,11 @@ function TransactionsList({
       <EmptyState
         title="Sin movimientos"
         description="No hay transacciones que coincidan con los filtros."
-        action={<Button size="sm" onClick={onAdd}>Agregar movimiento</Button>}
+        action={
+          <Button size="sm" onClick={onAdd}>
+            Agregar movimiento
+          </Button>
+        }
       />
     )
   }
@@ -287,12 +295,8 @@ function TransactionsList({
         </div>
 
         {groups.map(({ date, items }) => {
-          const spent = items
-            .filter((t) => t.type === 'expense')
-            .reduce((s, t) => s + t.amount, 0)
-          const income = items
-            .filter((t) => t.type === 'income')
-            .reduce((s, t) => s + t.amount, 0)
+          const spent = items.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
+          const income = items.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0)
 
           return (
             <div key={date}>
@@ -319,12 +323,8 @@ function TransactionsList({
 
 /** Inline spending / income summary for the filtered set. */
 function SummaryAmounts({ items }: { items: Transaction[] }) {
-  const spent = items
-    .filter((t) => t.type === 'expense')
-    .reduce((s, t) => s + t.amount, 0)
-  const income = items
-    .filter((t) => t.type === 'income')
-    .reduce((s, t) => s + t.amount, 0)
+  const spent = items.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
+  const income = items.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0)
 
   return (
     <span className="text-[11px] tabular-nums">

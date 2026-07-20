@@ -74,16 +74,12 @@ function NetWorthHero({
     <Card className="p-3.5">
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">Patrimonio estimado</p>
-        <Badge accent={isPositive ? 'green' : 'red'}>
-          {isPositive ? 'Positivo' : 'Negativo'}
-        </Badge>
+        <Badge accent={isPositive ? 'green' : 'red'}>{isPositive ? 'Positivo' : 'Negativo'}</Badge>
       </div>
       <p
         className={cn(
           'mt-1 text-2xl font-semibold tabular-nums tracking-tight',
-          isPositive
-            ? 'text-[hsl(var(--color-green))]'
-            : 'text-[hsl(var(--color-red))]',
+          isPositive ? 'text-[hsl(var(--color-green))]' : 'text-[hsl(var(--color-red))]',
         )}
       >
         {formatMoney(netWorth)}
@@ -99,9 +95,7 @@ function NetWorthHero({
           </p>
         </div>
         <div className="rounded-md bg-[hsl(var(--color-red-soft))] px-2.5 py-1.5">
-          <p className="text-[10px] leading-tight text-[hsl(var(--color-red))]">
-            Deuda total
-          </p>
+          <p className="text-[10px] leading-tight text-[hsl(var(--color-red))]">Deuda total</p>
           <p className="mt-0.5 text-xs font-semibold tabular-nums text-[hsl(var(--color-red))]">
             {formatMoneyCompact(totalDebt)}
           </p>
@@ -121,13 +115,7 @@ function NetWorthHero({
 
 // ── Debit card ───────────────────────────────────────────────
 
-function DebitCardItem({
-  account,
-  sharePct,
-}: {
-  account: AccountWithSummary
-  sharePct: number
-}) {
+function DebitCardItem({ account, sharePct }: { account: AccountWithSummary; sharePct: number }) {
   return (
     <Card className="p-3">
       <div className="flex items-start justify-between gap-2">
@@ -200,9 +188,7 @@ function CreditCardItem({
           <div className="flex items-center justify-between text-[11px]">
             <span className="truncate text-muted-foreground">
               Disp. {formatMoney(available, account.currency)}
-              <span className="text-muted-foreground">
-                {' '}/ {formatMoneyCompact(limit)}
-              </span>
+              <span className="text-muted-foreground"> / {formatMoneyCompact(limit)}</span>
             </span>
             <span
               className={cn(
@@ -225,23 +211,16 @@ function CreditCardItem({
         </div>
 
         {/* Cut & payment days */}
-        {(account.statementCutDay !== undefined ||
-          account.paymentDueDay !== undefined) && (
+        {(account.statementCutDay !== undefined || account.paymentDueDay !== undefined) && (
           <div className="mt-2.5 flex items-center gap-3 text-[11px] text-muted-foreground">
             {account.statementCutDay !== undefined && (
               <span>
-                Corte{' '}
-                <span className="font-medium text-foreground">
-                  {account.statementCutDay}
-                </span>
+                Corte <span className="font-medium text-foreground">{account.statementCutDay}</span>
               </span>
             )}
             {account.paymentDueDay !== undefined && (
               <span>
-                Pago{' '}
-                <span className="font-medium text-foreground">
-                  {account.paymentDueDay}
-                </span>
+                Pago <span className="font-medium text-foreground">{account.paymentDueDay}</span>
               </span>
             )}
           </div>
@@ -367,9 +346,7 @@ export default function AccountsPage() {
         institution: fInstitution.trim() || 'Banco',
         last4: fLast4.trim().slice(-4) || '0000',
         currency: 'MXN',
-        ...(isCredit
-          ? { creditLimit: balance, availableCredit: balance }
-          : { balance }),
+        ...(isCredit ? { creditLimit: balance, availableCredit: balance } : { balance }),
       },
       { onSuccess: () => setIsAccountPanelOpen(false) },
     )
@@ -383,7 +360,11 @@ export default function AccountsPage() {
         <Header
           title="Cuentas"
           subtitle="Centro de control financiero"
-          action={<Button size="sm" onClick={openPanel}>Agregar cuenta</Button>}
+          action={
+            <Button size="sm" onClick={openPanel}>
+              Agregar cuenta
+            </Button>
+          }
         />
         <div className="flex h-64 items-center justify-center">
           <span className="text-xs text-muted-foreground">Cargando…</span>
@@ -401,7 +382,11 @@ export default function AccountsPage() {
         <Header
           title="Cuentas"
           subtitle="Centro de control financiero"
-          action={<Button size="sm" onClick={openPanel}>Agregar cuenta</Button>}
+          action={
+            <Button size="sm" onClick={openPanel}>
+              Agregar cuenta
+            </Button>
+          }
         />
         <div className="py-4">
           <EmptyState
@@ -431,7 +416,11 @@ export default function AccountsPage() {
       <Header
         title="Cuentas"
         subtitle="Centro de control financiero"
-        action={<Button size="sm" onClick={openPanel}>Agregar cuenta</Button>}
+        action={
+          <Button size="sm" onClick={openPanel}>
+            Agregar cuenta
+          </Button>
+        }
       />
       <div className="space-y-3.5 py-3">
         {/* Hero summary */}
@@ -449,12 +438,8 @@ export default function AccountsPage() {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {debitAccounts.map((acc) => {
                 const sharePct =
-                  totalDebit > 0
-                    ? Math.round((acc.balanceOrDebt / totalDebit) * 100)
-                    : 0
-                return (
-                  <DebitCardItem key={acc.id} account={acc} sharePct={sharePct} />
-                )
+                  totalDebit > 0 ? Math.round((acc.balanceOrDebt / totalDebit) * 100) : 0
+                return <DebitCardItem key={acc.id} account={acc} sharePct={sharePct} />
               })}
             </div>
           </div>
@@ -514,20 +499,14 @@ export default function AccountsPage() {
             <Card className="p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[11px] text-muted-foreground">
-                    Carga mensual total
-                  </p>
+                  <p className="text-[11px] text-muted-foreground">Carga mensual total</p>
                   <p className="mt-0.5 text-sm font-semibold tabular-nums text-[hsl(var(--color-purple))]">
                     {formatMoney(monthlyMSI)}/mes
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[11px] text-muted-foreground">
-                    Compras a MSI
-                  </p>
-                  <p className="mt-0.5 text-sm font-semibold tabular-nums">
-                    {activeMSICount}
-                  </p>
+                  <p className="text-[11px] text-muted-foreground">Compras a MSI</p>
+                  <p className="mt-0.5 text-sm font-semibold tabular-nums">{activeMSICount}</p>
                 </div>
               </div>
             </Card>
