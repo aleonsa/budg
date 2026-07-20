@@ -21,6 +21,7 @@ coverage.out
 
 # Generated local artifacts
 /backend/api
+/backend/coverage.out
 /graphify-out/
 
 # Editor directories and files

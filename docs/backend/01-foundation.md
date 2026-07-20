@@ -235,3 +235,21 @@ curl -i http://localhost:8080/healthz
 - `go mod verify`, build y job `backend-quality` pasan.
 - Endpoint real responde contrato documentado.
 - No existe código muerto preparado para fases futuras.
+
+## Estado: completado
+
+Fase 1 implementada, publicada y mergeada en `main`. Árbol final:
+
+```txt
+backend/
+  cmd/api/main.go               # server con timeouts y shutdown ordenado
+  internal/httpapi/router.go    # chi + middleware (RequestID, RealIP, Recoverer, Timeout, Logger)
+  internal/httpapi/health.go    # GET /healthz -> {"status":"ok"}
+  internal/httpapi/router_test.go
+  go.mod                        # github.com/aleonsa/budg/backend, go 1.26.5
+  go.sum
+```
+
+Dependencia instalada: `github.com/go-chi/chi/v5 v5.2.2` (v5.2.1 descartado por
+`GO-2025-3770`). Cobertura inicial `internal/httpapi`: 100% statements. CI
+ejecuta `gofmt`, `go vet`, `go test -race`, `go build`, `govulncheck v1.4.0`.

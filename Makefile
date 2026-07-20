@@ -1,5 +1,6 @@
 NPM := npm --prefix frontend
 GITLEAKS ?= gitleaks
+GO ?= go
 
 .PHONY: check check-frontend check-backend check-security format format-check lint typecheck test test-coverage build
 
@@ -8,7 +9,15 @@ check: check-frontend check-backend check-security
 check-frontend: format-check lint typecheck test-coverage build
 
 check-backend:
-	@./scripts/check-backend-phase0.sh
+	@cd backend && $(GO) mod download
+	@cd backend && $(GO) mod verify
+	@cd backend && files="$$(gofmt -l .)"; if [ -n "$$files" ]; then echo "gofmt found unformatted files:"; echo "$$files"; exit 1; fi
+	@cd backend && $(GO) vet ./...
+	@cd backend && $(GO) test -race -coverprofile=coverage.out -covermode=atomic ./...
+	@cd backend && $(GO) build ./cmd/api
+	@cd backend && export PATH="$$PATH:$$($(GO) env GOPATH)/bin"; \
+		$(GO) install golang.org/x/vuln/cmd/govulncheck@v1.4.0; \
+		govulncheck ./...
 
 check-security:
 	@$(GITLEAKS) git --redact --no-banner .
