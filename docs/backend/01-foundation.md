@@ -250,6 +250,7 @@ backend/
   go.sum
 ```
 
-Dependencia instalada: `github.com/go-chi/chi/v5 v5.2.2` (v5.2.1 descartado por
-`GO-2025-3770`). Cobertura inicial `internal/httpapi`: 100% statements. CI
-ejecuta `gofmt`, `go vet`, `go test -race`, `go build`, `govulncheck v1.4.0`.
+Dependencia instalada: `github.com/go-chi/chi/v5 v5.2.5` (v5.2.1 descartado por
+`GO-2025-3770`; v5.2.2/v5.2.3 descartados por `CVE-2025-69725`). Cobertura inicial
+`internal/httpapi`: 100% statements. CI ejecuta `gofmt`, `go vet`, `go test -race`,
+`go build`, `govulncheck v1.4.0`.

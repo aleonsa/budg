@@ -74,7 +74,7 @@ Módulo canónico activo desde Fase 1. Versiones instaladas y usadas por CI:
 
 | Componente | Versión instalada | Fase |
 | --- | --- | --- |
-| `github.com/go-chi/chi/v5` | `v5.2.2` | 1 |
+| `github.com/go-chi/chi/v5` | `v5.2.5` | 1 |
 | `golang.org/x/vuln/cmd/govulncheck` | `v1.4.0` | 1 |
 
 Fases siguientes deben instalar exactamente estas versiones y volver a validar
@@ -88,8 +88,9 @@ compatibilidad:
 | `github.com/lestrrat-go/jwx/v3` | `v3.1.1` | 3 |
 | `@supabase/supabase-js` | `2.110.7` | 3, frontend |
 
-Nota: `chi v5.2.1` fue descartado por `GO-2025-3770` (host header injection en
-`RedirectSlashes`); el módulo arranca con `v5.2.2` y govulncheck bloquea
+Nota: `chi v5.2.1` y `v5.2.2` fueron descartados por dos advisories de
+`RedirectSlashes` (`GO-2025-3770` y `CVE-2025-69725`); el módulo arranca con
+`v5.2.5` (primer patch liberado) y govulncheck + Dependency Review bloquean
 regresiones conocidas en cada PR.
 
 Fuentes oficiales:
