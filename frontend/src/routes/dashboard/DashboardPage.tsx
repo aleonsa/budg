@@ -23,10 +23,11 @@ import { useCreateTransaction } from '@/hooks/useTransactionMutations'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { TransactionForm, type TransactionFormValue } from '@/features/transactions/TransactionForm'
 import { formatMoney, toCents } from '@/lib/format'
+import { deriveBudgetProgressForDate, selectApplicableBudgets } from '@/lib/budget-period'
+import { today } from '@/lib/date'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import type {
-  Budget,
   BudgetWithProgress,
   Category,
   Cents,
@@ -45,44 +46,43 @@ function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`
 }
 
-function getPeriod(transactions: Transaction[], offset = 0) {
-  const latestDate = transactions[0]?.date ?? new Date().toISOString().slice(0, 10)
-  const base = new Date(`${latestDate}T00:00:00`)
+function localDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function parseLocalDate(value: string) {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+function getPeriod(offset = 0) {
+  const base = parseLocalDate(today())
   const date = new Date(base.getFullYear(), base.getMonth() + offset, 1)
   const start = new Date(date.getFullYear(), date.getMonth(), 1)
   const end = new Date(date.getFullYear(), date.getMonth() + 1, 0)
+  const reference = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    Math.min(base.getDate(), end.getDate()),
+  )
 
   return {
     label: monthFormatter.format(date),
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
+    start: localDateKey(start),
+    end: localDateKey(end),
+    asOf: localDateKey(reference),
   }
 }
 
-function filterTransactionsByPeriod(transactions: Transaction[], start: string, end: string) {
-  return transactions.filter((tx) => tx.date >= start && tx.date <= end)
+function filterTransactionsByPeriod(transactions: Transaction[], start: string, asOf: string) {
+  return transactions.filter((tx) => tx.date >= start && tx.date <= asOf)
 }
 
 function sumTransactions(transactions: Transaction[], type: Transaction['type']) {
   return transactions.filter((tx) => tx.type === type).reduce((sum, tx) => sum + tx.amount, 0)
-}
-
-function deriveBudgetsForPeriod(
-  budgets: Budget[],
-  transactions: Transaction[],
-): BudgetWithProgress[] {
-  return budgets.map((budget) => {
-    const spent = transactions
-      .filter(
-        (tx) =>
-          tx.type === 'expense' && tx.categoryId !== null && tx.categoryId === budget.categoryId,
-      )
-      .reduce((sum, tx) => sum + tx.amount, 0)
-    const remaining = budget.amount - spent
-    const progress = budget.amount > 0 ? spent / budget.amount : 0
-
-    return { ...budget, spent, remaining, progress }
-  })
 }
 
 function buildCategoryRanking(
@@ -133,7 +133,7 @@ function MetricCard({
       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
-      <Amount value={Math.abs(value)} size="sm" className={`mt-1 block ${toneClass}`} />
+      <Amount value={value} signed={value < 0} size="sm" className={`mt-1 block ${toneClass}`} />
       {detail && <p className="mt-1 text-[11px] text-muted-foreground">{detail}</p>}
     </Card>
   )
@@ -217,6 +217,17 @@ function DashboardMockPanel({
   const [accName, setAccName] = useState('')
   const [accType, setAccType] = useState<'debit' | 'credit'>('debit')
   const [accBalance, setAccBalance] = useState('')
+  const [nameValidationError, setNameValidationError] = useState(false)
+
+  const closePanel = () => {
+    createTx.reset()
+    createAcc.reset()
+    setAccName('')
+    setAccType('debit')
+    setAccBalance('')
+    setNameValidationError(false)
+    onClose()
+  }
 
   if (!action) return null
 
@@ -228,6 +239,7 @@ function DashboardMockPanel({
   }[action]
 
   const handleTx = (value: TransactionFormValue) => {
+    createTx.reset()
     createTx.mutate(
       {
         type: value.type,
@@ -239,13 +251,18 @@ function DashboardMockPanel({
         merchant: value.merchant,
         transferToAccountId: value.transferToAccountId || undefined,
       },
-      { onSuccess: onClose },
+      { onSuccess: closePanel },
     )
   }
 
   const handleAccount = () => {
-    if (!accName.trim()) return
+    if (!accName.trim()) {
+      setNameValidationError(true)
+      return
+    }
+    setNameValidationError(false)
     const balance = toCents(accBalance)
+    createAcc.reset()
     createAcc.mutate(
       {
         name: accName.trim(),
@@ -257,9 +274,15 @@ function DashboardMockPanel({
           ? { creditLimit: balance, availableCredit: balance }
           : { balance }),
       },
-      { onSuccess: onClose },
+      { onSuccess: closePanel },
     )
   }
+
+  const accountError = createAcc.error
+    ? 'No se pudo crear la cuenta. Intenta de nuevo.'
+    : nameValidationError
+      ? 'Ingresa un nombre de cuenta.'
+      : null
 
   return (
     <MockActionPanel
@@ -267,24 +290,31 @@ function DashboardMockPanel({
       title={title}
       description="Captura rápida desde el dashboard."
       submitLabel="Guardar"
-      onClose={onClose}
+      onClose={closePanel}
       onSubmit={action === 'account' ? handleAccount : undefined}
       submitting={createTx.isPending || createAcc.isPending}
     >
       {action === 'account' ? (
         <>
           <div className="space-y-1.5">
-            <Label>Nombre de cuenta</Label>
+            <Label htmlFor="dashboard-account-name">Nombre de cuenta</Label>
             <Input
+              id="dashboard-account-name"
               placeholder="Ej. Nómina BBVA"
               value={accName}
-              onChange={(e) => setAccName(e.target.value)}
+              aria-invalid={Boolean(accountError)}
+              aria-describedby={accountError ? 'dashboard-account-error' : undefined}
+              onChange={(e) => {
+                setAccName(e.target.value)
+                setNameValidationError(false)
+              }}
             />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
-              <Label>Tipo</Label>
+              <Label htmlFor="dashboard-account-type">Tipo</Label>
               <select
+                id="dashboard-account-type"
                 className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
                 value={accType}
                 onChange={(e) => setAccType(e.target.value as 'debit' | 'credit')}
@@ -294,8 +324,9 @@ function DashboardMockPanel({
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label>Saldo inicial</Label>
+              <Label htmlFor="dashboard-account-balance">Saldo inicial</Label>
               <Input
+                id="dashboard-account-balance"
                 placeholder="$0.00"
                 inputMode="decimal"
                 value={accBalance}
@@ -303,19 +334,31 @@ function DashboardMockPanel({
               />
             </div>
           </div>
+          {accountError && (
+            <p id="dashboard-account-error" role="alert" className="text-xs text-destructive">
+              {accountError}
+            </p>
+          )}
         </>
       ) : (
-        <TransactionForm
-          accounts={accounts}
-          categories={categories}
-          lockedType={
-            action === 'transfer' ? 'transfer' : action === 'income' ? 'income' : 'expense'
-          }
-          onSubmit={handleTx}
-          onCancel={onClose}
-          submitting={createTx.isPending}
-          submitLabel="Agregar"
-        />
+        <>
+          <TransactionForm
+            accounts={accounts}
+            categories={categories}
+            lockedType={
+              action === 'transfer' ? 'transfer' : action === 'income' ? 'income' : 'expense'
+            }
+            onSubmit={handleTx}
+            onCancel={closePanel}
+            submitting={createTx.isPending}
+            submitLabel="Agregar"
+          />
+          {createTx.error && (
+            <p role="alert" className="text-xs text-destructive">
+              No se pudo crear el movimiento. Intenta de nuevo.
+            </p>
+          )}
+        </>
       )}
     </MockActionPanel>
   )
@@ -361,7 +404,7 @@ function MonthlyOverview({ income, expenses }: { income: Cents; expenses: Cents 
                 : 'mt-1 font-semibold tabular-nums'
             }
           >
-            {formatMoney(Math.abs(netSavings))}
+            {formatMoney(netSavings)}
           </p>
         </div>
       </div>
@@ -430,6 +473,7 @@ function BudgetAlerts({
                     value={budget.progress}
                     variant={isExceeded ? 'warning' : 'default'}
                     accent={isExceeded ? undefined : category?.color}
+                    aria-label={`Uso del presupuesto de ${category?.name ?? 'General'}`}
                     className="mt-1.5"
                   />
                 </div>
@@ -473,7 +517,12 @@ function DistributionCard({
                     {formatMoney(amount)} · {formatPercent(percentage)}
                   </span>
                 </div>
-                <Progress value={percentage} accent={category.color} className="mt-1.5" />
+                <Progress
+                  value={percentage}
+                  accent={category.color}
+                  aria-label={`Participación de ${category.name} en ${title.toLocaleLowerCase()}`}
+                  className="mt-1.5"
+                />
               </div>
             </div>
           ))
@@ -536,6 +585,7 @@ function GoalsOverview({ goals }: { goals: SavingsGoalWithProgress[] }) {
         <Progress
           value={progress}
           variant={progress >= 1 ? 'success' : 'default'}
+          aria-label="Progreso total de metas"
           className="flex-1"
         />
         <span className="w-11 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
@@ -574,7 +624,6 @@ function RecentMovements({
         {transactions.slice(0, 5).map((tx, index) => {
           const category = tx.categoryId ? categories.get(tx.categoryId) : undefined
           const isIncome = tx.type === 'income'
-          const isTransfer = tx.type === 'transfer'
           return (
             <div key={tx.id}>
               {index > 0 && <Separator className="mb-3" />}
@@ -586,7 +635,7 @@ function RecentMovements({
                     {tx.merchant ?? tx.date}
                   </p>
                 </div>
-                <Amount value={isIncome || isTransfer ? tx.amount : -tx.amount} signed size="sm" />
+                <Amount value={isIncome ? tx.amount : -tx.amount} signed size="sm" />
               </div>
             </div>
           )
@@ -625,6 +674,24 @@ export default function DashboardPage() {
     )
   }
 
+  if (
+    accountsQ.isError ||
+    transactionsQ.isError ||
+    msiQ.isError ||
+    goalsQ.isError ||
+    budgetsQ.isError ||
+    categoriesQ.isError
+  ) {
+    return (
+      <>
+        <Header title="Inicio financiero" subtitle="Centro de control" />
+        <div role="alert" className="py-10 text-center text-sm text-destructive">
+          No se pudo cargar el dashboard.
+        </div>
+      </>
+    )
+  }
+
   const accounts = accountsQ.data ?? []
   const transactions = transactionsQ.data ?? []
   const msiPurchases = msiQ.data ?? []
@@ -633,15 +700,18 @@ export default function DashboardPage() {
   const categories = categoriesQ.data ?? []
 
   const categoryMap = new Map(categories.map((category) => [category.id, category]))
-  const period = getPeriod(transactions, periodOffset)
-  const periodTransactions = filterTransactionsByPeriod(transactions, period.start, period.end)
+  const period = getPeriod(periodOffset)
+  const periodTransactions = filterTransactionsByPeriod(transactions, period.start, period.asOf)
   const accountSummary = deriveAccountSummary(accounts, msiPurchases)
   const availableFunds = deriveTotalBalance(accountSummary)
   const debt = deriveTotalDebt(accountSummary)
   const netWorth = availableFunds - debt
   const monthIncome = sumTransactions(periodTransactions, 'income')
   const monthExpenses = sumTransactions(periodTransactions, 'expense')
-  const budgetProgress = deriveBudgetsForPeriod(budgets, periodTransactions)
+  const budgetProgress = selectApplicableBudgets(
+    deriveBudgetProgressForDate(budgets, transactions, period.asOf),
+    period.asOf,
+  )
   const goalProgress = deriveGoalProgress(goals)
   const expenseDistribution = buildCategoryRanking(periodTransactions, categoryMap, 'expense')
   const incomeDistribution = buildCategoryRanking(periodTransactions, categoryMap, 'income')

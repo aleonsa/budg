@@ -206,6 +206,7 @@ function CreditCardItem({
           <Progress
             value={usedRate}
             variant={usedRate >= 0.7 ? 'warning' : 'default'}
+            aria-label={`Uso de crédito de ${account.name}`}
             className="mt-1.5"
           />
         </div>
@@ -262,7 +263,12 @@ function MSIRow({ msi }: { msi: MSIPurchase }) {
         </span>
       </div>
       <div className="mt-1 flex items-center gap-2">
-        <Progress value={pct} accent="purple" className="h-1 flex-1" />
+        <Progress
+          value={pct}
+          accent="purple"
+          aria-label={`Cuotas pagadas de ${msi.description}`}
+          className="h-1 flex-1"
+        />
         <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
           {msi.installmentsPaid}/{msi.installmentCount}
         </span>
@@ -317,6 +323,7 @@ export default function AccountsPage() {
   const [fInstitution, setFInstitution] = useState('')
   const [fBalance, setFBalance] = useState('')
   const [fLast4, setFLast4] = useState('')
+  const [showNameError, setShowNameError] = useState(false)
 
   const createMut = useMutation({
     mutationFn: api.createAccount,
@@ -327,18 +334,30 @@ export default function AccountsPage() {
   })
 
   const openPanel = () => {
+    createMut.reset()
     setFName('')
     setFType('debit')
     setFInstitution('')
     setFBalance('')
     setFLast4('')
+    setShowNameError(false)
     setIsAccountPanelOpen(true)
   }
 
+  const closePanel = () => {
+    createMut.reset()
+    setShowNameError(false)
+    setIsAccountPanelOpen(false)
+  }
+
   const handleSubmit = () => {
-    if (!fName.trim()) return
+    if (!fName.trim()) {
+      setShowNameError(true)
+      return
+    }
     const isCredit = fType === 'credit'
     const balance = toCents(fBalance)
+    createMut.reset()
     createMut.mutate(
       {
         name: fName.trim(),
@@ -348,7 +367,7 @@ export default function AccountsPage() {
         currency: 'MXN',
         ...(isCredit ? { creditLimit: balance, availableCredit: balance } : { balance }),
       },
-      { onSuccess: () => setIsAccountPanelOpen(false) },
+      { onSuccess: closePanel },
     )
   }
 
@@ -373,8 +392,106 @@ export default function AccountsPage() {
     )
   }
 
+  if (accountsQ.isError || msiQ.isError) {
+    return (
+      <>
+        <Header title="Cuentas" subtitle="Centro de control financiero" />
+        <div role="alert" className="py-10 text-center text-sm text-destructive">
+          No se pudieron cargar las cuentas.
+        </div>
+      </>
+    )
+  }
+
   const accounts = accountsQ.data ?? []
   const msiPurchases = msiQ.data ?? []
+  const accountPanel = (
+    <MockActionPanel
+      open={isAccountPanelOpen}
+      title="Agregar cuenta"
+      description="Registra una nueva cuenta de débito o crédito."
+      submitLabel="Agregar"
+      submitting={createMut.isPending}
+      onClose={closePanel}
+      onSubmit={handleSubmit}
+    >
+      <div className="space-y-1.5">
+        <Label htmlFor="account-name">Nombre</Label>
+        <Input
+          id="account-name"
+          placeholder="Ej. Nómina BBVA"
+          value={fName}
+          onChange={(e) => setFName(e.target.value)}
+          aria-invalid={showNameError || Boolean(createMut.error) || undefined}
+          aria-describedby={
+            showNameError
+              ? 'account-name-error'
+              : createMut.error
+                ? 'account-create-error'
+                : undefined
+          }
+        />
+        {showNameError && (
+          <p id="account-name-error" role="alert" className="text-xs text-destructive">
+            El nombre es obligatorio.
+          </p>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="account-type">Tipo</Label>
+          <select
+            id="account-type"
+            className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+            value={fType}
+            onChange={(e) => setFType(e.target.value as AccountType)}
+          >
+            <option value="debit">Débito</option>
+            <option value="credit">Crédito</option>
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="account-institution">Institución</Label>
+          <Input
+            id="account-institution"
+            placeholder="Banco"
+            value={fInstitution}
+            onChange={(e) => setFInstitution(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="account-balance">
+            {fType === 'credit' ? 'Límite de crédito' : 'Saldo inicial'}
+          </Label>
+          <Input
+            id="account-balance"
+            placeholder="$0.00"
+            inputMode="decimal"
+            value={fBalance}
+            onChange={(e) => setFBalance(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="account-last4">Últimos 4</Label>
+          <Input
+            id="account-last4"
+            placeholder="1234"
+            inputMode="numeric"
+            maxLength={4}
+            value={fLast4}
+            onChange={(e) => setFLast4(e.target.value)}
+          />
+        </div>
+      </div>
+      {createMut.error && (
+        <p id="account-create-error" role="alert" className="text-xs text-destructive">
+          No se pudo crear la cuenta. Intenta de nuevo.
+        </p>
+      )}
+    </MockActionPanel>
+  )
 
   if (accounts.length === 0) {
     return (
@@ -394,6 +511,7 @@ export default function AccountsPage() {
             description="Agrega tarjetas de débito o crédito para empezar."
           />
         </div>
+        {accountPanel}
       </>
     )
   }
@@ -514,66 +632,7 @@ export default function AccountsPage() {
         )}
       </div>
 
-      <MockActionPanel
-        open={isAccountPanelOpen}
-        title="Agregar cuenta"
-        description="Registra una nueva cuenta de débito o crédito."
-        submitLabel="Agregar"
-        submitting={createMut.isPending}
-        onClose={() => setIsAccountPanelOpen(false)}
-        onSubmit={handleSubmit}
-      >
-        <div className="space-y-1.5">
-          <Label>Nombre</Label>
-          <Input
-            placeholder="Ej. Nómina BBVA"
-            value={fName}
-            onChange={(e) => setFName(e.target.value)}
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1.5">
-            <Label>Tipo</Label>
-            <select
-              className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-              value={fType}
-              onChange={(e) => setFType(e.target.value as AccountType)}
-            >
-              <option value="debit">Débito</option>
-              <option value="credit">Crédito</option>
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Institución</Label>
-            <Input
-              placeholder="Banco"
-              value={fInstitution}
-              onChange={(e) => setFInstitution(e.target.value)}
-            />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1.5">
-            <Label>{fType === 'credit' ? 'Límite de crédito' : 'Saldo inicial'}</Label>
-            <Input
-              placeholder="$0.00"
-              inputMode="decimal"
-              value={fBalance}
-              onChange={(e) => setFBalance(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Últimos 4</Label>
-            <Input
-              placeholder="1234"
-              inputMode="numeric"
-              maxLength={4}
-              value={fLast4}
-              onChange={(e) => setFLast4(e.target.value)}
-            />
-          </div>
-        </div>
-      </MockActionPanel>
+      {accountPanel}
     </>
   )
 }

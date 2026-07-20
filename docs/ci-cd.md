@@ -252,13 +252,22 @@ Baseline Fase 0 medido el 20 de julio de 2026: 2.87% statements, 1.91%
 branches, 1.79% functions y 3.20% lines. Es bajo porque frontend existente nació
 sin suite; se publica sin disfrazarlo ni inventar tests de bajo valor.
 
-Política inicial:
+Política vigente desde el 20 de julio de 2026:
 
 - Reportar coverage frontend/backend.
-- No permitir caída no explicada.
+- Exigir mínimo global de 80% en statements, branches, functions y lines; Vitest
+  falla y bloquea CI si cualquier métrica baja del umbral.
+- No permitir caída no explicada aunque total permanezca sobre 80%.
 - Exigir tests para código nuevo crítico.
-- Fijar threshold por paquete/capa después de baseline.
 - Elevar threshold progresivamente.
+- Priorizar comportamiento observable, reglas de negocio, errores y límites; no
+  usar snapshots masivos, assertions de estilos ni tests que solo ejecutan código.
+
+Primera ampliación aplica 270 pruebas sobre stores, API mock, hooks, componentes,
+navegación, formularios y páginas financieras. Resultado medido: 98.17%
+statements, 93.32% branches, 96.74% functions y 99.20% lines. Componentes
+dashboard sin ningún consumidor fueron eliminados en vez de añadir tests
+artificiales.
 
 Auth, ownership, dinero, idempotencia y migraciones no se aprueban solo por
 porcentaje; necesitan casos explícitos de fallo.
@@ -321,7 +330,8 @@ Goose resuelva carreras entre dos despliegues.
 - Gate Go está definido y bloquea código antes de activación en Fase 1.
 - Required check `ci` no puede omitirse normalmente.
 - Secret/dependency checks básicos están activos.
-- Coverage frontend baseline queda visible; backend comienza en Fase 1.
+- Coverage frontend supera y aplica umbral global de 80%; backend comienza en
+  Fase 1 con misma política mínima.
 - Versiones de toolchain están fijadas.
 - CD tiene estrategia de artefacto, permisos y environments documentada.
 - No existe lógica backend nueva antes de baseline verde.

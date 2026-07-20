@@ -147,13 +147,17 @@ Cada bug fix empieza con prueba que reproduce bug cuando sea viable. Tests deben
 ser deterministas, independientes de orden y no depender del reloj/red real sin
 control.
 
-Coverage se publica y revisa, pero Fase 0 no impone porcentaje global arbitrario
-sobre frontend existente sin baseline. Reglas:
+Coverage se publica y revisa. Baseline de Fase 0 permitió establecer umbral
+global mínimo de 80% para statements, branches, functions y lines. Reglas:
 
+- Cada métrica global debe permanecer en 80% o más; CI bloquea cualquier caída
+  por debajo del umbral.
 - Código nuevo crítico debe quedar cubierto.
 - Auth, user scoping, dinero e idempotencia prueban happy path y fallos.
-- Coverage no puede bajar sin explicación.
-- Umbrales numéricos se fijan después de baseline real y se elevan gradualmente.
+- Coverage no puede bajar sin explicación aunque permanezca sobre 80%.
+- Tests validan comportamiento observable; snapshots masivos, asserts de clases
+  CSS y ejecución sin resultado semántico no cuentan como estrategia de cobertura.
+- Umbral se eleva gradualmente cuando cobertura sostenible deje margen suficiente.
 
 ## Documentación
 

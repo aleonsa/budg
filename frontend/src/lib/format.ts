@@ -12,12 +12,13 @@ const CURRENCY_SYMBOLS: Record<CurrencyCode, string> = {
  * @example formatMoney(199990) → "$1,999.90"
  */
 export function formatMoney(cents: Cents, currency: CurrencyCode = 'MXN'): string {
-  const value = cents / 100
+  const value = Math.abs(cents) / 100
   const formatted = new Intl.NumberFormat(LOCALE, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value)
-  return `${CURRENCY_SYMBOLS[currency]}${formatted}`
+  const sign = cents < 0 && value !== 0 ? '-' : ''
+  return `${sign}${CURRENCY_SYMBOLS[currency]}${formatted}`
 }
 
 /**
@@ -25,12 +26,13 @@ export function formatMoney(cents: Cents, currency: CurrencyCode = 'MXN'): strin
  * @example formatMoneyCompact(199990) → "$2,000"
  */
 export function formatMoneyCompact(cents: Cents, currency: CurrencyCode = 'MXN'): string {
-  const value = Math.round(cents / 100)
+  const value = Math.round(Math.abs(cents) / 100)
   const formatted = new Intl.NumberFormat(LOCALE, {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(value)
-  return `${CURRENCY_SYMBOLS[currency]}${formatted}`
+  const sign = cents < 0 && value !== 0 ? '-' : ''
+  return `${sign}${CURRENCY_SYMBOLS[currency]}${formatted}`
 }
 
 /**

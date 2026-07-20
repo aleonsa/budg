@@ -3,6 +3,15 @@ import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
+
 interface SheetProps {
   open: boolean
   onClose: () => void
@@ -17,6 +26,10 @@ interface SheetProps {
  * Lightweight (no Radix dependency).
  */
 export function Sheet({ open, onClose, title, description, children, className }: SheetProps) {
+  const titleId = React.useId()
+  const descriptionId = React.useId()
+  const closeButtonRef = React.useRef<HTMLButtonElement>(null)
+
   // Lock body scroll while open
   React.useEffect(() => {
     if (!open) return
@@ -27,15 +40,43 @@ export function Sheet({ open, onClose, title, description, children, className }
     }
   }, [open])
 
-  // Close on Escape
   React.useEffect(() => {
     if (!open) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    closeButtonRef.current?.focus()
+
+    return () => {
+      if (previousFocus?.isConnected) previousFocus.focus()
     }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [open, onClose])
+  }, [open])
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+      return
+    }
+    if (event.key !== 'Tab') return
+
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+    )
+    const first = focusable[0]
+    const last = focusable.at(-1)
+    if (!first || !last) return
+
+    const active = document.activeElement
+    if (event.shiftKey && (active === first || !event.currentTarget.contains(active))) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && (active === last || !event.currentTarget.contains(active))) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
 
   if (!open) return null
 
@@ -45,6 +86,12 @@ export function Sheet({ open, onClose, title, description, children, className }
       <div className="absolute inset-0 bg-black/40 animate-in fade-in" onClick={onClose} />
       {/* Content */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        aria-label={title ? undefined : 'Panel'}
+        aria-describedby={description ? descriptionId : undefined}
+        onKeyDown={handleKeyDown}
         className={cn(
           'relative z-10 w-full sm:max-w-md',
           'max-h-[90vh] overflow-y-auto',
@@ -55,21 +102,29 @@ export function Sheet({ open, onClose, title, description, children, className }
           className,
         )}
       >
-        {(title || description) && (
-          <div className="mb-3.5 flex items-start justify-between gap-2">
-            <div>
-              {title && <h2 className="text-[13px] font-semibold tracking-tight">{title}</h2>}
-              {description && <p className="mt-1 text-xs text-muted-foreground">{description}</p>}
-            </div>
-            <button
-              onClick={onClose}
-              className="rounded-md p-1 text-muted-foreground hover:bg-accent"
-              aria-label="Cerrar"
-            >
-              <X className="h-4 w-4" />
-            </button>
+        <div className="mb-3.5 flex items-start justify-between gap-2">
+          <div>
+            {title && (
+              <h2 id={titleId} className="text-[13px] font-semibold tracking-tight">
+                {title}
+              </h2>
+            )}
+            {description && (
+              <p id={descriptionId} className="mt-1 text-xs text-muted-foreground">
+                {description}
+              </p>
+            )}
           </div>
-        )}
+          <button
+            ref={closeButtonRef}
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1 text-muted-foreground hover:bg-accent"
+            aria-label="Cerrar"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
         {children}
       </div>
     </div>,

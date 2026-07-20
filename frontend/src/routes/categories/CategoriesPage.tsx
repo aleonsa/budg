@@ -6,10 +6,19 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { CategoryIcon } from '@/components/common/CategoryIcon'
 import { MockActionPanel } from '@/components/common/MockActionPanel'
 import { formatMoney } from '@/lib/format'
+import { deriveBudgetProgressForDate, getBudgetCycle } from '@/lib/budget-period'
+import { today } from '@/lib/date'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { useCategories, useTransactions, useBudgets } from '@/hooks/useQueries'
-import type { AccentColor, Category, CategoryKind, Transaction, Budget, Cents } from '@/types'
+import type {
+  AccentColor,
+  BudgetWithProgress,
+  Category,
+  CategoryKind,
+  Cents,
+  Transaction,
+} from '@/types'
 
 const COLOR_OPTIONS: AccentColor[] = [
   'blue',
@@ -27,8 +36,11 @@ const COLOR_OPTIONS: AccentColor[] = [
 
 /** Find the latest month key "YYYY-MM" from transactions. */
 function latestMonthKey(txs: Transaction[]): string {
-  if (txs.length === 0) return new Date().toISOString().slice(0, 7)
-  return txs.reduce((latest, t) => (t.date > latest ? t.date : latest), txs[0].date).slice(0, 7)
+  const activity = txs.filter((t) => t.type !== 'transfer')
+  if (activity.length === 0) return today().slice(0, 7)
+  return activity
+    .reduce((latest, t) => (t.date > latest ? t.date : latest), activity[0].date)
+    .slice(0, 7)
 }
 
 /** Sum expenses in a month for a given category. */
@@ -89,15 +101,13 @@ function CategoryRow({
   category,
   spent,
   budget,
-  budgetProgress,
 }: {
   category: Category
   spent: Cents
-  budget?: Budget
-  budgetProgress?: number
+  budget?: BudgetWithProgress
 }) {
   const hasBudget = !!budget
-  const overBudget = (budgetProgress ?? 0) > 1
+  const overBudget = (budget?.progress ?? 0) > 1
 
   return (
     <div className="flex items-center gap-3 py-2.5">
@@ -114,13 +124,14 @@ function CategoryRow({
         {hasBudget && (
           <div className="mt-1 flex items-center gap-2">
             <Progress
-              value={budgetProgress ?? 0}
+              value={budget?.progress ?? 0}
               variant={overBudget ? 'warning' : 'default'}
               accent={overBudget ? undefined : category.color}
+              aria-label={`Uso del presupuesto de ${category.name}`}
               className="h-1 flex-1"
             />
             <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-              {formatMoney(spent)} / {formatMoney(budget!.amount)}
+              {formatMoney(budget!.spent)} / {formatMoney(budget!.amount)}
             </span>
           </div>
         )}
@@ -152,6 +163,7 @@ export default function CategoriesPage() {
   const [fKind, setFKind] = useState<CategoryKind>('expense')
   const [fColor, setFColor] = useState<AccentColor>('blue')
   const [fIcon, setFIcon] = useState('Tag')
+  const [formError, setFormError] = useState('')
 
   const createMut = useMutation({
     mutationFn: api.createCategory,
@@ -162,15 +174,21 @@ export default function CategoriesPage() {
   })
 
   const openPanel = () => {
+    createMut.reset()
     setFName('')
     setFKind('expense')
     setFColor('blue')
     setFIcon('Tag')
+    setFormError('')
     setIsCategoryPanelOpen(true)
   }
 
   const handleSubmit = () => {
-    if (!fName.trim()) return
+    if (!fName.trim()) {
+      setFormError('Ingresa un nombre para la categoría.')
+      return
+    }
+    createMut.reset()
     createMut.mutate(
       {
         name: fName.trim(),
@@ -184,6 +202,86 @@ export default function CategoriesPage() {
   }
 
   const isLoading = catQ.isLoading || txQ.isLoading || budQ.isLoading
+
+  const categoryPanel = (
+    <MockActionPanel
+      open={isCategoryPanelOpen}
+      title="Crear categoría"
+      description="Configura una categoría para gastos o ingresos."
+      submitLabel="Crear"
+      submitting={createMut.isPending}
+      onClose={() => {
+        createMut.reset()
+        setIsCategoryPanelOpen(false)
+      }}
+      onSubmit={handleSubmit}
+    >
+      <div className="space-y-1.5">
+        <Label htmlFor="category-name">Nombre</Label>
+        <Input
+          id="category-name"
+          placeholder="Ej. Mascotas"
+          value={fName}
+          aria-invalid={Boolean(formError)}
+          aria-describedby={formError ? 'category-name-error' : undefined}
+          onChange={(e) => {
+            setFName(e.target.value)
+            if (formError) setFormError('')
+          }}
+        />
+        {formError && (
+          <p id="category-name-error" role="alert" className="text-xs text-destructive">
+            {formError}
+          </p>
+        )}
+        {createMut.isError && (
+          <p role="alert" className="text-xs text-destructive">
+            {createMut.error instanceof Error
+              ? createMut.error.message
+              : 'No se pudo crear la categoría.'}
+          </p>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="category-kind">Tipo</Label>
+          <select
+            id="category-kind"
+            className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+            value={fKind}
+            onChange={(e) => setFKind(e.target.value as CategoryKind)}
+          >
+            <option value="expense">Gasto</option>
+            <option value="income">Ingreso</option>
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="category-color">Color</Label>
+          <select
+            id="category-color"
+            className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+            value={fColor}
+            onChange={(e) => setFColor(e.target.value as AccentColor)}
+          >
+            {COLOR_OPTIONS.map((c) => (
+              <option key={c} value={c}>
+                {c.charAt(0).toUpperCase() + c.slice(1)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="category-icon">Icono (nombre lucide)</Label>
+        <Input
+          id="category-icon"
+          placeholder="Ej. UtensilsCrossed, Car, Film"
+          value={fIcon}
+          onChange={(e) => setFIcon(e.target.value)}
+        />
+      </div>
+    </MockActionPanel>
+  )
 
   if (isLoading) {
     return (
@@ -199,6 +297,18 @@ export default function CategoriesPage() {
         />
         <div className="flex h-64 items-center justify-center">
           <span className="text-xs text-muted-foreground">Cargando…</span>
+        </div>
+        {categoryPanel}
+      </>
+    )
+  }
+
+  if (catQ.isError || txQ.isError || budQ.isError) {
+    return (
+      <>
+        <Header title="Categorías" subtitle="Clasificación de transacciones" />
+        <div role="alert" className="py-10 text-center text-sm text-destructive">
+          No se pudieron cargar las categorías.
         </div>
       </>
     )
@@ -231,6 +341,7 @@ export default function CategoriesPage() {
             }
           />
         </div>
+        {categoryPanel}
       </>
     )
   }
@@ -242,11 +353,27 @@ export default function CategoriesPage() {
     .filter((c) => c.kind === 'expense')
     .sort((a, b) => a.order - b.order)
   const incomeCats = categories.filter((c) => c.kind === 'income').sort((a, b) => a.order - b.order)
-  const budgetByCat = new Map(budgets.map((b) => [b.categoryId, b]))
-
-  // Max spending for progress scaling
-  const expenseSpent = expenseCats.map((c) => spentInMonth(transactions, monthKey, c.id))
-  const maxExpense = Math.max(...expenseSpent, 1)
+  const categoryIds = new Set(categories.map((category) => category.id))
+  const asOf = today()
+  const budgetByCat = new Map<string, BudgetWithProgress>()
+  for (const budget of deriveBudgetProgressForDate(budgets, transactions, asOf)) {
+    if (
+      !budget.categoryId ||
+      !categoryIds.has(budget.categoryId) ||
+      getBudgetCycle(budget, asOf) === null
+    ) {
+      continue
+    }
+    const selected = budgetByCat.get(budget.categoryId)
+    if (
+      !selected ||
+      budget.startDate > selected.startDate ||
+      (budget.startDate === selected.startDate && budget.id > selected.id)
+    ) {
+      budgetByCat.set(budget.categoryId, budget)
+    }
+  }
+  const categorizedBudgetCount = budgetByCat.size
 
   return (
     <>
@@ -265,7 +392,7 @@ export default function CategoriesPage() {
           <StatChip label="Total" value={categories.length} />
           <StatChip label="Gasto" value={expenseCats.length} accent="red" />
           <StatChip label="Ingreso" value={incomeCats.length} accent="green" />
-          <StatChip label="Con presupuesto" value={budgets.length} accent="blue" />
+          <StatChip label="Con presupuesto" value={categorizedBudgetCount} accent="blue" />
         </div>
 
         {/* Expense categories */}
@@ -280,16 +407,7 @@ export default function CategoriesPage() {
             {expenseCats.map((cat) => {
               const spent = spentInMonth(transactions, monthKey, cat.id)
               const budget = budgetByCat.get(cat.id)
-              const progress = budget ? spent / budget.amount : spent / maxExpense
-              return (
-                <CategoryRow
-                  key={cat.id}
-                  category={cat}
-                  spent={spent}
-                  budget={budget}
-                  budgetProgress={progress}
-                />
-              )
+              return <CategoryRow key={cat.id} category={cat} spent={spent} budget={budget} />
             })}
           </Card>
         </div>
@@ -309,59 +427,7 @@ export default function CategoriesPage() {
           </Card>
         </div>
 
-        <MockActionPanel
-          open={isCategoryPanelOpen}
-          title="Crear categoría"
-          description="Configura una categoría para gastos o ingresos."
-          submitLabel="Crear"
-          submitting={createMut.isPending}
-          onClose={() => setIsCategoryPanelOpen(false)}
-          onSubmit={handleSubmit}
-        >
-          <div className="space-y-1.5">
-            <Label>Nombre</Label>
-            <Input
-              placeholder="Ej. Mascotas"
-              value={fName}
-              onChange={(e) => setFName(e.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1.5">
-              <Label>Tipo</Label>
-              <select
-                className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-                value={fKind}
-                onChange={(e) => setFKind(e.target.value as CategoryKind)}
-              >
-                <option value="expense">Gasto</option>
-                <option value="income">Ingreso</option>
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Color</Label>
-              <select
-                className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-                value={fColor}
-                onChange={(e) => setFColor(e.target.value as AccentColor)}
-              >
-                {COLOR_OPTIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {c.charAt(0).toUpperCase() + c.slice(1)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Icono (nombre lucide)</Label>
-            <Input
-              placeholder="Ej. UtensilsCrossed, Car, Film"
-              value={fIcon}
-              onChange={(e) => setFIcon(e.target.value)}
-            />
-          </div>
-        </MockActionPanel>
+        {categoryPanel}
       </div>
     </>
   )

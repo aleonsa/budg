@@ -139,6 +139,30 @@ export default function RulesPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.rules }),
   })
 
+  if (txQ.isError || catQ.isError || rulesQ.isError) {
+    return (
+      <>
+        <Header title="Reglas" subtitle="Categorización automática" />
+        <Card role="alert" className="my-4 p-3 text-sm text-destructive">
+          No se pudieron cargar las reglas. Intenta de nuevo.
+        </Card>
+      </>
+    )
+  }
+
+  const isLoading = txQ.isLoading || catQ.isLoading || rulesQ.isLoading
+
+  if (isLoading) {
+    return (
+      <>
+        <Header title="Reglas" subtitle="Categorización automática" />
+        <div className="flex h-64 items-center justify-center">
+          <span className="text-xs text-muted-foreground">Cargando…</span>
+        </div>
+      </>
+    )
+  }
+
   const transactions = txQ.data ?? []
   const categories = catQ.data ?? []
   const rules = rulesQ.data ?? []
@@ -152,6 +176,7 @@ export default function RulesPage() {
   const unsuggested = suggestions.filter((s) => !s.hasRule)
 
   const openPanel = (preset?: { field?: Rule['field']; value?: string }) => {
+    createMut.reset()
     setFField(preset?.field ?? 'merchant')
     setFOperator('contains')
     setFValue(preset?.value ?? '')
@@ -159,8 +184,14 @@ export default function RulesPage() {
     setIsRulePanelOpen(true)
   }
 
+  const closePanel = () => {
+    createMut.reset()
+    setIsRulePanelOpen(false)
+  }
+
   const handleCreate = () => {
     if (!fValue.trim() || !fCategory) return
+    createMut.reset()
     createMut.mutate(
       {
         field: fField,
@@ -169,8 +200,13 @@ export default function RulesPage() {
         categoryId: fCategory,
         isActive: true,
       },
-      { onSuccess: () => setIsRulePanelOpen(false) },
+      { onSuccess: closePanel },
     )
+  }
+
+  const handleToggle = (id: string) => {
+    toggleMut.reset()
+    toggleMut.mutate(id)
   }
 
   return (
@@ -185,6 +221,11 @@ export default function RulesPage() {
         }
       />
       <div className="space-y-3.5 py-3">
+        {toggleMut.error && (
+          <Card role="alert" className="p-3 text-xs text-destructive">
+            No se pudo actualizar la regla. Intenta de nuevo.
+          </Card>
+        )}
         {/* Explanation */}
         <Card className="flex items-start gap-2.5 p-3">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -225,7 +266,7 @@ export default function RulesPage() {
                     key={rule.id}
                     rule={rule}
                     category={cat ? { name: cat.name, color: cat.color } : undefined}
-                    onToggle={() => toggleMut.mutate(rule.id)}
+                    onToggle={() => handleToggle(rule.id)}
                   />
                 )
               })}
@@ -273,7 +314,7 @@ export default function RulesPage() {
         description="Automatiza la categorización por comercio o descripción."
         submitLabel="Crear"
         submitting={createMut.isPending}
-        onClose={() => setIsRulePanelOpen(false)}
+        onClose={closePanel}
         onSubmit={handleCreate}
       >
         <div className="grid grid-cols-2 gap-2">
@@ -306,6 +347,8 @@ export default function RulesPage() {
             placeholder="Ej. Uber"
             value={fValue}
             onChange={(e) => setFValue(e.target.value)}
+            aria-invalid={Boolean(createMut.error) || undefined}
+            aria-describedby={createMut.error ? 'rule-create-error' : undefined}
           />
         </div>
         <div className="space-y-1.5">
@@ -323,6 +366,11 @@ export default function RulesPage() {
             ))}
           </select>
         </div>
+        {createMut.error && (
+          <p id="rule-create-error" role="alert" className="text-xs text-destructive">
+            No se pudo crear la regla. Intenta de nuevo.
+          </p>
+        )}
       </MockActionPanel>
     </>
   )

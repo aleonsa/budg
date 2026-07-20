@@ -56,12 +56,7 @@ export function TransactionDetail({
           className="h-12 w-12"
         />
         <p className="mt-2 text-sm font-medium">{tx.description}</p>
-        <Amount
-          value={isIncome || isTransfer ? tx.amount : -tx.amount}
-          signed
-          size="xl"
-          className="mt-1"
-        />
+        <Amount value={isIncome ? tx.amount : -tx.amount} signed size="xl" className="mt-1" />
 
         <div className="mt-2 flex gap-1.5">
           {isTransfer ? (

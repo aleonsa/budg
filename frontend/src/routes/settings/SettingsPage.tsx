@@ -65,12 +65,14 @@ function NavRow({
   icon: Icon,
   label,
   badge,
+  badgeErrorLabel,
   to,
   disabled,
 }: {
   icon: IconType
   label: string
   badge?: string
+  badgeErrorLabel?: string
   to?: string
   disabled?: boolean
 }) {
@@ -81,7 +83,13 @@ function NavRow({
         <span className="truncate text-sm text-foreground">{label}</span>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
-        {badge && <Badge variant="muted">{badge}</Badge>}
+        {badge && (
+          <Badge variant="muted">
+            <span role={badgeErrorLabel ? 'alert' : undefined} aria-label={badgeErrorLabel}>
+              {badge}
+            </span>
+          </Badge>
+        )}
         <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
       </div>
     </>
@@ -143,9 +151,21 @@ export default function SettingsPage() {
   const signOut = useAuth((s) => s.signOut)
   const updateProfile = useAuth((s) => s.updateProfile)
 
-  const categoryCount = categoriesQ.data?.length ?? 0
-  const accountCount = accountsQ.data?.length ?? 0
-  const budgetCount = budgetsQ.data?.length ?? 0
+  const categoryCount = categoriesQ.isLoading
+    ? 'Cargando…'
+    : categoriesQ.isError
+      ? 'Error'
+      : `${categoriesQ.data?.length ?? 0}`
+  const accountCount = accountsQ.isLoading
+    ? 'Cargando…'
+    : accountsQ.isError
+      ? 'Error'
+      : `${accountsQ.data?.length ?? 0}`
+  const budgetCount = budgetsQ.isLoading
+    ? 'Cargando…'
+    : budgetsQ.isError
+      ? 'Error'
+      : `${budgetsQ.data?.length ?? 0}`
 
   const displayName = profileName || user?.name || 'Usuario Demo'
   const displayEmail = user?.email ?? 'demo@budg.app'
@@ -227,13 +247,15 @@ export default function SettingsPage() {
             <NavRow
               icon={Tags}
               label="Gestionar categorías"
-              badge={`${categoryCount}`}
+              badge={categoryCount}
+              badgeErrorLabel={categoriesQ.isError ? 'Error al cargar categorías' : undefined}
               to="/categories"
             />
             <NavRow
               icon={PieChart}
               label="Gestionar presupuestos"
-              badge={`${budgetCount}`}
+              badge={budgetCount}
+              badgeErrorLabel={budgetsQ.isError ? 'Error al cargar presupuestos' : undefined}
               to="/budgets"
             />
           </Card>
@@ -260,7 +282,8 @@ export default function SettingsPage() {
             <NavRow
               icon={Wallet}
               label="Cuentas registradas"
-              badge={`${accountCount}`}
+              badge={accountCount}
+              badgeErrorLabel={accountsQ.isError ? 'Error al cargar cuentas' : undefined}
               to="/accounts"
             />
             <SettingsRow icon={Download} label="Exportar datos">

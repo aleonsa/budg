@@ -1,6 +1,15 @@
-import { useEffect } from 'react'
+import { useEffect, useId, useRef, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Button, Card } from '@/components/ui'
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
 
 interface MockActionPanelProps {
   open: boolean
@@ -23,6 +32,10 @@ export function MockActionPanel({
   submitting = false,
   children,
 }: MockActionPanelProps) {
+  const titleId = useId()
+  const descriptionId = useId()
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+
   // Lock body scroll while open
   useEffect(() => {
     if (!open) return
@@ -33,15 +46,43 @@ export function MockActionPanel({
     }
   }, [open])
 
-  // Close on Escape
   useEffect(() => {
     if (!open) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    closeButtonRef.current?.focus()
+
+    return () => {
+      if (previousFocus?.isConnected) previousFocus.focus()
     }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [open, onClose])
+  }, [open])
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+      return
+    }
+    if (event.key !== 'Tab') return
+
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+    )
+    const first = focusable[0]
+    const last = focusable.at(-1)
+    if (!first || !last) return
+
+    const active = document.activeElement
+    if (event.shiftKey && (active === first || !event.currentTarget.contains(active))) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && (active === last || !event.currentTarget.contains(active))) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
 
   if (!open) return null
 
@@ -56,15 +97,24 @@ export function MockActionPanel({
       onClick={onClose}
     >
       <Card
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        onKeyDown={handleKeyDown}
         className="max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto bg-[hsl(var(--card))] p-3.5 shadow-[0_16px_48px_rgba(0,0,0,0.14)]"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[13px] font-semibold">{title}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+            <h2 id={titleId} className="text-[13px] font-semibold">
+              {title}
+            </h2>
+            <p id={descriptionId} className="mt-1 text-xs text-muted-foreground">
+              {description}
+            </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button ref={closeButtonRef} type="button" variant="ghost" size="sm" onClick={onClose}>
             Cerrar
           </Button>
         </div>
