@@ -112,8 +112,8 @@ Fuente: releases y refs oficiales de cada repositorio en
 [GitHub Actions](https://github.com/actions).
 
 Secret scanning usa Gitleaks `v8.30.1`; instalación CI verifica checksum del
-release. Dependency Review solo se activa si plan GitHub privado soporta GitHub
-Code Security, como define `docs/ci-cd.md`.
+release. Dependency Review está activo para PRs del repositorio público, como
+define `docs/ci-cd.md`.
 
 Repository settings exigen SHA completo y permiten únicamente Actions propiedad
 de GitHub. npm 12.0.1 se verifica contra SRI fijado antes de bootstrap CI.

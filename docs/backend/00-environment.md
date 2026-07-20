@@ -199,8 +199,8 @@ separados. No se copian datos financieros reales a development.
 - Reglas de desarrollo y Definition of Done están versionadas.
 - Frontend pasa format, lint, strict typecheck, tests y build en CI.
 - Gate backend está definido y bloquea `.go` nuevo antes de módulo canónico.
-- Workflow produce check estable `ci`; enforcement remoto requiere GitHub Pro o
-  repo público porque GitHub Free no protege branches de repo privado.
+- Required check `ci` protege `main`; PR, conversaciones resueltas y linear
+  history son obligatorios, incluidos administradores.
 - Coverage frontend baseline y security checks básicos son visibles.
 - Module path decidido.
 - Versión Go disponible.

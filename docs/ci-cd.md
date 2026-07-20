@@ -27,9 +27,8 @@ Frontend ya tiene:
 
 CI, Makefile, Dependabot, secret scanning, audit completo de dependencias npm y
 gate backend están implementados. Backend canónico sigue reservado para Fase 1.
-Protección de `main` no está disponible mientras repositorio sea privado bajo
-GitHub Free; APIs de branch protection y rulesets responden `403` y requieren
-GitHub Pro o repo público.
+Repositorio es público y `main` exige PR, check `ci`, conversaciones resueltas y
+linear history; force push/delete y bypass administrativo están bloqueados.
 
 ## Archivos implementados y futuros
 
@@ -178,11 +177,10 @@ Gates mínimos:
 Escaneos más costosos pueden correr programados, pero findings críticos siguen
 bloqueando releases.
 
-Dependency Review Action requiere repositorio público o GitHub Code
-Security/GHAS en repositorio privado. Repo privado actual no tiene capacidad;
-fallback activo usa Dependabot, lockfile, `npm audit` completo y Gitleaks
-8.30.1 con binario/checksum fijados. `govulncheck` se activa en Fase 1 junto con
-módulo Go canónico.
+Dependency Review Action está activo en PR porque repositorio es público. Gates
+complementarios usan Dependabot, lockfile, `npm audit` completo y Gitleaks 8.30.1
+con binario/checksum fijados. `govulncheck` se activa en Fase 1 junto con módulo
+Go canónico.
 
 Dependabot vulnerability alerts y automated security fixes están habilitados en
 settings del repositorio. Version updates quedan activas al publicar
@@ -199,11 +197,11 @@ ci uses if: always()
 ci succeeds only if every required needs.<job>.result is success
 ```
 
-Branch protection exigirá solo nombre estable `ci` cuando plan GitHub lo permita.
-Internamente puede crecer sin reconfigurar protección cada vez. Agregador siempre
-corre aunque dependencia falle/cancele; trata `failure`, `cancelled` y `skipped`
-inesperado como fallo. Jobs todavía no aplicables terminan explícitamente
-`success`, no se saltan a nivel job.
+Branch protection exige solo nombre estable `ci`. Internamente puede crecer sin
+reconfigurar protección cada vez. Agregador siempre corre aunque dependencia
+falle/cancele; trata `failure`, `cancelled` y `skipped` inesperado como fallo.
+Jobs todavía no aplicables terminan explícitamente `success`, no se saltan a
+nivel job.
 
 ## Branch protection
 
@@ -219,10 +217,10 @@ Configuración objetivo:
 Si proyecto sigue con una sola persona, review humana obligatoria puede esperar;
 CI y protección contra push directo no.
 
-Estado actual: remoto privado existe, pero GitHub Free rechaza branch protection
-y rulesets con `403`. No se simula enforcement inexistente. Para activar required
-check `ci`, usuario debe elegir GitHub Pro o hacer repo público; hasta entonces CI
-es visible pero no puede impedir push directo desde servidor.
+Estado actual: repositorio público, PR requerido, check `ci`, conversaciones
+resueltas y linear history activos. Enforcement incluye administradores; force
+push y delete están deshabilitados. Reviews humanas obligatorias permanecen en
+cero mientras proyecto tenga una sola persona.
 
 Strict branch freshness queda desactivado inicialmente para evitar reruns sin
 valor. Se habilita merge queue o strict mode cuando haya PRs concurrentes.
@@ -246,8 +244,7 @@ Antes de push se ejecutan checks del área cambiada. Antes de merge se ejecuta
 suite completa en CI limpio.
 
 Pre-commit hooks pueden acelerar feedback, pero nunca son source of truth porque
-pueden omitirse. CI es validación visible ahora y será gate autoritativo cuando
-branch protection esté disponible.
+pueden omitirse. CI es gate autoritativo mediante branch protection.
 
 ## Coverage
 
@@ -313,16 +310,16 @@ Goose resuelva carreras entre dos despliegues.
 4. Completado: `ci.yml`, Makefile, Gitleaks, npm audit y agregador fail-closed.
 5. Completado: gate que congela `backend/` hasta módulo canónico.
 6. Completado: Dependabot y fallback por Dependency Review no disponible.
-7. Bloqueado por servicio: branch protection requiere GitHub Pro o repo público.
-8. Pendiente de publicación autorizada: ejecutar workflow desde checkout remoto.
+7. Completado: repo público y branch protection con required check `ci`.
+8. Completado: workflow ejecutado verde desde checkout remoto.
 9. Fase 1: crear módulo + `/healthz` + tests y activar suite Go en mismo PR.
 
 ## Criterio de salida
 
 - Checkout limpio reproduce frontend localmente.
-- CI TypeScript/security está versionado; ejecución remota requiere publicar cambio.
+- CI TypeScript/security pasa en PR desde checkout remoto.
 - Gate Go está definido y bloquea código antes de activación en Fase 1.
-- Required check queda bloqueado por limitación GitHub Free/private.
+- Required check `ci` no puede omitirse normalmente.
 - Secret/dependency checks básicos están activos.
 - Coverage frontend baseline queda visible; backend comienza en Fase 1.
 - Versiones de toolchain están fijadas.
