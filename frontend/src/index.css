@@ -1,0 +1,223 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+}
+
+/*
+  budg — Design System
+  Compact neutral surfaces with black primary actions.
+  Color is reserved for categories, money direction, and status.
+*/
+
+@layer base {
+  :root {
+    color-scheme: light;
+
+    /* Base surfaces (neutral) */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+
+    /* Muted surfaces */
+    --muted: 0 0% 97%;
+    --muted-foreground: 0 0% 42%;
+
+    /* Cards / overlays */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+
+    /* Popovers / sheets */
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+
+    /* Borders & dividers */
+    --border: 0 0% 91%;
+    --input: 0 0% 87%;
+    --ring: 0 0% 9%;
+
+    /* Primary (near-black) */
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary */
+    --secondary: 0 0% 96.5%;
+    --secondary-foreground: 0 0% 9%;
+
+    /* Destructive (real red) */
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Accent (same as secondary) */
+    --accent: 0 0% 95%;
+    --accent-foreground: 0 0% 9%;
+
+    /* Radii */
+    --radius: 0.625rem;
+
+    /* Sidebar (desktop) */
+    --sidebar-width: 216px;
+    --sidebar-bg: 240 5% 97%;
+    --sidebar-foreground: 0 0% 9%;
+    --sidebar-border: 0 0% 90.5%;
+    --sidebar-accent: 0 0% 92.5%;
+    --sidebar-accent-foreground: 0 0% 9%;
+
+    /*
+     * Accent palette — vibrant but controlled.
+     * Each color has a solid + soft (background) variant.
+     * Used for: category icons, badges, progress bars, status.
+     */
+
+    /* Blue */
+    --color-blue: 217 75% 42%;
+    --color-blue-soft: 214 95% 93%;
+
+    /* Green (income / positive) */
+    --color-green: 142 65% 28%;
+    --color-green-soft: 138 76% 92%;
+
+    /* Red (expense / over budget) */
+    --color-red: 0 72% 45%;
+    --color-red-soft: 0 86% 93%;
+
+    /* Purple */
+    --color-purple: 262 68% 48%;
+    --color-purple-soft: 263 85% 93%;
+
+    /* Yellow / amber */
+    --color-yellow: 38 85% 28%;
+    --color-yellow-soft: 40 94% 90%;
+
+    /* Orange */
+    --color-orange: 25 82% 34%;
+    --color-orange-soft: 27 96% 91%;
+
+    /* Cyan */
+    --color-cyan: 189 82% 27%;
+    --color-cyan-soft: 187 90% 90%;
+
+    /* Pink */
+    --color-pink: 329 70% 42%;
+    --color-pink-soft: 330 81% 92%;
+  }
+
+  /* Dark mode — surfaces dark, accent colors stay vibrant */
+  .dark {
+    color-scheme: dark;
+
+    --background: 0 0% 9%;
+    --foreground: 0 0% 96%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 64%;
+    --card: 0 0% 11%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 11%;
+    --popover-foreground: 0 0% 96%;
+    --border: 0 0% 20%;
+    --input: 0 0% 48%;
+    --ring: 0 0% 96%;
+    --primary: 0 0% 96%;
+    --primary-foreground: 0 0% 9%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 96%;
+    --destructive: 0 90% 70%;
+    --destructive-foreground: 0 0% 9%;
+    --accent: 0 0% 15%;
+    --accent-foreground: 0 0% 96%;
+    --sidebar-bg: 0 0% 7%;
+    --sidebar-foreground: 0 0% 96%;
+    --sidebar-border: 0 0% 20%;
+    --sidebar-accent: 0 0% 15%;
+    --sidebar-accent-foreground: 0 0% 96%;
+
+    /* Solid colors are lighter in dark mode to preserve text/icon contrast. */
+    --color-blue: 217 91% 70%;
+    --color-green: 142 70% 60%;
+    --color-red: 0 90% 70%;
+    --color-purple: 262 90% 75%;
+    --color-yellow: 38 92% 65%;
+    --color-orange: 25 95% 67%;
+    --color-cyan: 189 90% 60%;
+    --color-pink: 329 90% 75%;
+
+    /* Soft variants darker for dark mode */
+    --color-blue-soft: 214 60% 16%;
+    --color-green-soft: 138 50% 14%;
+    --color-red-soft: 0 50% 16%;
+    --color-purple-soft: 263 50% 16%;
+    --color-yellow-soft: 40 60% 13%;
+    --color-orange-soft: 27 60% 14%;
+    --color-cyan-soft: 187 50% 13%;
+    --color-pink-soft: 330 50% 15%;
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.7;
+  }
+
+  select option {
+    background-color: hsl(var(--popover));
+    color: hsl(var(--popover-foreground));
+  }
+
+  ::selection {
+    background: hsl(var(--foreground) / 0.12);
+  }
+}
+
+/* Utility: hide scrollbar */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

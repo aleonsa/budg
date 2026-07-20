@@ -2,6 +2,8 @@
 
 ## Commands
 
+All commands run from `frontend/`:
+
 ```bash
 npm run dev
 npm run build
@@ -11,7 +13,7 @@ npm run preview
 
 ## Routing Conventions
 
-Page routes live under `src/routes/<module>/<ModulePage>.tsx` and are registered in `src/app/router.tsx` with lazy imports.
+Page routes live under `frontend/src/routes/<module>/<ModulePage>.tsx` and are registered in `frontend/src/app/router.tsx` with lazy imports.
 
 Keep route components responsible for:
 
@@ -23,15 +25,15 @@ Avoid moving page-specific helpers into shared modules unless there is a second 
 
 ## Data Conventions
 
-Money is represented as integer cents through the `Cents` type. Use formatters from `src/lib/format.ts` for display.
+Money is represented as integer cents through the `Cents` type. Use formatters from `frontend/src/lib/format.ts` for display.
 
 Dates are ISO date strings (`YYYY-MM-DD`) unless a backend endpoint explicitly returns timestamps later.
 
-Domain types live in `src/types/index.ts`. Do not add backend-only fields to frontend types until the API contract is known.
+Domain types live in `frontend/src/types/index.ts`. Do not add backend-only fields to frontend types until the API contract is known.
 
 ## API Client
 
-All data comes through `src/lib/api/client.ts`.
+All data comes through `frontend/src/lib/api/client.ts`.
 
 When replacing mocks with real HTTP calls:
 
@@ -43,7 +45,7 @@ When replacing mocks with real HTTP calls:
 
 ## UI Conventions
 
-Use existing primitives from `src/components/ui`:
+Use existing primitives from `frontend/src/components/ui`:
 
 - `Card`
 - `Badge`

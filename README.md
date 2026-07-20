@@ -18,6 +18,14 @@ Implemented frontend modules:
 - Stats with lightweight analytics, category distributions, monthly trend, and insights.
 - Settings with mock profile/session, preferences, data, security, and technical status.
 
+## Repository Layout
+
+```txt
+frontend/   React/Vite SPA (frontend of record)
+backend/    Go API workspace (current experiment ignored by new plan)
+docs/       Architecture, frontend guide, backend plan, API contract, product scope
+```
+
 ## Stack
 
 - React 19
@@ -32,15 +40,11 @@ Implemented frontend modules:
 
 ## Local Development
 
-Install dependencies:
+All frontend commands run from `frontend/`:
 
 ```bash
+cd frontend
 npm install
-```
-
-Run the dev server:
-
-```bash
 npm run dev
 ```
 
@@ -62,20 +66,21 @@ Preview the production build:
 npm run preview
 ```
 
-## Project Layout
+## Frontend Layout
 
 ```txt
-src/
-  app/                 Router and providers
-  components/common/   Domain-aware reusable UI
-  components/layout/   App shell, sidebar, bottom nav, header
-  components/ui/       Local shadcn-style primitives
-  features/            Feature-specific components
-  hooks/               Query hooks and derived financial helpers
-  lib/                 API client, formatting, colors, date utilities
-  routes/              Page-level route modules
-  stores/              Local UI state stores
-  types/               Domain types
+frontend/
+  src/
+    app/                 Router and providers
+    components/common/   Domain-aware reusable UI
+    components/layout/   App shell, sidebar, bottom nav, header
+    components/ui/       Local shadcn-style primitives
+    features/            Feature-specific components
+    hooks/               Query hooks and derived financial helpers
+    lib/                 API client, formatting, colors, date utilities
+    routes/              Page-level route modules
+    stores/              Local UI state stores
+    types/               Domain types
 ```
 
 ## Documentation
@@ -83,11 +88,19 @@ src/
 - [Architecture](docs/architecture.md)
 - [Frontend Guide](docs/frontend.md)
 - [Product Scope](docs/product-scope.md)
+- [Development Rules](docs/development-rules.md)
+- [CI/CD Plan](docs/ci-cd.md)
 - [Backend Plan](docs/backend-plan.md)
+- [Backend Environment](docs/backend/00-environment.md)
+- [Backend Foundation](docs/backend/01-foundation.md)
+- [Database Model](docs/backend/02-database.md)
+- [API Roadmap](docs/backend/03-api-roadmap.md)
+- [Backend Operations](docs/backend/04-operations.md)
+- [API Contract](docs/api-contract.md)
 
 ## Backend Direction
 
-The frontend is intentionally isolated behind `src/lib/api/client.ts`. When the Go backend is ready, the mock functions should be replaced by typed `fetch()` calls while preserving the hook and component contracts.
+The frontend is intentionally isolated behind `frontend/src/lib/api/client.ts`. When the Go backend is ready, the mock functions should be replaced by typed `fetch()` calls while preserving the hook and component contracts.
 
 Target infrastructure:
 

@@ -10,7 +10,18 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+coverage
+coverage.out
 *.local
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Generated local artifacts
+/backend/api
+/graphify-out/
 
 # Editor directories and files
 .vscode/*

@@ -2,33 +2,33 @@
 
 ## Overview
 
-`budg` is currently a frontend-only SPA. The application uses mock data through a typed API client so the UI can be built and validated before the backend exists.
+`budg` is a frontend-only SPA today. The repo is laid out as a future multi-service workspace with `frontend/` holding the React/Vite app and `backend/` reserved for the Go API. Existing backend experiments are ignored by the new implementation plan. The frontend uses mock data through a typed API client so the UI can be built and validated before the backend exists.
 
 ```txt
 Browser
-  -> React/Vite SPA
+  -> React/Vite SPA (in frontend/)
   -> TanStack Query hooks
-  -> src/lib/api/client.ts
+  -> frontend/src/lib/api/client.ts
   -> mock data today
-  -> Go API later
+  -> Go API later (in backend/)
   -> Supabase Postgres later
 ```
 
 ## Frontend Boundaries
 
-The important boundary is `src/lib/api/client.ts`.
+The important boundary is `frontend/src/lib/api/client.ts`.
 
 Current behavior:
 
-- Returns mock data from `src/lib/api/mock`.
-- Preserves typed return values from `src/types`.
+- Returns mock data from `frontend/src/lib/api/mock`.
+- Preserves typed return values from `frontend/src/types`.
 - Simulates small network latency.
 
 Future behavior:
 
 - Replace internals with `fetch()` calls.
 - Keep function names and return types stable where possible.
-- Keep TanStack Query hooks in `src/hooks/useQueries.ts` stable so route components do not need rewrites.
+- Keep TanStack Query hooks in `frontend/src/hooks/useQueries.ts` stable so route components do not need rewrites.
 
 ## Data Flow
 
@@ -41,11 +41,11 @@ Route component
   -> compact UI
 ```
 
-Derived financial helpers currently live in `src/hooks/useQueries.ts` and page-local helper functions. This is acceptable for the mock stage. When the backend arrives, keep derived UI-only calculations in the frontend, but move canonical financial calculations that must be consistent across clients into the backend.
+Derived financial helpers currently live in `frontend/src/hooks/useQueries.ts` and page-local helper functions. This is acceptable for the mock stage. When the backend arrives, keep derived UI-only calculations in the frontend, but move canonical financial calculations that must be consistent across clients into the backend.
 
 ## Routing
 
-Routes are lazy-loaded in `src/app/router.tsx`:
+Routes are lazy-loaded in `frontend/src/app/router.tsx`:
 
 - `/` dashboard
 - `/transactions`
@@ -85,7 +85,7 @@ The sidebar includes a mock user menu in the lower-left area. It is prepared for
 
 ## Design System
 
-The UI uses local shadcn-style primitives in `src/components/ui` and domain-aware components in `src/components/common`.
+The UI uses local shadcn-style primitives in `frontend/src/components/ui` and domain-aware components in `frontend/src/components/common`.
 
 Principles:
 
