@@ -1,31 +1,65 @@
 package main
 
 import (
-	"encoding/json"
-	"log"
+	"context"
+	"errors"
+	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/aleonsa/budg/backend/internal/httpapi"
 )
 
-type healthResponse struct {
-	Status string `json:"status"` // publico
-}
-
 func main() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", health)
-
-	log.Println("API listening on http://localhost:8080")
-
-	if err := http.ListenAndServe(":8080", mux); err != nil {
-		log.Fatal(err)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	if err := run(logger); err != nil {
+		logger.Error("server failed", "error", err)
+		os.Exit(1)
 	}
 }
 
-func health(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
-	if err := json.NewEncoder(w).Encode(healthResponse{Status: "ok"}); err != nil {
-		log.Printf("encode health response: %v", err)
+func run(logger *slog.Logger) error {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
 	}
+
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           httpapi.NewRouter(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	serverErr := make(chan error, 1)
+	go func() {
+		logger.Info("server starting", "addr", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-serverErr:
+		return err
+	case sig := <-stop:
+		logger.Info("shutdown signal received", "signal", sig.String())
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		return err
+	}
+	logger.Info("server stopped cleanly")
+	return nil
 }

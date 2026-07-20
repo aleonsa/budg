@@ -129,24 +129,27 @@ cualquier warning nuevo.
 
 Working directory: `backend/`.
 
-Orden planeado:
+Orden implementado desde Fase 1:
 
 ```bash
-test -z "$(gofmt -l .)"
+go mod download
 go mod verify
+gofmt -l .  # debe estar vacío
 go vet ./...
-go test -race -coverprofile=coverage.out ./...
+go test -race -coverprofile=coverage.out -covermode=atomic ./...
 go build ./cmd/api
+go install golang.org/x/vuln/cmd/govulncheck@v1.4.0
+govulncheck ./...
 ```
 
 `gofmt -l` solo detecta en CI; developer ejecuta `gofmt -w`. Coverage se publica
-como artefacto/resumen.
+como artefacto. `actions/setup-go@v7.0.0` lee `.go-version` y cachea módulos
+usando `backend/go.sum`.
 
-Fase 0 no finge build sin código canónico. `scripts/check-backend-phase0.sh`
-compara cambios contra base de PR/push y falla ante cualquier cambio en
-`backend/`; localmente también revisa worktree e index. Fase 1 reemplaza
-experimento ignorado, crea módulo canónico, `/healthz` y tests en mismo cambio
-que activa comandos completos. Ninguna línea Go nueva entra sin gate Go.
+Fase 0 congeló `backend/` mediante `scripts/check-backend-phase0.sh`. Fase 1
+eliminó ese script y reemplazó el experimento ignorado por módulo canónico
+`github.com/aleonsa/budg/backend` con router `chi`, `GET /healthz`, tests
+`httptest` y suite Go completa. Ninguna línea Go nueva entra sin gate Go.
 
 ## Job migrations
 
@@ -178,9 +181,9 @@ Escaneos más costosos pueden correr programados, pero findings críticos siguen
 bloqueando releases.
 
 Dependency Review Action está activo en PR porque repositorio es público. Gates
-complementarios usan Dependabot, lockfile, `npm audit` completo y Gitleaks 8.30.1
-con binario/checksum fijados. `govulncheck` se activa en Fase 1 junto con módulo
-Go canónico.
+complementarios usan Dependabot, lockfile, `npm audit` completo, Gitleaks 8.30.1
+con binario/checksum fijados y `govulncheck v1.4.0` instalado vía `go install`
+en el job `backend-quality`.
 
 Dependabot vulnerability alerts y automated security fixes están habilitados en
 settings del repositorio. Version updates quedan activas al publicar
@@ -321,17 +324,17 @@ Goose resuelva carreras entre dos despliegues.
 6. Completado: Dependabot y fallback por Dependency Review no disponible.
 7. Completado: repo público y branch protection con required check `ci`.
 8. Completado: workflow ejecutado verde desde checkout remoto.
-9. Fase 1: crear módulo + `/healthz` + tests y activar suite Go en mismo PR.
+9. Completado Fase 1: módulo `github.com/aleonsa/budg/backend`, router `chi`,
+   `GET /healthz`, tests `httptest`, suite Go/govulncheck activa en CI.
 
 ## Criterio de salida
 
-- Checkout limpio reproduce frontend localmente.
-- CI TypeScript/security pasa en PR desde checkout remoto.
-- Gate Go está definido y bloquea código antes de activación en Fase 1.
+- Checkout limpio reproduce frontend y backend localmente.
+- CI TypeScript/Go/security pasa en PR desde checkout remoto.
 - Required check `ci` no puede omitirse normalmente.
 - Secret/dependency checks básicos están activos.
-- Coverage frontend supera y aplica umbral global de 80%; backend comienza en
-  Fase 1 con misma política mínima.
+- Coverage frontend supera y aplica umbral global de 80%; backend inicia con
+  100% en `internal/httpapi` y `0%` en `cmd/api` (entrada sin lógica testeable).
 - Versiones de toolchain están fijadas.
 - CD tiene estrategia de artefacto, permisos y environments documentada.
 - No existe lógica backend nueva antes de baseline verde.
