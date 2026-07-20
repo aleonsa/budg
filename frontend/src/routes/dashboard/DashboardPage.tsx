@@ -19,9 +19,7 @@ import {
   useSavingsGoals,
   useTransactions,
 } from '@/hooks/useQueries'
-import {
-  useCreateTransaction,
-} from '@/hooks/useTransactionMutations'
+import { useCreateTransaction } from '@/hooks/useTransactionMutations'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { TransactionForm, type TransactionFormValue } from '@/features/transactions/TransactionForm'
 import { formatMoney, toCents } from '@/lib/format'
@@ -61,18 +59,12 @@ function getPeriod(transactions: Transaction[], offset = 0) {
   }
 }
 
-function filterTransactionsByPeriod(
-  transactions: Transaction[],
-  start: string,
-  end: string,
-) {
+function filterTransactionsByPeriod(transactions: Transaction[], start: string, end: string) {
   return transactions.filter((tx) => tx.date >= start && tx.date <= end)
 }
 
 function sumTransactions(transactions: Transaction[], type: Transaction['type']) {
-  return transactions
-    .filter((tx) => tx.type === type)
-    .reduce((sum, tx) => sum + tx.amount, 0)
+  return transactions.filter((tx) => tx.type === type).reduce((sum, tx) => sum + tx.amount, 0)
 }
 
 function deriveBudgetsForPeriod(
@@ -83,9 +75,7 @@ function deriveBudgetsForPeriod(
     const spent = transactions
       .filter(
         (tx) =>
-          tx.type === 'expense' &&
-          tx.categoryId !== null &&
-          tx.categoryId === budget.categoryId,
+          tx.type === 'expense' && tx.categoryId !== null && tx.categoryId === budget.categoryId,
       )
       .reduce((sum, tx) => sum + tx.amount, 0)
     const remaining = budget.amount - spent
@@ -114,9 +104,8 @@ function buildCategoryRanking(
       amount,
       percentage: total > 0 ? amount / total : 0,
     }))
-    .filter(
-      (item): item is { category: Category; amount: Cents; percentage: number } =>
-        Boolean(item.category),
+    .filter((item): item is { category: Category; amount: Cents; percentage: number } =>
+      Boolean(item.category),
     )
     .sort((a, b) => b.amount - a.amount)
 }
@@ -179,14 +168,26 @@ function PeriodSelector({
   )
 }
 
-function QuickActions({ onAction }: { onAction: (action: Exclude<DashboardAction, null>) => void }) {
+function QuickActions({
+  onAction,
+}: {
+  onAction: (action: Exclude<DashboardAction, null>) => void
+}) {
   return (
     <Card className="p-3">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Button size="sm" onClick={() => onAction('expense')}>Agregar gasto</Button>
-        <Button size="sm" variant="outline" onClick={() => onAction('income')}>Agregar ingreso</Button>
-        <Button size="sm" variant="outline" onClick={() => onAction('transfer')}>Transferencia</Button>
-        <Button size="sm" variant="outline" onClick={() => onAction('account')}>Nueva cuenta</Button>
+        <Button size="sm" onClick={() => onAction('expense')}>
+          Agregar gasto
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => onAction('income')}>
+          Agregar ingreso
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => onAction('transfer')}>
+          Transferencia
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => onAction('account')}>
+          Nueva cuenta
+        </Button>
       </div>
     </Card>
   )
@@ -307,7 +308,9 @@ function DashboardMockPanel({
         <TransactionForm
           accounts={accounts}
           categories={categories}
-          lockedType={action === 'transfer' ? 'transfer' : action === 'income' ? 'income' : 'expense'}
+          lockedType={
+            action === 'transfer' ? 'transfer' : action === 'income' ? 'income' : 'expense'
+          }
           onSubmit={handleTx}
           onCancel={onClose}
           submitting={createTx.isPending}
@@ -329,7 +332,10 @@ function MonthlyOverview({ income, expenses }: { income: Cents; expenses: Cents 
           <p className="text-sm font-medium">Overview mensual</p>
           <p className="text-xs text-muted-foreground">Ingresos, gastos y ahorro neto.</p>
         </div>
-        <Badge variant={netSavings >= 0 ? 'muted' : 'outline'} className={netSavings < 0 ? 'border-destructive text-destructive' : undefined}>
+        <Badge
+          variant={netSavings >= 0 ? 'muted' : 'outline'}
+          className={netSavings < 0 ? 'border-destructive text-destructive' : undefined}
+        >
           {formatPercent(savingsRate)} ahorro
         </Badge>
       </div>
@@ -348,7 +354,13 @@ function MonthlyOverview({ income, expenses }: { income: Cents; expenses: Cents 
         </div>
         <div className="rounded-md bg-muted/40 p-2">
           <p className="text-muted-foreground">Ahorro</p>
-          <p className={netSavings < 0 ? 'mt-1 font-semibold tabular-nums text-destructive' : 'mt-1 font-semibold tabular-nums'}>
+          <p
+            className={
+              netSavings < 0
+                ? 'mt-1 font-semibold tabular-nums text-destructive'
+                : 'mt-1 font-semibold tabular-nums'
+            }
+          >
             {formatMoney(Math.abs(netSavings))}
           </p>
         </div>
@@ -404,7 +416,13 @@ function BudgetAlerts({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="truncate font-medium">{category?.name ?? 'General'}</span>
-                    <span className={isExceeded ? 'shrink-0 tabular-nums text-destructive' : 'shrink-0 tabular-nums text-muted-foreground'}>
+                    <span
+                      className={
+                        isExceeded
+                          ? 'shrink-0 tabular-nums text-destructive'
+                          : 'shrink-0 tabular-nums text-muted-foreground'
+                      }
+                    >
                       {formatPercent(budget.progress)}
                     </span>
                   </div>
@@ -489,7 +507,10 @@ function DebtAndMSI({ purchases }: { purchases: ReturnType<typeof useMSIPurchase
           </div>
         ))}
       </div>
-      <Link to="/accounts" className="mt-3 block text-xs text-muted-foreground hover:text-foreground">
+      <Link
+        to="/accounts"
+        className="mt-3 block text-xs text-muted-foreground hover:text-foreground"
+      >
         Ver cuentas
       </Link>
     </Card>
@@ -512,7 +533,11 @@ function GoalsOverview({ goals }: { goals: SavingsGoalWithProgress[] }) {
         <Badge variant="muted">{active.length} activas</Badge>
       </div>
       <div className="mt-3 flex items-center gap-2">
-        <Progress value={progress} variant={progress >= 1 ? 'success' : 'default'} className="flex-1" />
+        <Progress
+          value={progress}
+          variant={progress >= 1 ? 'success' : 'default'}
+          className="flex-1"
+        />
         <span className="w-11 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
           {formatPercent(progress)}
         </span>
@@ -554,21 +579,14 @@ function RecentMovements({
             <div key={tx.id}>
               {index > 0 && <Separator className="mb-3" />}
               <div className="flex items-center gap-3">
-                <CategoryIcon
-                  name={category?.icon ?? 'Repeat'}
-                  color={category?.color ?? 'gray'}
-                />
+                <CategoryIcon name={category?.icon ?? 'Repeat'} color={category?.color ?? 'gray'} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{tx.description}</p>
                   <p className="truncate text-[11px] text-muted-foreground">
                     {tx.merchant ?? tx.date}
                   </p>
                 </div>
-                <Amount
-                  value={isIncome || isTransfer ? tx.amount : -tx.amount}
-                  signed
-                  size="sm"
-                />
+                <Amount value={isIncome || isTransfer ? tx.amount : -tx.amount} signed size="sm" />
               </div>
             </div>
           )
@@ -641,8 +659,18 @@ export default function DashboardPage() {
         <QuickActions onAction={setAction} />
 
         <div className="flex gap-3 overflow-x-auto pb-1 sm:grid sm:grid-cols-4 sm:overflow-visible">
-          <MetricCard label="Disponible" value={availableFunds} tone="green" detail="Fondos operativos" />
-          <MetricCard label="Gasto mes" value={monthExpenses} tone="red" detail="Periodo seleccionado" />
+          <MetricCard
+            label="Disponible"
+            value={availableFunds}
+            tone="green"
+            detail="Fondos operativos"
+          />
+          <MetricCard
+            label="Gasto mes"
+            value={monthExpenses}
+            tone="red"
+            detail="Periodo seleccionado"
+          />
           <MetricCard label="Deuda" value={debt} tone="red" detail="Tarjetas y crédito" />
           <MetricCard
             label="Patrimonio"

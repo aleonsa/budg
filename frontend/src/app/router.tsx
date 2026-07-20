@@ -1,30 +1,23 @@
-import { lazy, Suspense } from 'react'
+import type { ReactNode } from 'react'
 import { createBrowserRouter } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
 import { RequireAuth } from '@/app/RequireAuth'
+import {
+  AccountsPage,
+  BudgetsPage,
+  CategoriesPage,
+  DashboardPage,
+  GoalsPage,
+  LoginPage,
+  RouteSuspense,
+  RulesPage,
+  SettingsPage,
+  StatsPage,
+  TransactionsPage,
+} from './route-components'
 
-// Lazy-loaded routes for code splitting
-const DashboardPage = lazy(() => import('@/routes/dashboard/DashboardPage'))
-const TransactionsPage = lazy(() => import('@/routes/transactions/TransactionsPage'))
-const AccountsPage = lazy(() => import('@/routes/accounts/AccountsPage'))
-const BudgetsPage = lazy(() => import('@/routes/budgets/BudgetsPage'))
-const GoalsPage = lazy(() => import('@/routes/goals/GoalsPage'))
-const SettingsPage = lazy(() => import('@/routes/settings/SettingsPage'))
-const CategoriesPage = lazy(() => import('@/routes/categories/CategoriesPage'))
-const RulesPage = lazy(() => import('@/routes/rules/RulesPage'))
-const StatsPage = lazy(() => import('@/routes/stats/StatsPage'))
-const LoginPage = lazy(() => import('@/routes/login/LoginPage'))
-
-function RouteFallback() {
-  return (
-    <div className="flex h-32 items-center justify-center">
-      <span className="text-xs text-muted-foreground">Cargando…</span>
-    </div>
-  )
-}
-
-function withSuspense(node: React.ReactNode) {
-  return <Suspense fallback={<RouteFallback />}>{node}</Suspense>
+function withSuspense(node: ReactNode) {
+  return <RouteSuspense>{node}</RouteSuspense>
 }
 
 export const router = createBrowserRouter([

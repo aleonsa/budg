@@ -56,12 +56,8 @@ export function deriveAccountSummary(
 
     // Credit: debt = limit - available
     const debt = (acc.creditLimit ?? 0) - (acc.availableCredit ?? 0)
-    const activeMSI = msiPurchases.filter(
-      (m) => m.accountId === acc.id && m.status === 'active',
-    )
-    const utilizationRate = acc.creditLimit
-      ? (acc.availableCredit ?? 0) / acc.creditLimit
-      : 0
+    const activeMSI = msiPurchases.filter((m) => m.accountId === acc.id && m.status === 'active')
+    const utilizationRate = acc.creditLimit ? (acc.availableCredit ?? 0) / acc.creditLimit : 0
 
     return {
       ...acc,
@@ -79,17 +75,12 @@ export function deriveBudgetProgress(
   transactions: Transaction[],
 ): BudgetWithProgress[] {
   const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    .toISOString()
-    .slice(0, 10)
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
 
   return budgets.map((budget) => {
     const spent = transactions
       .filter(
-        (t) =>
-          t.type === 'expense' &&
-          t.categoryId === budget.categoryId &&
-          t.date >= monthStart,
+        (t) => t.type === 'expense' && t.categoryId === budget.categoryId && t.date >= monthStart,
       )
       .reduce((sum, t) => sum + t.amount, 0)
 
@@ -118,17 +109,13 @@ export function deriveTotalBalance(accounts: AccountWithSummary[]): Cents {
 
 /** Total debt across all credit accounts. */
 export function deriveTotalDebt(accounts: AccountWithSummary[]): Cents {
-  return accounts
-    .filter((a) => a.type === 'credit')
-    .reduce((sum, a) => sum + a.balanceOrDebt, 0)
+  return accounts.filter((a) => a.type === 'credit').reduce((sum, a) => sum + a.balanceOrDebt, 0)
 }
 
 /** Sum of expenses in the current month. */
 export function deriveMonthSpending(transactions: Transaction[]): Cents {
   const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    .toISOString()
-    .slice(0, 10)
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
 
   return transactions
     .filter((t) => t.type === 'expense' && t.date >= monthStart)

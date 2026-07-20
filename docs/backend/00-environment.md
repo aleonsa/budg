@@ -25,21 +25,14 @@ necesarios en Fase 9, no para aprender HTTP o conectar DB.
 
 ### Module path
 
-Preferido después de decidir identidad canónica del remoto:
+Identidad canónica decidida:
 
 ```txt
-github.com/<owner>/budg/backend
+github.com/aleonsa/budg/backend
 ```
 
-Alternativa temporal:
-
-```txt
-budg/backend
-```
-
-Aunque remoto todavía no exista físicamente, se define owner/repo antes del
-módulo para usar ruta final. `budg/backend` temporal solo se acepta si usuario
-decide explícitamente posponer identidad; cambiarlo después modifica imports.
+Fase 1 reemplaza módulo experimental con esta ruta final; no se usará alias
+temporal que obligue a cambiar imports después.
 
 ### PostgreSQL local o hosted
 
@@ -97,16 +90,18 @@ Requeridas en primeras fases:
 GCloud CLI se instala/verifica en Fase 9. No se necesita Node adicional para
 backend; frontend conserva su toolchain actual.
 
-Versiones se anotan en documento de fase cuando se ejecute, no se inventan en
-este plan. Go debe fijarse en `go.mod` y Dockerfile para reproducibilidad.
+Versiones estables investigadas están registradas en
+[`toolchain-versions.md`](../toolchain-versions.md). Go 1.26.5 queda fijado en
+`.go-version`; Fase 1 debe repetirlo en `go.mod` y Fase 9 en Dockerfile para
+reproducibilidad.
 
-Goose puede instalarse con Homebrew o `go install`. En Fase 2 se fija una
-versión concreta; no se usa `@latest` en automatización reproducible:
+Goose puede instalarse con Homebrew o `go install`. En Fase 2 se instala versión
+seleccionada; no se usa `@latest` en automatización reproducible:
 
 ```bash
 brew install goose
-# o, reemplazando <version> por versión fijada:
-go install github.com/pressly/goose/v3/cmd/goose@<version>
+# o, usando versión fijada:
+go install github.com/pressly/goose/v3/cmd/goose@v3.27.2
 ```
 
 Solo se usa CLI y migraciones SQL. No se importará Goose en binario de API, no
@@ -204,7 +199,8 @@ separados. No se copian datos financieros reales a development.
 - Reglas de desarrollo y Definition of Done están versionadas.
 - Frontend pasa format, lint, strict typecheck, tests y build en CI.
 - Gate backend está definido y bloquea `.go` nuevo antes de módulo canónico.
-- Required check `ci` protege `main` cuando exista remoto.
+- Required check `ci` protege `main`; PR, conversaciones resueltas y linear
+  history son obligatorios, incluidos administradores.
 - Coverage frontend baseline y security checks básicos son visibles.
 - Module path decidido.
 - Versión Go disponible.

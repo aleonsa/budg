@@ -16,14 +16,7 @@ interface SheetProps {
  * Bottom sheet for mobile / modal for desktop.
  * Lightweight (no Radix dependency).
  */
-export function Sheet({
-  open,
-  onClose,
-  title,
-  description,
-  children,
-  className,
-}: SheetProps) {
+export function Sheet({ open, onClose, title, description, children, className }: SheetProps) {
   // Lock body scroll while open
   React.useEffect(() => {
     if (!open) return
@@ -49,10 +42,7 @@ export function Sheet({
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center sm:items-center">
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40 animate-in fade-in"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/40 animate-in fade-in" onClick={onClose} />
       {/* Content */}
       <div
         className={cn(
@@ -68,12 +58,8 @@ export function Sheet({
         {(title || description) && (
           <div className="mb-3.5 flex items-start justify-between gap-2">
             <div>
-              {title && (
-                <h2 className="text-[13px] font-semibold tracking-tight">{title}</h2>
-              )}
-              {description && (
-                <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-              )}
+              {title && <h2 className="text-[13px] font-semibold tracking-tight">{title}</h2>}
+              {description && <p className="mt-1 text-xs text-muted-foreground">{description}</p>}
             </div>
             <button
               onClick={onClose}

@@ -32,7 +32,14 @@ export function useFilteredTransactions(transactions: Transaction[]) {
 
       return true
     })
-  }, [transactions, filters.month, filters.type, filters.accountId, filters.categoryId, filters.search])
+  }, [
+    transactions,
+    filters.month,
+    filters.type,
+    filters.accountId,
+    filters.categoryId,
+    filters.search,
+  ])
 
   return { filtered, filters }
 }

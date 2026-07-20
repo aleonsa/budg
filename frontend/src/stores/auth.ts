@@ -37,8 +37,7 @@ export const useAuth = create<AuthState>()(
         })
         return true
       },
-      updateProfile: (patch) =>
-        set((s) => (s.user ? { user: { ...s.user, ...patch } } : s)),
+      updateProfile: (patch) => set((s) => (s.user ? { user: { ...s.user, ...patch } } : s)),
       signOut: () => set({ user: null }),
     }),
     { name: 'budg.mock.auth' },

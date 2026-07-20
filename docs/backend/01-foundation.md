@@ -12,7 +12,7 @@ El primer endpoint será `GET /healthz`, no un recurso financiero.
 
 Orden recomendado:
 
-1. Confirmar versión de Go con `go version`.
+1. Confirmar Go 1.26.5 con `go version`.
 2. Definir nombre definitivo del módulo Go.
 3. Vaciar o reemplazar explícitamente el experimento actual de `backend/`.
 4. Inicializar `go.mod`.
@@ -25,18 +25,16 @@ Orden recomendado:
 
 La DB se configura en Fase 2. Auth se configura en Fase 3.
 
-## Decisión pendiente antes de escribir Go
+## Module path decidido
 
-`go.mod` necesita un module path estable. Si habrá repositorio remoto, debe
-usarse su ruta, por ejemplo:
+`go.mod` usará ruta estable del remoto:
 
 ```txt
-github.com/<owner>/budg/backend
+github.com/aleonsa/budg/backend
 ```
 
-Si todavía no existe remoto, puede usarse temporalmente `budg/backend`, pero
-cambiarlo después modifica todos los imports internos. Conviene decidirlo al
-inicio de Fase 1.
+No se conserva `budg/backend` experimental; Fase 1 reemplaza módulo y sus
+imports atómicamente.
 
 ## Dependencia inicial
 

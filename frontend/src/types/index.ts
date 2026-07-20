@@ -11,15 +11,7 @@ export type CurrencyCode = 'MXN' | 'USD'
 
 /** Accent color keys used across the app. */
 export type AccentColor =
-  | 'blue'
-  | 'green'
-  | 'red'
-  | 'purple'
-  | 'yellow'
-  | 'orange'
-  | 'cyan'
-  | 'pink'
-  | 'gray'
+  'blue' | 'green' | 'red' | 'purple' | 'yellow' | 'orange' | 'cyan' | 'pink' | 'gray'
 
 // ── Category ────────────────────────────────────────────────
 export type CategoryKind = 'expense' | 'income'

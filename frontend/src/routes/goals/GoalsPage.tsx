@@ -38,7 +38,8 @@ function getTargetDateLabel(goal: SavingsGoalWithProgress) {
 
   if (goal.isCompleted) return { label: formattedDate, tone: 'muted' as const }
   if (daysUntil < 0) return { label: `Vencida · ${formattedDate}`, tone: 'danger' as const }
-  if (daysUntil <= 30) return { label: `${daysUntil} días · ${formattedDate}`, tone: 'warning' as const }
+  if (daysUntil <= 30)
+    return { label: `${daysUntil} días · ${formattedDate}`, tone: 'warning' as const }
   return { label: formattedDate, tone: 'muted' as const }
 }
 
@@ -63,14 +64,20 @@ function GoalStatusBadge({ goal }: { goal: SavingsGoalWithProgress }) {
   if (state.tone === 'success') return <Badge accent="green">{state.label}</Badge>
   if (state.tone === 'danger') {
     return (
-      <Badge variant="muted" className="bg-[hsl(var(--color-red-soft))] text-[hsl(var(--color-red))]">
+      <Badge
+        variant="muted"
+        className="bg-[hsl(var(--color-red-soft))] text-[hsl(var(--color-red))]"
+      >
         {state.label}
       </Badge>
     )
   }
   if (state.tone === 'warning') {
     return (
-      <Badge variant="muted" className="bg-[hsl(var(--color-orange-soft))] text-[hsl(var(--color-orange))]">
+      <Badge
+        variant="muted"
+        className="bg-[hsl(var(--color-orange-soft))] text-[hsl(var(--color-orange))]"
+      >
         {state.label}
       </Badge>
     )
@@ -159,7 +166,11 @@ export default function GoalsPage() {
         <Header
           title="Metas"
           subtitle="Ahorro y objetivos"
-          action={<Button size="sm" onClick={() => openGoalPanel()}>Nueva meta</Button>}
+          action={
+            <Button size="sm" onClick={() => openGoalPanel()}>
+              Nueva meta
+            </Button>
+          }
         />
         <div className="space-y-3 py-4">
           <Card className="h-24 animate-pulse bg-muted/40" />
@@ -179,13 +190,21 @@ export default function GoalsPage() {
         <Header
           title="Metas"
           subtitle="Ahorro y objetivos"
-          action={<Button size="sm" onClick={() => openGoalPanel()}>Nueva meta</Button>}
+          action={
+            <Button size="sm" onClick={() => openGoalPanel()}>
+              Nueva meta
+            </Button>
+          }
         />
         <div className="py-4">
           <EmptyState
             title="Sin metas activas"
             description="Define una meta de ahorro para trackear tu progreso."
-            action={<Button size="sm" onClick={() => openGoalPanel()}>Crear meta</Button>}
+            action={
+              <Button size="sm" onClick={() => openGoalPanel()}>
+                Crear meta
+              </Button>
+            }
           />
         </div>
       </>
@@ -217,7 +236,11 @@ export default function GoalsPage() {
       <Header
         title="Metas"
         subtitle="Ahorro y objetivos"
-        action={<Button size="sm" onClick={() => openGoalPanel()}>Nueva meta</Button>}
+        action={
+          <Button size="sm" onClick={() => openGoalPanel()}>
+            Nueva meta
+          </Button>
+        }
       />
       <div className="space-y-3 py-4">
         <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
@@ -316,77 +339,76 @@ export default function GoalsPage() {
                 Todas tus metas registradas están completadas.
               </p>
             </Card>
-          ) : activeGoals.map((goal) => {
-            const account = goal.accountId ? accountsMap.get(goal.accountId) : undefined
-            const isComplete = goal.isCompleted || goal.progress >= 1
-            const targetDate = getTargetDateLabel(goal)
+          ) : (
+            activeGoals.map((goal) => {
+              const account = goal.accountId ? accountsMap.get(goal.accountId) : undefined
+              const isComplete = goal.isCompleted || goal.progress >= 1
+              const targetDate = getTargetDateLabel(goal)
 
-            return (
-              <Card
-                key={goal.id}
-                className={`p-3 ${isComplete ? 'bg-muted/30' : ''}`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <p className="truncate text-sm font-medium">{goal.name}</p>
-                      <GoalStatusBadge goal={goal} />
+              return (
+                <Card key={goal.id} className={`p-3 ${isComplete ? 'bg-muted/30' : ''}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <p className="truncate text-sm font-medium">{goal.name}</p>
+                        <GoalStatusBadge goal={goal} />
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {formatMoney(goal.currentAmount)} / {formatMoney(goal.targetAmount)}
+                      </p>
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {formatMoney(goal.currentAmount)} / {formatMoney(goal.targetAmount)}
-                    </p>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-semibold tabular-nums">
+                        {formatPercent(goal.progress)}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        {isComplete ? 'Objetivo logrado' : `${formatMoney(goal.remaining)} faltan`}
+                      </p>
+                    </div>
                   </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-sm font-semibold tabular-nums">
-                      {formatPercent(goal.progress)}
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      {isComplete ? 'Objetivo logrado' : `${formatMoney(goal.remaining)} faltan`}
-                    </p>
+
+                  <Progress
+                    value={goal.progress}
+                    variant={isComplete ? 'success' : 'default'}
+                    accent={isComplete ? undefined : 'blue'}
+                    className="mt-3"
+                  />
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    {targetDate && (
+                      <Badge
+                        variant="muted"
+                        className={
+                          targetDate.tone === 'danger'
+                            ? 'bg-[hsl(var(--color-red-soft))] text-[hsl(var(--color-red))]'
+                            : targetDate.tone === 'warning'
+                              ? 'bg-[hsl(var(--color-orange-soft))] text-[hsl(var(--color-orange))]'
+                              : undefined
+                        }
+                      >
+                        {targetDate.label}
+                      </Badge>
+                    )}
+                    {account && (
+                      <Badge variant="outline">
+                        {account.name} · {account.institution}
+                      </Badge>
+                    )}
+                    {!isComplete && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="ml-auto"
+                        onClick={() => openContributePanel(goal.id)}
+                      >
+                        Aportar
+                      </Button>
+                    )}
                   </div>
-                </div>
-
-                <Progress
-                  value={goal.progress}
-                  variant={isComplete ? 'success' : 'default'}
-                  accent={isComplete ? undefined : 'blue'}
-                  className="mt-3"
-                />
-
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  {targetDate && (
-                    <Badge
-                      variant="muted"
-                      className={
-                        targetDate.tone === 'danger'
-                          ? 'bg-[hsl(var(--color-red-soft))] text-[hsl(var(--color-red))]'
-                          : targetDate.tone === 'warning'
-                            ? 'bg-[hsl(var(--color-orange-soft))] text-[hsl(var(--color-orange))]'
-                            : undefined
-                      }
-                    >
-                      {targetDate.label}
-                    </Badge>
-                  )}
-                  {account && (
-                    <Badge variant="outline">
-                      {account.name} · {account.institution}
-                    </Badge>
-                  )}
-                  {!isComplete && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="ml-auto"
-                      onClick={() => openContributePanel(goal.id)}
-                    >
-                      Aportar
-                    </Button>
-                  )}
-                </div>
-              </Card>
-            )
-          })}
+                </Card>
+              )
+            })
+          )}
         </section>
 
         {completedGoals.length > 0 && (
@@ -409,7 +431,9 @@ export default function GoalsPage() {
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium">{goal.name}</p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            {account ? `${account.name} · ${account.institution}` : 'Sin cuenta vinculada'}
+                            {account
+                              ? `${account.name} · ${account.institution}`
+                              : 'Sin cuenta vinculada'}
                           </p>
                         </div>
                         <div className="shrink-0 text-right">
@@ -485,11 +509,7 @@ export default function GoalsPage() {
           </div>
           <div className="space-y-1.5">
             <Label>Fecha objetivo</Label>
-            <Input
-              type="date"
-              value={fDate}
-              onChange={(e) => setFDate(e.target.value)}
-            />
+            <Input type="date" value={fDate} onChange={(e) => setFDate(e.target.value)} />
           </div>
         </div>
       </MockActionPanel>

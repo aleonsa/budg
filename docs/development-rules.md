@@ -19,7 +19,7 @@ gates y explicar decisiones no evidentes.
 - No se aceptan tests flaky como normales ni se ocultan con retries ilimitados.
 - Un fallo existente se corrige o se documenta como baseline antes de añadir
   trabajo que dependa de él.
-- Force push y commits directos a `main` se bloquean cuando exista remoto.
+- Force push y commits directos a `main` están bloqueados por branch protection.
 
 Excepción urgente requiere razón escrita, aprobación explícita y cambio de
 seguimiento. Problema de producción no convierte CI rojo en estado aceptable.

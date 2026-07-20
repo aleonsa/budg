@@ -22,8 +22,7 @@ const badgeVariants = cva(
 )
 
 export interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeVariants> {
+  extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof badgeVariants> {
   /** Accent color — renders as a soft pill with colored text. */
   accent?: AccentColor
 }
@@ -46,4 +45,4 @@ function Badge({ className, variant, accent, ...props }: BadgeProps) {
   return <div className={cn(badgeVariants({ variant }), className)} {...props} />
 }
 
-export { Badge, badgeVariants }
+export { Badge }

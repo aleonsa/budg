@@ -40,11 +40,20 @@ docs/       Architecture, frontend guide, backend plan, API contract, product sc
 
 ## Local Development
 
-All frontend commands run from `frontend/`:
+Required runtimes are pinned in `.node-version` and `frontend/package.json`.
+After your version manager activates Node 24.18.0, bootstrap pinned npm once:
+
+```bash
+npm install --global npm@12.0.1
+node --version
+npm --version
+```
+
+All frontend commands then run from `frontend/`:
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -65,6 +74,15 @@ Preview the production build:
 ```bash
 npm run preview
 ```
+
+Repository-wide quality gates run from root:
+
+```bash
+make check
+```
+
+This runs formatting, lint, strict typecheck, tests with coverage, build, backend
+Phase 0 freeze, secret scanning, and full npm dependency audit.
 
 ## Frontend Layout
 
@@ -90,6 +108,7 @@ frontend/
 - [Product Scope](docs/product-scope.md)
 - [Development Rules](docs/development-rules.md)
 - [CI/CD Plan](docs/ci-cd.md)
+- [Toolchain Versions](docs/toolchain-versions.md)
 - [Backend Plan](docs/backend-plan.md)
 - [Backend Environment](docs/backend/00-environment.md)
 - [Backend Foundation](docs/backend/01-foundation.md)

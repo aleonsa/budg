@@ -57,7 +57,8 @@ export function TransactionForm({
     const description = String(fd.get('description') ?? '')
     const accountId = String(fd.get('accountId') ?? accounts[0]?.id ?? '')
     const categoryIdRaw = fd.get('categoryId')
-    const categoryId = categoryIdRaw && String(categoryIdRaw) !== 'none' ? String(categoryIdRaw) : null
+    const categoryId =
+      categoryIdRaw && String(categoryIdRaw) !== 'none' ? String(categoryIdRaw) : null
     const merchant = String(fd.get('merchant') ?? '').trim() || undefined
 
     let transferToAccountId: string | null = null
@@ -119,12 +120,7 @@ export function TransactionForm({
         </div>
         <div className="space-y-1.5">
           <Label>Fecha</Label>
-          <Input
-            name="date"
-            type="date"
-            defaultValue={initial?.date ?? today()}
-            required
-          />
+          <Input name="date" type="date" defaultValue={initial?.date ?? today()} required />
         </div>
       </div>
 

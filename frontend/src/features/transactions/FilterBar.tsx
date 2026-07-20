@@ -22,8 +22,7 @@ export function FilterBar({ categories, accounts }: FilterBarProps) {
   const filters = useTransactionFilters()
   const [sheetOpen, setSheetOpen] = useState(false)
 
-  const activeFilterCount =
-    (filters.accountId ? 1 : 0) + (filters.categoryId ? 1 : 0)
+  const activeFilterCount = (filters.accountId ? 1 : 0) + (filters.categoryId ? 1 : 0)
 
   return (
     <div className="space-y-2">
@@ -81,10 +80,7 @@ export function FilterBar({ categories, accounts }: FilterBarProps) {
       </div>
 
       {/* Month selector */}
-      <MonthSelector
-        value={filters.month}
-        onChange={filters.setMonth}
-      />
+      <MonthSelector value={filters.month} onChange={filters.setMonth} />
 
       {/* Active filter chips */}
       {activeFilterCount > 0 && (
@@ -215,13 +211,7 @@ function FilterPill({
 }
 
 /** Month navigator — prev / current label / next. */
-function MonthSelector({
-  value,
-  onChange,
-}: {
-  value: string
-  onChange: (m: string) => void
-}) {
+function MonthSelector({ value, onChange }: { value: string; onChange: (m: string) => void }) {
   const [year, month] = value.split('-').map(Number)
   const date = new Date(year, month - 1, 1)
   const label = date.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
@@ -237,7 +227,13 @@ function MonthSelector({
         onClick={() => shift(-1)}
         className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
       >
-        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg
+          className="h-4 w-4"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
           <path d="M15 18l-6-6 6-6" />
         </svg>
       </button>
@@ -246,7 +242,13 @@ function MonthSelector({
         onClick={() => shift(1)}
         className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
       >
-        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg
+          className="h-4 w-4"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
           <path d="M9 18l6-6-6-6" />
         </svg>
       </button>

@@ -211,8 +211,7 @@ export const useMockData = create<MockDataState>((set) => ({
     set((s) => ({
       accounts: s.accounts.map((a) => (a.id === id ? { ...a, ...patch } : a)),
     })),
-  deleteAccount: (id) =>
-    set((s) => ({ accounts: s.accounts.filter((a) => a.id !== id) })),
+  deleteAccount: (id) => set((s) => ({ accounts: s.accounts.filter((a) => a.id !== id) })),
 
   // ── Budgets ───────────────────────────────────────────────
   addBudget: (input) => {
@@ -272,8 +271,7 @@ export const useMockData = create<MockDataState>((set) => ({
     set((s) => ({
       categories: s.categories.map((c) => (c.id === id ? { ...c, ...patch } : c)),
     })),
-  deleteCategory: (id) =>
-    set((s) => ({ categories: s.categories.filter((c) => c.id !== id) })),
+  deleteCategory: (id) => set((s) => ({ categories: s.categories.filter((c) => c.id !== id) })),
 
   // ── Rules ─────────────────────────────────────────────────
   addRule: (input) => {

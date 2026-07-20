@@ -30,21 +30,13 @@ type IconType = React.ComponentType<{ className?: string }>
 
 // ── Sub-components ───────────────────────────────────────────
 
-function SectionHeader({
-  title,
-  description,
-}: {
-  title: string
-  description?: string
-}) {
+function SectionHeader({ title, description }: { title: string; description?: string }) {
   return (
     <div className="space-y-0.5 px-1">
       <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
         {title}
       </h2>
-      {description && (
-        <p className="text-[11px] text-muted-foreground">{description}</p>
-      )}
+      {description && <p className="text-[11px] text-muted-foreground">{description}</p>}
     </div>
   )
 }
@@ -175,15 +167,16 @@ export default function SettingsPage() {
         title="Ajustes"
         subtitle="Configuración"
         showSettings={false}
-        action={<Button size="sm" onClick={openProfilePanel}>Editar perfil</Button>}
+        action={
+          <Button size="sm" onClick={openProfilePanel}>
+            Editar perfil
+          </Button>
+        }
       />
       <div className="space-y-3.5 py-3">
         {/* Perfil */}
         <div className="space-y-2">
-          <SectionHeader
-            title="Perfil"
-            description="Información de usuario y sesión"
-          />
+          <SectionHeader title="Perfil" description="Información de usuario y sesión" />
           <Card className="overflow-hidden">
             {/* Avatar + email block */}
             <div className="flex items-center gap-3 p-3">
@@ -192,9 +185,7 @@ export default function SettingsPage() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{displayName}</p>
-                <p className="truncate text-[11px] text-muted-foreground">
-                  {displayEmail}
-                </p>
+                <p className="truncate text-[11px] text-muted-foreground">{displayEmail}</p>
               </div>
               <Badge variant="muted">Demo</Badge>
             </div>
@@ -212,10 +203,7 @@ export default function SettingsPage() {
 
         {/* Preferencias */}
         <div className="space-y-2">
-          <SectionHeader
-            title="Preferencias"
-            description="Personalización de la experiencia"
-          />
+          <SectionHeader title="Preferencias" description="Personalización de la experiencia" />
           <Card className="divide-y divide-border px-3">
             <SettingsRow icon={Coins} label="Moneda principal">
               <Badge accent="green">MXN</Badge>
@@ -234,13 +222,20 @@ export default function SettingsPage() {
 
         {/* Categorías */}
         <div className="space-y-2">
-          <SectionHeader
-            title="Categorías"
-            description="Clasificación de transacciones"
-          />
+          <SectionHeader title="Categorías" description="Clasificación de transacciones" />
           <Card className="divide-y divide-border px-3">
-            <NavRow icon={Tags} label="Gestionar categorías" badge={`${categoryCount}`} to="/categories" />
-            <NavRow icon={PieChart} label="Gestionar presupuestos" badge={`${budgetCount}`} to="/budgets" />
+            <NavRow
+              icon={Tags}
+              label="Gestionar categorías"
+              badge={`${categoryCount}`}
+              to="/categories"
+            />
+            <NavRow
+              icon={PieChart}
+              label="Gestionar presupuestos"
+              badge={`${budgetCount}`}
+              to="/budgets"
+            />
           </Card>
         </div>
 
@@ -260,27 +255,30 @@ export default function SettingsPage() {
 
         {/* Datos */}
         <div className="space-y-2">
-          <SectionHeader
-            title="Datos"
-            description="Gestión y respaldo de información"
-          />
+          <SectionHeader title="Datos" description="Gestión y respaldo de información" />
           <Card className="divide-y divide-border px-3">
-            <NavRow icon={Wallet} label="Cuentas registradas" badge={`${accountCount}`} to="/accounts" />
+            <NavRow
+              icon={Wallet}
+              label="Cuentas registradas"
+              badge={`${accountCount}`}
+              to="/accounts"
+            />
             <SettingsRow icon={Download} label="Exportar datos">
-              <Button variant="outline" size="sm" onClick={() => setPanel('export')}>CSV</Button>
+              <Button variant="outline" size="sm" onClick={() => setPanel('export')}>
+                CSV
+              </Button>
             </SettingsRow>
             <SettingsRow icon={Upload} label="Importar datos">
-              <Button variant="outline" size="sm" onClick={() => setPanel('import')}>Importar</Button>
+              <Button variant="outline" size="sm" onClick={() => setPanel('import')}>
+                Importar
+              </Button>
             </SettingsRow>
           </Card>
         </div>
 
         {/* Seguridad */}
         <div className="space-y-2">
-          <SectionHeader
-            title="Seguridad"
-            description="Autenticación y acceso"
-          />
+          <SectionHeader title="Seguridad" description="Autenticación y acceso" />
           <Card className="divide-y divide-border px-3">
             <SettingsRow icon={ShieldCheck} label="Autenticación">
               <Badge accent="yellow">Supabase Auth</Badge>
@@ -299,10 +297,7 @@ export default function SettingsPage() {
 
         {/* Información técnica */}
         <div className="space-y-2">
-          <SectionHeader
-            title="Información técnica"
-            description="Detalles del sistema"
-          />
+          <SectionHeader title="Información técnica" description="Detalles del sistema" />
           <Card className="divide-y divide-border px-3">
             <SettingsRow icon={Terminal} label="Modo de API">
               <Badge variant="muted">Mock API</Badge>

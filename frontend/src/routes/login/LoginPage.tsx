@@ -47,9 +47,7 @@ export default function LoginPage() {
         {/* Brand */}
         <div className="text-center">
           <p className="text-xl font-semibold tracking-[-0.045em] text-foreground">budg</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Tu centro de control financiero
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">Tu centro de control financiero</p>
         </div>
 
         <Card className="p-4 shadow-[0_8px_28px_rgba(0,0,0,0.05)]">
@@ -77,9 +75,7 @@ export default function LoginPage() {
               />
             </div>
 
-            {error && (
-              <p className="text-xs text-destructive">{error}</p>
-            )}
+            {error && <p className="text-xs text-destructive">{error}</p>}
 
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? 'Ingresando…' : 'Iniciar sesión'}
