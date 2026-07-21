@@ -78,27 +78,30 @@ func NewCategoryRepository(pool *pgxpool.Pool) *CategoryRepository {
 
 // List returns every category owned by the user, ordered for stable UI display.
 func (r *CategoryRepository) List(ctx context.Context, userID string) ([]Category, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT `+categoryColumns+`
-		FROM public.categories
-		WHERE user_id = $1
-		ORDER BY sort_order ASC, name ASC
-	`, userID)
-	if err != nil {
-		return nil, fmt.Errorf("list categories: %w", err)
-	}
-	defer rows.Close()
-
 	out := make([]Category, 0)
-	for rows.Next() {
-		var c Category
-		if err := scanCategory(rows, &c); err != nil {
-			return nil, fmt.Errorf("scan category: %w", err)
+	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT `+categoryColumns+`
+			FROM public.categories
+			WHERE user_id = $1
+			ORDER BY sort_order ASC, name ASC
+		`, userID)
+		if err != nil {
+			return fmt.Errorf("list categories: %w", err)
 		}
-		out = append(out, c)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate categories: %w", err)
+		defer rows.Close()
+
+		for rows.Next() {
+			var c Category
+			if err := scanCategory(rows, &c); err != nil {
+				return fmt.Errorf("scan category: %w", err)
+			}
+			out = append(out, c)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -106,15 +109,17 @@ func (r *CategoryRepository) List(ctx context.Context, userID string) ([]Categor
 // Create inserts a new user-scoped category and returns the stored row.
 func (r *CategoryRepository) Create(ctx context.Context, userID string, in CategoryInput) (Category, error) {
 	var c Category
-	err := r.pool.QueryRow(ctx, `
-		INSERT INTO public.categories (user_id, name, kind, color, icon, parent_id, sort_order)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING `+categoryColumns,
-		userID, in.Name, in.Kind, in.Color, in.Icon, in.ParentID, in.SortOrder,
-	).Scan(
-		&c.ID, &c.UserID, &c.Name, &c.Kind, &c.Color, &c.Icon,
-		&c.ParentID, &c.IsSystem, &c.SortOrder, &c.CreatedAt, &c.UpdatedAt,
-	)
+	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			INSERT INTO public.categories (user_id, name, kind, color, icon, parent_id, sort_order)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			RETURNING `+categoryColumns,
+			userID, in.Name, in.Kind, in.Color, in.Icon, in.ParentID, in.SortOrder,
+		).Scan(
+			&c.ID, &c.UserID, &c.Name, &c.Kind, &c.Color, &c.Icon,
+			&c.ParentID, &c.IsSystem, &c.SortOrder, &c.CreatedAt, &c.UpdatedAt,
+		)
+	})
 	if err != nil {
 		return Category{}, fmt.Errorf("create category: %w", err)
 	}
@@ -129,22 +134,24 @@ func (r *CategoryRepository) Update(ctx context.Context, userID, id string, patc
 		newParent = *patch.ParentID
 	}
 	var c Category
-	err := r.pool.QueryRow(ctx, `
-		UPDATE public.categories SET
-			name        = COALESCE($3, name),
-			color       = COALESCE($4, color),
-			icon        = COALESCE($5, icon),
-			parent_id   = CASE WHEN $6::boolean THEN $7 ELSE parent_id END,
-			sort_order  = COALESCE($8, sort_order),
-			updated_at  = now()
-		WHERE user_id = $1 AND id = $2
-		RETURNING `+categoryColumns,
-		userID, id, patch.Name, patch.Color, patch.Icon,
-		clearParent, newParent, patch.SortOrder,
-	).Scan(
-		&c.ID, &c.UserID, &c.Name, &c.Kind, &c.Color, &c.Icon,
-		&c.ParentID, &c.IsSystem, &c.SortOrder, &c.CreatedAt, &c.UpdatedAt,
-	)
+	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			UPDATE public.categories SET
+				name        = COALESCE($3, name),
+				color       = COALESCE($4, color),
+				icon        = COALESCE($5, icon),
+				parent_id   = CASE WHEN $6::boolean THEN $7 ELSE parent_id END,
+				sort_order  = COALESCE($8, sort_order),
+				updated_at  = now()
+			WHERE user_id = $1 AND id = $2
+			RETURNING `+categoryColumns,
+			userID, id, patch.Name, patch.Color, patch.Icon,
+			clearParent, newParent, patch.SortOrder,
+		).Scan(
+			&c.ID, &c.UserID, &c.Name, &c.Kind, &c.Color, &c.Icon,
+			&c.ParentID, &c.IsSystem, &c.SortOrder, &c.CreatedAt, &c.UpdatedAt,
+		)
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Category{}, ErrNotFound
@@ -156,14 +163,22 @@ func (r *CategoryRepository) Update(ctx context.Context, userID, id string, patc
 
 // Delete removes a category owned by userID.
 func (r *CategoryRepository) Delete(ctx context.Context, userID, id string) error {
-	tag, err := r.pool.Exec(ctx, `
-		DELETE FROM public.categories
-		WHERE user_id = $1 AND id = $2
-	`, userID, id)
+	var rowsAffected int64
+	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			DELETE FROM public.categories
+			WHERE user_id = $1 AND id = $2
+		`, userID, id)
+		if err != nil {
+			return err
+		}
+		rowsAffected = tag.RowsAffected()
+		return nil
+	})
 	if err != nil {
 		return fmt.Errorf("delete category: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if rowsAffected == 0 {
 		return ErrNotFound
 	}
 	return nil
