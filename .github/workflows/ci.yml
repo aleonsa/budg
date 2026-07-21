@@ -116,6 +116,94 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  migrations:
+    name: Migrations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Install pinned Goose
+        env:
+          GOOSE_VERSION: v3.27.2
+        run: |
+          go install "github.com/pressly/goose/v3/cmd/goose@${GOOSE_VERSION}"
+          goose -version
+
+      - name: Install pinned Supabase CLI
+        env:
+          SUPABASE_VERSION: 2.109.1
+          SUPABASE_SHA256: 36d87b7fe6b4bcfe89ac47a4354e526cff22480224de426d7b370f6934556976
+        run: |
+          archive="/tmp/supabase.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/supabase/cli/releases/download/v${SUPABASE_VERSION}/supabase_linux_amd64.tar.gz" \
+            --output "$archive"
+          printf '%s  %s\n' "$SUPABASE_SHA256" "$archive" | sha256sum --check --strict
+          mkdir -p /tmp/supabase-bin
+          tar -xzf "$archive" -C /tmp/supabase-bin
+          echo "/tmp/supabase-bin" >> "$GITHUB_PATH"
+          /tmp/supabase-bin/supabase --version
+
+      - name: Start disposable Supabase DB
+        run: |
+          supabase start --yes \
+            --exclude analytics,edge-runtime,functions,imgproxy,inbucket,meta,realtime,rest,storage,studio,vector
+          for i in $(seq 1 60); do
+            status="$(docker inspect supabase_db_budg --format '{{.State.Health.Status}}' 2>/dev/null || true)"
+            if [ "$status" = "healthy" ]; then exit 0; fi
+            sleep 2
+          done
+          echo "::error::Supabase DB did not become healthy"
+          docker logs supabase_db_budg --tail 50
+          exit 1
+
+      - name: Bootstrap runtime role
+        env:
+          BUDG_API_PASSWORD: ci-runtime-password-not-secret
+        run: ./backend/scripts/bootstrap-local-db.sh
+
+      - name: Validate migrations
+        run: |
+          docker exec supabase_db_budg psql -U postgres -d postgres -Atc "select 1" >/dev/null
+          GOOSE_DRIVER=postgres \
+          GOOSE_DBSTRING="postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable" \
+          GOOSE_MIGRATION_DIR=./backend/migrations \
+          goose -env=none validate
+
+      - name: Apply migrations
+        run: |
+          GOOSE_DRIVER=postgres \
+          GOOSE_DBSTRING="postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable" \
+          GOOSE_MIGRATION_DIR=./backend/migrations \
+          goose -env=none up
+
+      - name: Roll back to zero
+        run: |
+          GOOSE_DRIVER=postgres \
+          GOOSE_DBSTRING="postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable" \
+          GOOSE_MIGRATION_DIR=./backend/migrations \
+          goose -env=none down-to 0
+
+      - name: Reapply migrations
+        run: |
+          GOOSE_DRIVER=postgres \
+          GOOSE_DBSTRING="postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable" \
+          GOOSE_MIGRATION_DIR=./backend/migrations \
+          goose -env=none up
+
+      - name: Tear down Supabase
+        if: always()
+        run: supabase stop --no-backup || true
+
   security:
     name: Security
     runs-on: ubuntu-24.04
@@ -161,7 +249,7 @@ jobs:
   ci:
     name: ci
     if: always()
-    needs: [frontend-quality, backend-quality, security]
+    needs: [frontend-quality, backend-quality, migrations, security]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
@@ -169,8 +257,10 @@ jobs:
         env:
           FRONTEND_RESULT: ${{ needs.frontend-quality.result }}
           BACKEND_RESULT: ${{ needs.backend-quality.result }}
+          MIGRATIONS_RESULT: ${{ needs.migrations.result }}
           SECURITY_RESULT: ${{ needs.security.result }}
         run: |
           test "$FRONTEND_RESULT" = success
           test "$BACKEND_RESULT" = success
+          test "$MIGRATIONS_RESULT" = success
           test "$SECURITY_RESULT" = success
