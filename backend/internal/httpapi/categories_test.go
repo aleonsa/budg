@@ -190,8 +190,49 @@ func TestUpdateCategoryAppliesPatchAndReturnsUpdated(t *testing.T) {
 	if stub.updatePatch.Name == nil || *stub.updatePatch.Name != "Renamed" {
 		t.Fatalf("captured name patch = %+v", stub.updatePatch.Name)
 	}
-	if stub.updatePatch.ParentID == nil || *stub.updatePatch.ParentID == nil || **stub.updatePatch.ParentID != parent {
+	if !stub.updatePatch.ParentID.Set || stub.updatePatch.ParentID.Value == nil || *stub.updatePatch.ParentID.Value != parent {
 		t.Fatalf("captured parent patch = %+v", stub.updatePatch.ParentID)
+	}
+}
+
+// TestUpdateCategoryClearsParentExplicitly proves Field[string] actually
+// distinguishes "parentId omitted" from "parentId: null" -- a plain double
+// pointer (**string) cannot make this distinction with encoding/json (both
+// cases decode to a nil outer pointer), which was a real, silent bug: PATCH
+// {"parentId": null} used to be indistinguishable from an empty body.
+func TestUpdateCategoryClearsParentExplicitly(t *testing.T) {
+	t.Parallel()
+	stub := &stubCategoryStore{updateResult: store.Category{ID: "cat-1"}}
+	router := newCategoriesRouter(stub)
+
+	rec := doRequest(router, http.MethodPatch, "/v1/categories/cat-1", `{"parentId":null}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	if !stub.updatePatch.ParentID.Set {
+		t.Fatal("parentId patch presence not captured, want Set=true for explicit null")
+	}
+	if stub.updatePatch.ParentID.Value != nil {
+		t.Fatalf("parentId value = %v, want nil (explicit clear)", *stub.updatePatch.ParentID.Value)
+	}
+}
+
+// TestUpdateCategoryOmittedParentIDLeavesItUnset proves the other half of
+// the distinction: a body that never mentions parentId must leave Set
+// false, so the repository knows to leave the column untouched.
+func TestUpdateCategoryOmittedParentIDLeavesItUnset(t *testing.T) {
+	t.Parallel()
+	stub := &stubCategoryStore{updateResult: store.Category{ID: "cat-1"}}
+	router := newCategoriesRouter(stub)
+
+	rec := doRequest(router, http.MethodPatch, "/v1/categories/cat-1", `{"name":"Renamed"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	if stub.updatePatch.ParentID.Set {
+		t.Fatalf("parentId patch = %+v, want Set=false when omitted", stub.updatePatch.ParentID)
 	}
 }
 

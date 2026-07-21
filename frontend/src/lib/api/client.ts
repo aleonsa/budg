@@ -1,30 +1,26 @@
 /**
  * API Client — mock implementation backed by an in-memory Zustand store.
  *
- * Category CRUD has been migrated to the real backend (see ./categories);
- * this file still hosts the remaining mock resources until each lands in
- * Phase 4+. When a resource is migrated, delete its functions here and
- * re-export the real implementation to keep callsites stable.
+ * Category and account CRUD have been migrated to the real backend (see
+ * ./categories, ./accounts); this file still hosts the remaining mock
+ * resources until each lands in a later phase. When a resource is migrated,
+ * delete its functions here and re-export the real implementation to keep
+ * callsites stable.
  */
 
-import type { Account, Budget, MSIPurchase, Rule, SavingsGoal, Transaction } from '@/types'
+import type { Budget, MSIPurchase, Rule, SavingsGoal, Transaction } from '@/types'
 import { useMockData } from '@/stores/mockData'
 
 // Re-export real implementations so callers using `import * as api from
 // '@/lib/api/client'` keep working transparently across the migration.
 export { getCategories, createCategory, updateCategory, deleteCategory } from './categories'
+export { getAccounts, createAccount, updateAccount, deleteAccount } from './accounts'
 
 /** Simulate network latency */
 const delay = (ms = 200) => new Promise((r) => setTimeout(r, ms))
 
 /** Snapshot accessor — always reads the latest in-memory state. */
 const state = () => useMockData.getState()
-
-// ── Accounts ────────────────────────────────────────────────
-export async function getAccounts(): Promise<Account[]> {
-  await delay()
-  return [...state().accounts]
-}
 
 // ── Transactions ────────────────────────────────────────────
 export async function getTransactions(): Promise<Transaction[]> {
@@ -75,20 +71,7 @@ export async function deleteTransaction(id: string): Promise<void> {
   state().deleteTransaction(id)
 }
 
-export async function createAccount(input: Omit<Account, 'id' | 'isActive'>): Promise<Account> {
-  await delay()
-  return state().addAccount(input)
-}
-
-export async function updateAccount(id: string, patch: Partial<Account>): Promise<void> {
-  await delay()
-  state().updateAccount(id, patch)
-}
-
-export async function deleteAccount(id: string): Promise<void> {
-  await delay()
-  state().deleteAccount(id)
-}
+// Account create/update/delete are backed by ./accounts (re-exported above).
 
 export async function createBudget(input: Omit<Budget, 'id'>): Promise<Budget> {
   await delay()

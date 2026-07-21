@@ -47,14 +47,15 @@ type CategoryInput struct {
 }
 
 // CategoryPatch describes a partial update. nil pointers leave the column
-// unchanged. ParentID uses a double pointer so callers can distinguish
-// "omitted" from "explicitly cleared to null".
+// unchanged. ParentID uses Field[string] so callers can distinguish
+// "omitted" from "explicitly cleared to null" -- see field.go for why a
+// plain double pointer cannot actually express that with encoding/json.
 type CategoryPatch struct {
-	Name      *string  `json:"name"`
-	Color     *string  `json:"color"`
-	Icon      *string  `json:"icon"`
-	ParentID  **string `json:"parentId"`
-	SortOrder *int     `json:"order"`
+	Name      *string       `json:"name"`
+	Color     *string       `json:"color"`
+	Icon      *string       `json:"icon"`
+	ParentID  Field[string] `json:"parentId"`
+	SortOrder *int          `json:"order"`
 }
 
 const categoryColumns = `id, user_id, name, kind, color, icon, parent_id, is_system, sort_order, created_at, updated_at`
@@ -128,11 +129,6 @@ func (r *CategoryRepository) Create(ctx context.Context, userID string, in Categ
 
 // Update applies a partial update to a category owned by userID.
 func (r *CategoryRepository) Update(ctx context.Context, userID, id string, patch CategoryPatch) (Category, error) {
-	clearParent := patch.ParentID != nil
-	var newParent *string
-	if clearParent && *patch.ParentID != nil {
-		newParent = *patch.ParentID
-	}
 	var c Category
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
@@ -146,7 +142,7 @@ func (r *CategoryRepository) Update(ctx context.Context, userID, id string, patc
 			WHERE user_id = $1 AND id = $2
 			RETURNING `+categoryColumns,
 			userID, id, patch.Name, patch.Color, patch.Icon,
-			clearParent, newParent, patch.SortOrder,
+			patch.ParentID.Set, patch.ParentID.Value, patch.SortOrder,
 		).Scan(
 			&c.ID, &c.UserID, &c.Name, &c.Kind, &c.Color, &c.Icon,
 			&c.ParentID, &c.IsSystem, &c.SortOrder, &c.CreatedAt, &c.UpdatedAt,
