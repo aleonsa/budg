@@ -6,8 +6,13 @@
 \quit
 \endif
 
+-- NOBYPASSRLS is explicit (not just the default) so re-running this script
+-- against an existing role created before this change actually clears any
+-- previously granted BYPASSRLS attribute. RLS is the second, independent
+-- enforcement layer beneath the application's explicit user_id filtering
+-- (see internal/store.RunScoped) — budg_api must never bypass it.
 SELECT format(
-    'CREATE ROLE budg_api LOGIN BYPASSRLS PASSWORD %L',
+    'CREATE ROLE budg_api LOGIN NOBYPASSRLS PASSWORD %L',
     :'budg_api_password'
 )
 WHERE NOT EXISTS (
@@ -17,7 +22,7 @@ WHERE NOT EXISTS (
 ) \gexec
 
 SELECT format(
-    'ALTER ROLE budg_api WITH LOGIN BYPASSRLS PASSWORD %L',
+    'ALTER ROLE budg_api WITH LOGIN NOBYPASSRLS PASSWORD %L',
     :'budg_api_password'
 ) \gexec
 
