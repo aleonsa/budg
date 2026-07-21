@@ -14,3 +14,7 @@ export const queryKeys = {
   // Dashboard composed query (uses the above, but cached separately)
   dashboard: ['dashboard'] as const,
 } as const
+
+export const authQueryKeys = {
+  me: () => ['auth', 'me'] as const,
+}

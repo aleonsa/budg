@@ -67,7 +67,7 @@ export function Sidebar() {
   }, [isUserMenuOpen])
 
   const handleSignOut = () => {
-    signOut()
+    void signOut()
     setIsUserMenuOpen(false)
     navigate('/login', { replace: true })
   }

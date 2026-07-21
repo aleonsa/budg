@@ -19,7 +19,7 @@ function renderSidebar(path = '/transactions') {
 }
 
 describe('Sidebar', () => {
-  afterEach(() => useAuth.setState({ user: null }))
+  afterEach(() => useAuth.setState({ status: 'unauthenticated', user: null, error: null }))
 
   it('marks the current destination and navigates among primary routes', async () => {
     const user = userEvent.setup()
@@ -37,7 +37,10 @@ describe('Sidebar', () => {
 
   it('opens account details and closes them with Escape or an outside pointer', async () => {
     const user = userEvent.setup()
-    useAuth.setState({ user: { name: 'Ana', email: 'ana@example.com' } })
+    useAuth.setState({
+      status: 'authenticated',
+      user: { id: 'u1', email: 'ana@example.com', name: 'Ana' },
+    })
     renderSidebar()
     const trigger = screen.getByRole('button', { name: /Ana ana@example.com/ })
 
@@ -57,7 +60,10 @@ describe('Sidebar', () => {
 
   it('signs out and replaces the current route with login', async () => {
     const user = userEvent.setup()
-    useAuth.setState({ user: { name: 'Ana', email: 'ana@example.com' } })
+    useAuth.setState({
+      status: 'authenticated',
+      user: { id: 'u1', email: 'ana@example.com', name: 'Ana' },
+    })
     renderSidebar()
 
     await user.click(screen.getByRole('button', { name: /Ana ana@example.com/ }))
@@ -69,7 +75,10 @@ describe('Sidebar', () => {
 
   it('closes account details after navigating to settings', async () => {
     const user = userEvent.setup()
-    useAuth.setState({ user: { name: 'Ana', email: 'ana@example.com' } })
+    useAuth.setState({
+      status: 'authenticated',
+      user: { id: 'u1', email: 'ana@example.com', name: 'Ana' },
+    })
     renderSidebar()
     const trigger = screen.getByRole('button', { name: /Ana ana@example.com/ })
 
