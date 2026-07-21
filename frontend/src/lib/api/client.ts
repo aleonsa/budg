@@ -8,9 +8,6 @@
  * callsites stable.
  */
 
-import type { MSIPurchase } from '@/types'
-import { useMockData } from '@/stores/mockData'
-
 // Re-export real implementations so callers using `import * as api from
 // '@/lib/api/client'` keep working transparently across the migration.
 export { getCategories, createCategory, updateCategory, deleteCategory } from './categories'
@@ -30,22 +27,11 @@ export {
   deleteSavingsGoal,
 } from './savings-goals'
 export { getRules, createRule, toggleRule, deleteRule } from './rules'
-
-/** Simulate network latency */
-const delay = (ms = 200) => new Promise((r) => setTimeout(r, ms))
-
-/** Snapshot accessor — always reads the latest in-memory state. */
-const state = () => useMockData.getState()
-
-// ── MSI Purchases ───────────────────────────────────────────
-export async function getMSIPurchases(): Promise<MSIPurchase[]> {
-  await delay()
-  return [...state().msiPurchases]
-}
+export { getMSIPurchases } from './msi-purchases'
 
 // ── Mutations ───────────────────────────────────────────────
 
-// Transactions, accounts, budgets, savings goals, and rules are backed by
-// their own API modules (re-exported above).
+// Transactions, accounts, budgets, savings goals, rules, and MSI purchases
+// are backed by their own API modules (re-exported above).
 
 // Category create/update/delete are backed by ./categories (re-exported above).
