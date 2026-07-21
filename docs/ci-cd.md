@@ -36,8 +36,6 @@ linear history; force push/delete y bypass administrativo están bloqueados.
 .github/
   workflows/
     ci.yml
-    deploy-frontend.yml       # se activa al elegir hosting
-    deploy-backend.yml        # se activa al crear Cloud Run
   dependabot.yml
 Makefile                       # entrypoint local/CI, sin ocultar comandos
 docs/
@@ -50,11 +48,14 @@ frontend/
 backend/
   go.mod                       # creado y activado en Fase 1
   go.sum
+  Dockerfile                   # imagen del backend, agregada en Fase 11
+vercel.json                    # servicios frontend+backend, agregado en Fase 11
 ```
 
-No se crean workflows de deploy falsos antes de existir destino. Fase 0 deja
-CI frontend/security activo, gate Go definido y estrategia CD documentada.
-Workflows de deploy se agregan cuando infraestructura correspondiente existe.
+No se crean workflows de deploy falsos antes de existir destino. Fase 0 dejó
+CI frontend/security activo y gate Go definido. Fase 11 decidió no necesitar
+`deploy-frontend.yml`/`deploy-backend.yml`: Vercel Services despliega ambos
+servicios nativamente desde `vercel.json` sin workflow GitHub Actions propio.
 
 ## Toolchains reproducibles
 
@@ -273,44 +274,35 @@ artificiales.
 Auth, ownership, dinero, idempotencia y migraciones no se aprueban solo por
 porcentaje; necesitan casos explícitos de fallo.
 
-## CD frontend
+## CD (decisión 2026-07-21: Vercel Services, no Cloud Run)
 
-Se activa al elegir Cloudflare Pages o Vercel:
+Este documento planeaba originalmente backend en Cloud Run con Workload
+Identity Federation, Artifact Registry y rollout canary. Se decidió consolidar
+frontend y backend en un solo proyecto Vercel usando
+[Services](https://vercel.com/docs/services) en su lugar — ver
+`docs/backend/04-operations.md` para la topología y el razonamiento completo.
+Esto reemplaza toda la sección de CD backend enterprise de abajo: no hay
+workflow GitHub Actions custom de deploy, no hay GCP, no hay WIF ni Artifact
+Registry.
 
-1. CI verde.
-2. Construir bundle por ambiente desde SHA aprobado, porque variables `VITE_*`
-   se embeben en build; ejecutar mismos gates antes del deploy.
-3. Preview por PR si plataforma lo soporta sin exponer secretos sensibles.
-4. Deploy production desde `main` y environment protegido.
-5. Smoke test de carga/rutas.
-6. Rollback a deployment anterior documentado.
+1. CI verde en `main` (`ci` agregador).
+2. Vercel construye ambos servicios nativamente desde el mismo commit (git
+   integration, sin workflow propio).
+3. Backend se construye desde `backend/Dockerfile` (`runtime: container` en
+   `vercel.json`); mismo binario/imagen serviría igual en Cloud Run u otro
+   runtime de contenedores si Vercel Services deja de convenir.
+4. Preview deployment automático por PR con ambos servicios juntos
+   (full-stack), sin exponer secretos de producción (env vars de preview
+   separadas de producción en el dashboard).
+5. Deploy a producción automático en cada push a `main` — proyecto de uso
+   personal, sin aprobación manual por ahora.
+6. Smoke test post-deploy: `/healthz`, `/readyz`, `/v1/me` sin y con token.
+7. Migraciones Goose corren como paso manual/separado, nunca desde el
+   entrypoint del contenedor; nunca automáticas dentro del deploy de Vercel.
+8. Rollback: re-promover el deployment anterior desde el dashboard de Vercel.
 
-## CD backend
-
-Se activa en Fase 9:
-
-1. CI completo verde.
-2. Construir una vez imagen multi-stage desde SHA verde.
-3. Escanear imagen y publicar por digest/SHA en Artifact Registry.
-4. Autenticar GitHub con Workload Identity Federation/OIDC; no JSON key larga.
-5. Condicionar provider por repositorio y ref/environment confiable; permisos
-   job `contents: read` e `id-token: write` solamente.
-6. Usar service accounts separadas para publicar/desplegar y migrar DB, sin
-   roles básicos Owner/Editor.
-7. Ejecutar Goose expand migration como job único y separado.
-8. Desplegar nueva revisión Cloud Run sin todo tráfico cuando cambio sea riesgoso.
-9. Ejecutar `/healthz`, `/readyz` y smoke auth/API.
-10. Mover tráfico y observar métricas.
-11. Ejecutar contract migration solo cuando revisiones viejas estén retiradas.
-
-Production usa GitHub Environment con aprobación manual inicialmente. Auto
-deploy puede evaluarse cuando rollback y observabilidad estén probados.
-
-Workflow production usa `concurrency` exclusiva con `cancel-in-progress: false`.
-Solo ese workflow ejecuta migraciones, con timeout acotado y una identidad de
-migración. Antes de migrar verifica backup/PITR disponible. Fallo de Goose corta
-pipeline antes del deploy. Esta serialización es obligatoria; no asumimos que
-Goose resuelva carreras entre dos despliegues.
+Secretos (`DATABASE_URL`, etc.) viven como variables de entorno "Sensitive" en
+el dashboard de Vercel, con valores distintos entre Preview y Production.
 
 ## Estado de setup de Fase 0
 

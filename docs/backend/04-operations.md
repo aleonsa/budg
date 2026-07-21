@@ -1,99 +1,134 @@
-# Despliegue y operación serverless
+# Despliegue y operación
 
-## Topología inicial
+## Decisión de hosting (2026-07-21)
+
+Versiones anteriores de este documento planeaban Cloud Run. Se decidió
+consolidar frontend y backend en un solo proyecto Vercel usando
+[Services](https://vercel.com/docs/services) (Beta) en vez de Cloud Run, por:
+
+- Cuenta Vercel ya existente; Cloud Run hubiera exigido proyecto GCP, IAM,
+  Artifact Registry y Secret Manager nuevos solo para esto.
+- Un solo dominio: frontend y backend comparten origin (ruteo por path vía
+  `vercel.json`), eliminando CORS en producción por completo.
+- Deploy automático nativo por push a `main`; no requiere workflow GitHub
+  Actions custom para el backend.
+- El backend corre igual como imagen de contenedor (`backend/Dockerfile`);
+  nada en el código Go asume una plataforma específica. Si Vercel Services deja
+  de convenir, la misma imagen se redespliega en Cloud Run u otro runtime de
+  contenedores sin cambios.
+
+Trade-off aceptado conscientemente: Services es Beta y corre bajo el modelo de
+Vercel Functions (Fluid Compute) — escala a cero tras inactividad (5 min en
+producción, 30s en preview) y no ofrece IP estática ni Secure Compute todavía.
+Aceptable para app de uso personal de bajo tráfico.
+
+## Topología
 
 ```txt
-Cloudflare Pages o Vercel
-  -> HTTPS
-Google Cloud Run, región cercana a usuarios y Supabase
-  -> Supabase transaction pooler
-Supabase PostgreSQL
-
 Browser
-  -> Supabase Auth
-  -> token JWT enviado a Cloud Run
+  -> Vercel (un dominio, un deployment)
+       /v1/*, /healthz, /readyz -> service "backend" (contenedor Go)
+       /*                       -> service "frontend" (Vite estático)
+  -> Supabase Auth (JWT) y Supabase transaction pooler (Supavisor)
+Supabase PostgreSQL
 ```
 
-Cloud Run se elige sobre funciones individuales porque API Go sigue siendo un
-servicio HTTP normal: un binario, un router, un pool y un despliegue. Escala a
-cero sin fragmentar cada endpoint.
+`vercel.json` en la raíz del repo define ambos servicios y las rewrites
+públicas. Cada servicio se construye de forma independiente; el backend usa
+`runtime: container` + `entrypoint: Dockerfile` explícitos porque el repo no
+seguiría la convención de función serverless de Vercel para Go (esperaría
+handlers exportados por archivo bajo `api/`, no un router `chi` con `main()`
+persistente).
 
 ## Ambientes
 
-| Ambiente | Propósito | Datos |
-| --- | --- | --- |
-| Local | Desarrollo y pruebas | Supabase local o DB descartable |
-| Development | Integración compartida | Proyecto Supabase no productivo |
-| Production | Usuarios reales | Proyecto y secretos separados |
+| Ambiente | Propósito | Datos | Proyecto Supabase |
+| --- | --- | --- | --- |
+| Local | Desarrollo y pruebas | Supabase local o DB descartable | N/A |
+| Development | Integración compartida | Proyecto Supabase no productivo | `development` |
+| Production | Usuarios reales | Proyecto y secretos separados | proyecto dedicado, creado para producción |
 
 Nunca se apunta test automatizado destructivo a producción. Development y
 production no comparten passwords, JWT config ni proyecto Supabase.
 
-## Variables de entorno planeadas
+## Variables de entorno
 
-| Variable | Secreta | Descripción |
-| --- | --- | --- |
-| `APP_ENV` | No | `development` o `production` |
-| `PORT` | No | Puerto, proporcionado por Cloud Run |
-| `LOG_LEVEL` | No | Nivel `slog` |
-| `DATABASE_URL` | Sí | Runtime transaction pooler |
-| `MIGRATIONS_DATABASE_URL` | Sí | Direct/session para Goose, fuera de API |
-| `SUPABASE_URL` | No | Proyecto usado para issuer/JWKS |
-| `SUPABASE_JWT_AUDIENCE` | No | Audience esperada |
-| `CORS_ALLOWED_ORIGINS` | No | Lista explícita de frontends |
+| Variable | Secreta | Servicio | Descripción |
+| --- | --- | --- | --- |
+| `APP_ENV` | No | backend | `development` o `production` |
+| `PORT` | No | backend | Vercel inyecta el puerto del contenedor |
+| `LOG_LEVEL` | No | backend | Nivel `slog` |
+| `DATABASE_URL` | Sí | backend | Runtime transaction pooler, `sslmode=verify-full` |
+| `SUPABASE_JWT_ISSUER` | No | backend | Issuer esperado |
+| `SUPABASE_JWKS_URL` | No | backend | JWKS del proyecto Supabase |
+| `SUPABASE_JWT_AUDIENCE` | No | backend | Audience esperada |
+| `CORS_ALLOWED_ORIGINS` | No | backend | Orígenes de desarrollo local; en producción el frontend es same-origin |
+| `VITE_SUPABASE_URL` | No | frontend | Proyecto Supabase (cliente público) |
+| `VITE_SUPABASE_ANON_KEY` | No | frontend | Anon key (segura para browser) |
+| `VITE_API_BASE_URL` | No | frontend | URL absoluta del dominio Vercel (same-origin en producción) |
 
-Frontend solo recibe valores públicos, por ejemplo URL de Supabase, anon key y
-URL de API. Password DB, migration URL y service role jamás usan prefijo
-`VITE_`.
+Password DB y service role jamás usan prefijo `VITE_`. `DATABASE_URL` hosted
+exige TLS verificable (`sslmode=verify-full`); ver sección siguiente sobre el
+CA root de Supabase.
 
-`DATABASE_URL` hosted exige TLS verificable (`sslmode=verify-full`) y CA
-recomendada por Supabase. Servicio rechaza configuración production insegura.
+## TLS del pooler de Supabase (`sslmode=verify-full`)
+
+El certificado del pooler de Supabase (Supavisor, `*.pooler.supabase.com`) no
+encadena a una CA públicamente confiada: la raíz (`Supabase Root 2021 CA`) es
+autofirmada. Ningún trust store de sistema operativo (macOS, Debian/Linux) la
+reconoce, así que `sslmode=verify-full` falla con error genérico de
+verificación TLS en cualquier plataforma a menos que se le entregue esa CA
+explícitamente vía el parámetro `sslrootcert`.
+
+Confirmado a mano el 2026-07-21 contra el pooler transaccional del proyecto
+`development`, tanto con `psql` como con el binario Go real (`pgx`) corriendo
+dentro del contenedor Linux — ambos fallan sin `sslrootcert` y funcionan con
+él.
+
+`backend/certs/supabase-root-2021-ca.pem` es esa CA raíz (certificado público,
+sin llave privada, versionado en el repo — ver `backend/certs/README.md`). El
+Dockerfile la copia a `/app/certs/supabase-root-2021-ca.pem` en la imagen de
+runtime. `DATABASE_URL` de producción debe incluir:
+
+```
+?sslmode=verify-full&sslrootcert=/app/certs/supabase-root-2021-ca.pem
+```
 
 ## Contenedor
 
-Dockerfile final debe:
+`backend/Dockerfile` (multi-stage, ~15MB final):
 
-1. Compilar en stage de Go con versiones fijadas.
-2. Ejecutar pruebas fuera o antes de construir release.
-3. Copiar solo binario y certificados necesarios a imagen runtime.
-4. Ejecutar como usuario no root.
-5. No copiar `.env`, source innecesario ni credenciales.
-6. Escuchar `PORT`.
-7. Recibir `SIGTERM` y cerrar servidor/pool.
+1. Compila en stage `golang:1.26.5-bookworm` con `CGO_ENABLED=0` (pgx y jwx son
+   pure Go, sin dependencia cgo).
+2. Runtime en `gcr.io/distroless/static-debian12:nonroot` — sin shell, sin
+   package manager, corre como `nonroot` (uid 65532).
+3. Copia solo el binario compilado y la CA de Supabase; nada de `.env`,
+   `migrations/`, `scripts/` ni código fuente (`.dockerignore`).
+4. Escucha `$PORT` (Vercel/Cloud Run/etc. lo inyectan; default local `8080`).
+5. Recibe `SIGTERM` y cierra servidor/pool con gracia — ya implementado en
+   `cmd/api/main.go` (`signal.Notify` + `srv.Shutdown` con timeout de 30s),
+   coincide con el grace period que Vercel Services da a un contenedor antes
+   de terminarlo forzosamente.
 
-Imagen no ejecuta migraciones en entrypoint. Varias instancias arrancando al
-mismo tiempo no deben competir por schema.
-
-## Configuración inicial de Cloud Run
-
-Punto de partida, no tuning final:
-
-- Minimum instances: `0`.
-- Maximum instances a nivel servicio: `2`, no `2` por revisión.
-- Concurrency: `20`.
-- CPU: `1`.
-- Memory: `256 MiB` o `512 MiB` según medición.
-- Request timeout: corto para API interactiva.
-- Ingress público con auth de aplicación mediante JWT.
-- Startup/liveness probe: `/healthz`.
-
-Con `MaxConns=4`, dos instancias consumen hasta ocho conexiones runtime. Límite
-Supabase debe conservar margen adicional para migraciones, administración y
-transiciones entre revisiones. Si plataforma no ofrece límite máximo a nivel
-servicio, rollout reduce límites por revisión para que suma posible no supere
-presupuesto. Antes de aumentar instancias se recalcula todo el presupuesto.
+Pruebas no corren en el Dockerfile: CI (`make check-backend`) es el gate antes
+de que cualquier commit llegue a un build de imagen; el Dockerfile solo
+compila lo que ya pasó CI. La imagen no ejecuta migraciones en su entrypoint;
+Goose corre como paso separado para que varias instancias arrancando a la vez
+no compitan por el esquema.
 
 ## Flujo de despliegue
 
-1. Ejecutar format, tests, race detector y vet.
-2. Construir imagen inmutable.
-3. Aplicar migración Goose expand backward-compatible con revisión todavía activa.
-4. Desplegar revisión Cloud Run sin mover todo tráfico si cambio es riesgoso.
-5. Ejecutar smoke tests.
-6. Mover tráfico y retirar revisiones antiguas cuando sea seguro.
-7. Aplicar migración contract destructiva solo después de que ningún código
-   antiguo use columna/tabla anterior.
-8. Observar errores y latencia.
+1. CI verde en `main` (`make check-frontend`, `make check-backend`,
+   `make check-security`, migraciones).
+2. Push a `main` dispara build nativo de Vercel para ambos servicios desde el
+   mismo commit.
+3. Migración Goose expand backward-compatible se aplica manualmente (o vía
+   paso separado) antes de que el nuevo código dependa de ella.
+4. Vercel construye y despliega ambos servicios; capa de contenedor del
+   backend se reconstruye desde `backend/Dockerfile`.
+5. Smoke test post-deploy (ver abajo).
+6. Migración contract destructiva solo después de que ningún código viejo use
+   la columna/tabla anterior.
 
 Smoke tests mínimos:
 
@@ -105,21 +140,22 @@ GET /v1/me con token de prueba -> 200
 GET /v1/categories con token -> 200
 ```
 
-Si migración falla, no se despliega código dependiente. Toda migración previa a
-rollout debe ser compatible con revisión actual y rollback. En producción se
+Si una migración falla, no se despliega código dependiente. En producción se
 corrige con nueva migración forward; `down` automático puede destruir datos.
 
 ## CORS
 
-Producción permite solo orígenes frontend conocidos. Desarrollo permite URL
-local exacta, por ejemplo `http://localhost:5173`.
+En producción, frontend y backend comparten origin (mismo dominio Vercel,
+ruteo por path), así que el navegador nunca envía preflight/CORS para tráfico
+real. `CORS_ALLOWED_ORIGINS` sigue existiendo para desarrollo local
+(`http://localhost:5173` hablándole a `localhost:8080`) y como defensa en
+profundidad si el backend alguna vez se sirve desde otro origin.
 
-Política inicial:
+Política:
 
 - Métodos necesarios, no wildcard general.
 - Headers `Authorization`, `Content-Type`, `Accept`.
 - Credentials solo si realmente se usan cookies; Bearer token no las necesita.
-- Preflight cacheado por tiempo moderado.
 
 CORS no autentica ni autoriza. Clientes no-browser pueden ignorarlo.
 
@@ -132,7 +168,7 @@ Cada request debería registrar:
 - Ruta templada cuando sea posible.
 - Status.
 - Duración.
-- Ambiente y revisión.
+- Ambiente.
 - User ID solo si política de privacidad lo permite; preferir identificador
   correlacionable no sensible.
 
@@ -144,22 +180,14 @@ Nunca registrar:
 - SQL con valores sensibles.
 - Stack traces enviados al cliente.
 
-## Métricas iniciales
-
-- Requests por status.
-- Latencia p50/p95/p99.
-- Errores de DB.
-- Tiempo esperando conexión del pool.
-- Número de conexiones adquiridas/ociosas.
-- Cold starts y conteo de instancias.
-- Fallos de validación JWT.
-
-Primero usar métricas y logs nativos de Cloud Run. Agregar proveedor externo
-solo cuando exista necesidad operativa concreta.
+Logs nativos de Vercel (stdout/stderr del contenedor) son la fuente inicial.
+Proveedor externo de observability se agrega solo cuando exista necesidad
+operativa concreta.
 
 ## Backups y recuperación
 
-- Habilitar estrategia disponible en plan Supabase elegido.
+- Habilitar estrategia disponible en plan Supabase elegido para el proyecto de
+  producción.
 - Confirmar retención y point-in-time recovery antes de datos reales.
 - Probar restauración en proyecto no productivo.
 - Exportación de usuario no sustituye backup de DB.
@@ -167,36 +195,43 @@ solo cuando exista necesidad operativa concreta.
 
 ## Seguridad operativa
 
-- Secretos gestionados por Secret Manager/Cloud Run, no Git.
-- IAM mínimo para deploy y runtime.
-- DB role de API con privilegios solo sobre tablas/secuencias requeridas.
-- Dependencias actualizadas y escaneadas.
-- HTTPS obligatorio.
-- Rate limiting se añade cuando exista exposición/abuso medible; auth y límites
-  de Cloud Run no sustituyen control de costos.
+- Secretos gestionados como variables de entorno "Sensitive" en el dashboard
+  de Vercel, nunca en Git.
+- DB role de API (`budg_api`) con privilegios solo sobre tablas/secuencias
+  requeridas, `NOBYPASSRLS`.
+- Dependencias actualizadas y escaneadas (`govulncheck`, `npm audit`,
+  Dependabot).
+- HTTPS obligatorio (Vercel lo provee por defecto en todo dominio).
+- Signup público deshabilitado en Supabase Auth para producción (uso
+  personal); único usuario creado manualmente desde el dashboard.
+- Rate limiting se añade cuando exista exposición/abuso medible.
 - Rotación de JWT keys y secretos probada antes de necesitarla.
 
 ## Costos y límites
 
-Serverless reduce costo ocioso, no elimina límites. Principales controles:
-
-- `max instances` evita crecimiento inesperado y protege DB.
-- Pool pequeño evita tormenta de conexiones.
+- Vercel Services factura bajo el mismo modelo que Vercel Functions (Active
+  CPU + Fluid Compute): se paga por CPU activa, no por tiempo ocioso.
+- `MaxConns` pequeño en `pgxpool` evita tormenta de conexiones si varias
+  instancias escalan a la vez; revisar contra el límite de conexiones del plan
+  Supabase elegido.
 - Queries paginadas limitan memoria y egress.
 - Timeouts cortos liberan recursos.
-- Índices responden patrones observados.
-- No mantener minimum instances hasta que cold start afecte experiencia real.
+- No se optimiza cold start hasta que afecte experiencia real medida.
 
 ## Checklist previo a producción
 
-- Proyecto Supabase production separado.
+- Proyecto Supabase production separado del de development.
 - Backups y restore comprobados.
-- Migraciones reproducibles desde cero.
+- Migraciones reproducibles desde cero (`up -> down-to 0 -> up`).
+- CA root de Supabase (`backend/certs/supabase-root-2021-ca.pem`) presente en
+  la imagen; `DATABASE_URL` de producción usa `sslmode=verify-full` +
+  `sslrootcert`.
 - Secretos fuera de imagen y repositorio.
-- CORS exacto.
+- `vercel.json` rutea `/v1/*`, `/healthz`, `/readyz` al backend y todo lo
+  demás al frontend.
 - JWT valida firma y claims.
-- Tests de aislamiento entre usuarios pasan.
-- Pool e instancias respetan presupuesto DB.
+- Tests de aislamiento entre usuarios (RLS) pasan.
+- Signup público deshabilitado en Supabase Auth; usuario único creado.
 - Health y readiness tienen semántica distinta.
 - Logs no contienen secretos ni payload financiero completo.
-- Smoke test y rollback de revisión documentados.
+- Smoke test post-deploy documentado y ejecutado.
