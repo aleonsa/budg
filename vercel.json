@@ -3,6 +3,7 @@
     "frontend": {
       "root": "frontend",
       "framework": "vite",
+      "installCommand": "sh scripts/vercel-install.sh",
       "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
     },
     "backend": {

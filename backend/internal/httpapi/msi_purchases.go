@@ -29,9 +29,7 @@ func (h *msiPurchasesHandler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	purchases, err := h.store.List(r.Context(), user.ID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: apiError{Code: "internal_error", Message: "could not list msi purchases"},
-		})
+		writeInternalError(w, r, err, "could not list msi purchases")
 		return
 	}
 	writeJSON(w, http.StatusOK, msiPurchasesResponse{Data: purchases})
