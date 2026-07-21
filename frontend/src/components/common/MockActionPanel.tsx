@@ -19,6 +19,8 @@ interface MockActionPanelProps {
   onClose: () => void
   onSubmit?: () => void
   submitting?: boolean
+  submitVariant?: 'default' | 'destructive'
+  showDemoNotice?: boolean
   children: React.ReactNode
 }
 
@@ -30,6 +32,8 @@ export function MockActionPanel({
   onClose,
   onSubmit,
   submitting = false,
+  submitVariant = 'default',
+  showDemoNotice = true,
   children,
 }: MockActionPanelProps) {
   const titleId = useId()
@@ -121,16 +125,18 @@ export function MockActionPanel({
 
         <div className="mt-3.5 space-y-3">{children}</div>
 
-        <div className="mt-3.5 rounded-[7px] bg-muted p-2 text-[11px] text-muted-foreground">
-          Ambiente demo: los cambios se guardan en memoria y se reinician al recargar.
-        </div>
+        {showDemoNotice && (
+          <div className="mt-3.5 rounded-[7px] bg-muted p-2 text-[11px] text-muted-foreground">
+            Ambiente demo: los cambios se guardan en memoria y se reinician al recargar.
+          </div>
+        )}
 
         {onSubmit && (
           <div className="mt-3.5 flex justify-end gap-1.5">
             <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
               Cancelar
             </Button>
-            <Button size="sm" onClick={handleSubmit} disabled={submitting}>
+            <Button variant={submitVariant} size="sm" onClick={handleSubmit} disabled={submitting}>
               {submitting ? 'Guardando…' : submitLabel}
             </Button>
           </div>

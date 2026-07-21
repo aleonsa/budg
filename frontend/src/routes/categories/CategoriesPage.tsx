@@ -101,10 +101,14 @@ function CategoryRow({
   category,
   spent,
   budget,
+  onEdit,
+  onDelete,
 }: {
   category: Category
   spent: Cents
   budget?: BudgetWithProgress
+  onEdit?: () => void
+  onDelete?: () => void
 }) {
   const hasBudget = !!budget
   const overBudget = (budget?.progress ?? 0) > 1
@@ -146,6 +150,22 @@ function CategoryRow({
           <span className="text-[11px] text-muted-foreground">Sin movimiento</span>
         )}
       </div>
+      {onEdit && onDelete && (
+        <div className="flex shrink-0 gap-1">
+          <Button variant="ghost" size="sm" aria-label={`Editar ${category.name}`} onClick={onEdit}>
+            Editar
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            aria-label={`Eliminar ${category.name}`}
+            onClick={onDelete}
+          >
+            Eliminar
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
@@ -154,6 +174,8 @@ function CategoryRow({
 
 export default function CategoriesPage() {
   const [isCategoryPanelOpen, setIsCategoryPanelOpen] = useState(false)
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null)
+  const [deletingCategory, setDeletingCategory] = useState<Category | null>(null)
   const catQ = useCategories()
   const txQ = useTransactions()
   const budQ = useBudgets()
@@ -167,14 +189,28 @@ export default function CategoriesPage() {
 
   const createMut = useMutation({
     mutationFn: api.createCategory,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.categories })
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
-    },
+    onSuccess: invalidateCategoryQueries,
   })
 
-  const openPanel = () => {
+  const updateMut = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Category> }) =>
+      api.updateCategory(id, patch),
+    onSuccess: invalidateCategoryQueries,
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: api.deleteCategory,
+    onSuccess: invalidateCategoryQueries,
+  })
+
+  function invalidateCategoryQueries() {
+    queryClient.invalidateQueries({ queryKey: queryKeys.categories })
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+  }
+
+  const openCreatePanel = () => {
     createMut.reset()
+    setEditingCategory(null)
     setFName('')
     setFKind('expense')
     setFColor('blue')
@@ -183,9 +219,49 @@ export default function CategoriesPage() {
     setIsCategoryPanelOpen(true)
   }
 
+  const openEditPanel = (category: Category) => {
+    updateMut.reset()
+    setEditingCategory(category)
+    setFName(category.name)
+    setFKind(category.kind)
+    setFColor(category.color)
+    setFIcon(category.icon)
+    setFormError('')
+    setIsCategoryPanelOpen(true)
+  }
+
+  const closeCategoryPanel = () => {
+    createMut.reset()
+    updateMut.reset()
+    setEditingCategory(null)
+    setFormError('')
+    setIsCategoryPanelOpen(false)
+  }
+
+  const openDeletePanel = (category: Category) => {
+    deleteMut.reset()
+    setDeletingCategory(category)
+  }
+
+  const closeDeletePanel = () => {
+    deleteMut.reset()
+    setDeletingCategory(null)
+  }
+
   const handleSubmit = () => {
     if (!fName.trim()) {
       setFormError('Ingresa un nombre para la categoría.')
+      return
+    }
+    if (editingCategory) {
+      updateMut.reset()
+      updateMut.mutate(
+        {
+          id: editingCategory.id,
+          patch: { name: fName.trim(), color: fColor, icon: fIcon || 'Tag' },
+        },
+        { onSuccess: closeCategoryPanel },
+      )
       return
     }
     createMut.reset()
@@ -197,23 +273,26 @@ export default function CategoriesPage() {
         icon: fIcon || 'Tag',
         parentId: null,
       },
-      { onSuccess: () => setIsCategoryPanelOpen(false) },
+      { onSuccess: closeCategoryPanel },
     )
   }
 
   const isLoading = catQ.isLoading || txQ.isLoading || budQ.isLoading
 
+  const activeMutation = editingCategory ? updateMut : createMut
   const categoryPanel = (
     <MockActionPanel
       open={isCategoryPanelOpen}
-      title="Crear categoría"
-      description="Configura una categoría para gastos o ingresos."
-      submitLabel="Crear"
-      submitting={createMut.isPending}
-      onClose={() => {
-        createMut.reset()
-        setIsCategoryPanelOpen(false)
-      }}
+      title={editingCategory ? 'Editar categoría' : 'Crear categoría'}
+      description={
+        editingCategory
+          ? 'Actualiza el nombre, color o icono de esta categoría.'
+          : 'Configura una categoría para gastos o ingresos.'
+      }
+      submitLabel={editingCategory ? 'Guardar cambios' : 'Crear'}
+      submitting={activeMutation.isPending}
+      showDemoNotice={false}
+      onClose={closeCategoryPanel}
       onSubmit={handleSubmit}
     >
       <div className="space-y-1.5">
@@ -234,11 +313,13 @@ export default function CategoriesPage() {
             {formError}
           </p>
         )}
-        {createMut.isError && (
+        {activeMutation.isError && (
           <p role="alert" className="text-xs text-destructive">
-            {createMut.error instanceof Error
-              ? createMut.error.message
-              : 'No se pudo crear la categoría.'}
+            {activeMutation.error instanceof Error
+              ? activeMutation.error.message
+              : editingCategory
+                ? 'No se pudo actualizar la categoría.'
+                : 'No se pudo crear la categoría.'}
           </p>
         )}
       </div>
@@ -250,6 +331,7 @@ export default function CategoriesPage() {
             className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
             value={fKind}
             onChange={(e) => setFKind(e.target.value as CategoryKind)}
+            disabled={Boolean(editingCategory)}
           >
             <option value="expense">Gasto</option>
             <option value="income">Ingreso</option>
@@ -283,6 +365,32 @@ export default function CategoriesPage() {
     </MockActionPanel>
   )
 
+  const deletePanel = (
+    <MockActionPanel
+      open={deletingCategory !== null}
+      title="Eliminar categoría"
+      description={`¿Eliminar “${deletingCategory?.name ?? ''}”? Esta acción no se puede deshacer.`}
+      submitLabel="Eliminar categoría"
+      submitVariant="destructive"
+      submitting={deleteMut.isPending}
+      showDemoNotice={false}
+      onClose={closeDeletePanel}
+      onSubmit={() => {
+        if (!deletingCategory) return
+        deleteMut.reset()
+        deleteMut.mutate(deletingCategory.id, { onSuccess: closeDeletePanel })
+      }}
+    >
+      {deleteMut.error && (
+        <p role="alert" className="text-xs text-destructive">
+          {deleteMut.error instanceof Error
+            ? deleteMut.error.message
+            : 'No se pudo eliminar la categoría.'}
+        </p>
+      )}
+    </MockActionPanel>
+  )
+
   if (isLoading) {
     return (
       <>
@@ -290,7 +398,7 @@ export default function CategoriesPage() {
           title="Categorías"
           subtitle="Clasificación de transacciones"
           action={
-            <Button size="sm" onClick={() => openPanel()}>
+            <Button size="sm" onClick={openCreatePanel}>
               Crear
             </Button>
           }
@@ -325,7 +433,7 @@ export default function CategoriesPage() {
           title="Categorías"
           subtitle="Clasificación de transacciones"
           action={
-            <Button size="sm" onClick={() => openPanel()}>
+            <Button size="sm" onClick={openCreatePanel}>
               Crear
             </Button>
           }
@@ -335,7 +443,7 @@ export default function CategoriesPage() {
             title="Sin categorías"
             description="No hay categorías configuradas todavía."
             action={
-              <Button size="sm" onClick={() => openPanel()}>
+              <Button size="sm" onClick={openCreatePanel}>
                 Crear categoría
               </Button>
             }
@@ -381,7 +489,7 @@ export default function CategoriesPage() {
         title="Categorías"
         subtitle="Clasificación de transacciones"
         action={
-          <Button size="sm" onClick={() => openPanel()}>
+          <Button size="sm" onClick={openCreatePanel}>
             Crear
           </Button>
         }
@@ -407,7 +515,16 @@ export default function CategoriesPage() {
             {expenseCats.map((cat) => {
               const spent = spentInMonth(transactions, monthKey, cat.id)
               const budget = budgetByCat.get(cat.id)
-              return <CategoryRow key={cat.id} category={cat} spent={spent} budget={budget} />
+              return (
+                <CategoryRow
+                  key={cat.id}
+                  category={cat}
+                  spent={spent}
+                  budget={budget}
+                  onEdit={cat.isSystem ? undefined : () => openEditPanel(cat)}
+                  onDelete={cat.isSystem ? undefined : () => openDeletePanel(cat)}
+                />
+              )
             })}
           </Card>
         </div>
@@ -422,12 +539,21 @@ export default function CategoriesPage() {
           <Card className="divide-y divide-border px-3">
             {incomeCats.map((cat) => {
               const income = incomeInMonth(transactions, monthKey, cat.id)
-              return <CategoryRow key={cat.id} category={cat} spent={income} />
+              return (
+                <CategoryRow
+                  key={cat.id}
+                  category={cat}
+                  spent={income}
+                  onEdit={cat.isSystem ? undefined : () => openEditPanel(cat)}
+                  onDelete={cat.isSystem ? undefined : () => openDeletePanel(cat)}
+                />
+              )
             })}
           </Card>
         </div>
 
         {categoryPanel}
+        {deletePanel}
       </div>
     </>
   )
