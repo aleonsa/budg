@@ -8,7 +8,7 @@
  * callsites stable.
  */
 
-import type { MSIPurchase, Rule } from '@/types'
+import type { MSIPurchase } from '@/types'
 import { useMockData } from '@/stores/mockData'
 
 // Re-export real implementations so callers using `import * as api from
@@ -29,6 +29,7 @@ export {
   contributeToSavingsGoal,
   deleteSavingsGoal,
 } from './savings-goals'
+export { getRules, createRule, toggleRule, deleteRule } from './rules'
 
 /** Simulate network latency */
 const delay = (ms = 200) => new Promise((r) => setTimeout(r, ms))
@@ -42,29 +43,9 @@ export async function getMSIPurchases(): Promise<MSIPurchase[]> {
   return [...state().msiPurchases]
 }
 
-// ── Rules ───────────────────────────────────────────────────
-export async function getRules(): Promise<Rule[]> {
-  await delay()
-  return [...state().rules].sort((a, b) => a.priority - b.priority)
-}
-
 // ── Mutations ───────────────────────────────────────────────
 
-// Transactions, accounts, budgets, and savings goals are backed by their own API modules (re-exported above).
+// Transactions, accounts, budgets, savings goals, and rules are backed by
+// their own API modules (re-exported above).
 
 // Category create/update/delete are backed by ./categories (re-exported above).
-
-export async function createRule(input: Omit<Rule, 'id' | 'priority'>): Promise<Rule> {
-  await delay()
-  return state().addRule(input)
-}
-
-export async function toggleRule(id: string): Promise<void> {
-  await delay()
-  state().toggleRule(id)
-}
-
-export async function deleteRule(id: string): Promise<void> {
-  await delay()
-  state().deleteRule(id)
-}

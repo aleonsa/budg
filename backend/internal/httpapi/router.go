@@ -19,6 +19,7 @@ type Options struct {
 	Transactions   TransactionStore
 	Budgets        BudgetStore
 	SavingsGoals   SavingsGoalStore
+	Rules          RuleStore
 }
 
 // NewRouter builds the HTTP routing tree used by the API server and tests.
@@ -97,6 +98,18 @@ func NewRouter(opts Options) http.Handler {
 				goals.Route("/{id}", func(item chi.Router) {
 					item.Post("/contributions", h.contribute)
 					item.Patch("/", h.update)
+					item.Delete("/", h.delete)
+				})
+			})
+		}
+
+		if opts.Rules != nil {
+			h := &rulesHandler{store: opts.Rules}
+			v1.Route("/rules", func(rules chi.Router) {
+				rules.Get("/", h.list)
+				rules.Post("/", h.create)
+				rules.Route("/{id}", func(item chi.Router) {
+					item.Post("/toggle", h.toggle)
 					item.Delete("/", h.delete)
 				})
 			})
