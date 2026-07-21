@@ -189,6 +189,9 @@ describe('RulesPage', () => {
   it('shows rule states, category context, and merchant-frequency suggestions', () => {
     renderPage()
 
+    expect(
+      screen.getByText('Las reglas se guardan para futuras transacciones.'),
+    ).toBeInTheDocument()
     expect(screen.getByText('Reglas activas').nextElementSibling).toHaveTextContent('1')
     expect(screen.getByText('Sugerencias').nextElementSibling).toHaveTextContent('1')
     expect(screen.getByText('Movs. categorizables').nextElementSibling).toHaveTextContent('6')

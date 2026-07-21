@@ -233,7 +233,7 @@ export default function RulesPage() {
             Las reglas categorizan movimientos automáticamente según comercio o descripción. Ahorra
             tiempo al mantener tus transacciones organizadas sin esfuerzo manual.
             <span className="mt-1 block font-medium text-foreground">
-              Ambiente demo: las reglas se guardan en memoria y se reinician al recargar.
+              Las reglas se guardan para futuras transacciones.
             </span>
           </p>
         </Card>
