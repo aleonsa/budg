@@ -15,7 +15,7 @@ vi.mock('@/hooks/useQueries', () => ({
 }))
 
 vi.mock('@/lib/api', () => ({
-  api: { createCategory: vi.fn() },
+  api: { createCategory: vi.fn(), updateCategory: vi.fn(), deleteCategory: vi.fn() },
 }))
 
 const categories: Category[] = [
@@ -152,6 +152,8 @@ describe('CategoriesPage', () => {
     vi.setSystemTime(new Date(2026, 6, 20, 12))
     setQueries()
     vi.mocked(api.createCategory).mockResolvedValue(categories[0])
+    vi.mocked(api.updateCategory).mockResolvedValue()
+    vi.mocked(api.deleteCategory).mockResolvedValue()
   })
 
   afterEach(() => vi.useRealTimers())
@@ -455,6 +457,54 @@ describe('CategoriesPage', () => {
     )
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['categories'] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
+  })
+
+  it('edits a non-system category through the real API mutation and keeps kind immutable', async () => {
+    const user = userEvent.setup()
+    const queryClient = renderPage()
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+
+    await user.click(screen.getByRole('button', { name: 'Editar Comida' }))
+    const dialog = screen.getByRole('dialog', { name: 'Editar categoría' })
+
+    expect(within(dialog).getByRole('textbox', { name: 'Nombre' })).toHaveValue('Comida')
+    expect(within(dialog).getByRole('combobox', { name: 'Tipo' })).toBeDisabled()
+    await user.clear(within(dialog).getByRole('textbox', { name: 'Nombre' }))
+    await user.type(within(dialog).getByRole('textbox', { name: 'Nombre' }), 'Alimentos')
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar cambios' }))
+
+    await waitFor(() =>
+      expect(api.updateCategory).toHaveBeenCalledWith('food', {
+        name: 'Alimentos',
+        color: 'orange',
+        icon: 'Utensils',
+      }),
+    )
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['categories'] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
+  })
+
+  it('confirms and deletes a non-system category through the real API mutation', async () => {
+    const user = userEvent.setup()
+    const queryClient = renderPage()
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+
+    await user.click(screen.getByRole('button', { name: 'Eliminar Comida' }))
+    const dialog = screen.getByRole('dialog', { name: 'Eliminar categoría' })
+    expect(dialog).toHaveTextContent('¿Eliminar “Comida”?')
+    await user.click(within(dialog).getByRole('button', { name: 'Eliminar categoría' }))
+
+    await waitFor(() => expect(api.deleteCategory).toHaveBeenCalledOnce())
+    expect(vi.mocked(api.deleteCategory).mock.calls[0][0]).toBe('food')
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['categories'] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
+  })
+
+  it('does not offer edit or delete actions for system categories', () => {
+    renderPage()
+
+    expect(screen.queryByRole('button', { name: 'Editar Renta' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Eliminar Renta' })).not.toBeInTheDocument()
   })
 
   it('shows an async create failure, retains the form, and does not invalidate queries', async () => {

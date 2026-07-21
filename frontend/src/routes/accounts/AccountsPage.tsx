@@ -15,7 +15,14 @@ import {
   deriveTotalBalance,
   deriveTotalDebt,
 } from '@/hooks/useQueries'
-import type { AccountWithSummary, MSIPurchase, AccentColor, Cents, AccountType } from '@/types'
+import type {
+  Account,
+  AccountWithSummary,
+  MSIPurchase,
+  AccentColor,
+  Cents,
+  AccountType,
+} from '@/types'
 
 // ── Local helpers ────────────────────────────────────────────
 
@@ -53,6 +60,10 @@ function creditHealth(usedRate: number): { label: string; accent: AccentColor } 
   if (usedRate < 0.3) return { label: 'Saludable', accent: 'green' }
   if (usedRate < 0.7) return { label: 'Moderado', accent: 'yellow' }
   return { label: 'Alto', accent: 'red' }
+}
+
+function centsToInput(cents: number | undefined): string {
+  return ((cents ?? 0) / 100).toFixed(2)
 }
 
 // ── Hero ─────────────────────────────────────────────────────
@@ -115,7 +126,44 @@ function NetWorthHero({
 
 // ── Debit card ───────────────────────────────────────────────
 
-function DebitCardItem({ account, sharePct }: { account: AccountWithSummary; sharePct: number }) {
+function AccountActions({
+  accountName,
+  onEdit,
+  onDelete,
+}: {
+  accountName: string
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="mt-3 flex justify-end gap-1">
+      <Button variant="ghost" size="sm" aria-label={`Editar ${accountName}`} onClick={onEdit}>
+        Editar
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+        aria-label={`Eliminar ${accountName}`}
+        onClick={onDelete}
+      >
+        Eliminar
+      </Button>
+    </div>
+  )
+}
+
+function DebitCardItem({
+  account,
+  sharePct,
+  onEdit,
+  onDelete,
+}: {
+  account: AccountWithSummary
+  sharePct: number
+  onEdit: () => void
+  onDelete: () => void
+}) {
   return (
     <Card className="p-3">
       <div className="flex items-start justify-between gap-2">
@@ -141,6 +189,7 @@ function DebitCardItem({ account, sharePct }: { account: AccountWithSummary; sha
           {sharePct}% del total
         </span>
       </div>
+      <AccountActions accountName={account.name} onEdit={onEdit} onDelete={onDelete} />
     </Card>
   )
 }
@@ -150,9 +199,13 @@ function DebitCardItem({ account, sharePct }: { account: AccountWithSummary; sha
 function CreditCardItem({
   account,
   msiPurchases,
+  onEdit,
+  onDelete,
 }: {
   account: AccountWithSummary
   msiPurchases: MSIPurchase[]
+  onEdit: () => void
+  onDelete: () => void
 }) {
   const limit = account.creditLimit ?? 0
   const available = account.availableCredit ?? 0
@@ -226,6 +279,7 @@ function CreditCardItem({
             )}
           </div>
         )}
+        <AccountActions accountName={account.name} onEdit={onEdit} onDelete={onDelete} />
       </div>
 
       {/* Active MSI */}
@@ -313,6 +367,8 @@ function SectionHeader({
 
 export default function AccountsPage() {
   const [isAccountPanelOpen, setIsAccountPanelOpen] = useState(false)
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null)
+  const [deletingAccount, setDeletingAccount] = useState<Account | null>(null)
   const accountsQ = useAccounts()
   const msiQ = useMSIPurchases()
   const queryClient = useQueryClient()
@@ -327,14 +383,28 @@ export default function AccountsPage() {
 
   const createMut = useMutation({
     mutationFn: api.createAccount,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
-    },
+    onSuccess: invalidateAccountQueries,
   })
 
-  const openPanel = () => {
+  const updateMut = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Account> }) =>
+      api.updateAccount(id, patch),
+    onSuccess: invalidateAccountQueries,
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: api.deleteAccount,
+    onSuccess: invalidateAccountQueries,
+  })
+
+  function invalidateAccountQueries() {
+    queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+  }
+
+  const openCreatePanel = () => {
     createMut.reset()
+    setEditingAccount(null)
     setFName('')
     setFType('debit')
     setFInstitution('')
@@ -344,10 +414,34 @@ export default function AccountsPage() {
     setIsAccountPanelOpen(true)
   }
 
+  const openEditPanel = (account: Account) => {
+    updateMut.reset()
+    setEditingAccount(account)
+    setFName(account.name)
+    setFType(account.type)
+    setFInstitution(account.institution)
+    setFBalance(centsToInput(account.type === 'credit' ? account.creditLimit : account.balance))
+    setFLast4(account.last4)
+    setShowNameError(false)
+    setIsAccountPanelOpen(true)
+  }
+
   const closePanel = () => {
     createMut.reset()
+    updateMut.reset()
+    setEditingAccount(null)
     setShowNameError(false)
     setIsAccountPanelOpen(false)
+  }
+
+  const openDeletePanel = (account: Account) => {
+    deleteMut.reset()
+    setDeletingAccount(account)
+  }
+
+  const closeDeletePanel = () => {
+    deleteMut.reset()
+    setDeletingAccount(null)
   }
 
   const handleSubmit = () => {
@@ -357,6 +451,22 @@ export default function AccountsPage() {
     }
     const isCredit = fType === 'credit'
     const balance = toCents(fBalance)
+    if (editingAccount) {
+      updateMut.reset()
+      updateMut.mutate(
+        {
+          id: editingAccount.id,
+          patch: {
+            name: fName.trim(),
+            institution: fInstitution.trim() || 'Banco',
+            last4: fLast4.trim().slice(-4) || '0000',
+            ...(isCredit ? { creditLimit: balance } : { balance }),
+          },
+        },
+        { onSuccess: closePanel },
+      )
+      return
+    }
     createMut.reset()
     createMut.mutate(
       {
@@ -380,7 +490,7 @@ export default function AccountsPage() {
           title="Cuentas"
           subtitle="Centro de control financiero"
           action={
-            <Button size="sm" onClick={openPanel}>
+            <Button size="sm" onClick={openCreatePanel}>
               Agregar cuenta
             </Button>
           }
@@ -405,13 +515,19 @@ export default function AccountsPage() {
 
   const accounts = accountsQ.data ?? []
   const msiPurchases = msiQ.data ?? []
+  const activeMutation = editingAccount ? updateMut : createMut
   const accountPanel = (
     <MockActionPanel
       open={isAccountPanelOpen}
-      title="Agregar cuenta"
-      description="Registra una nueva cuenta de débito o crédito."
-      submitLabel="Agregar"
-      submitting={createMut.isPending}
+      title={editingAccount ? 'Editar cuenta' : 'Agregar cuenta'}
+      description={
+        editingAccount
+          ? 'Actualiza los datos de esta cuenta. El tipo no se puede cambiar.'
+          : 'Registra una nueva cuenta de débito o crédito.'
+      }
+      submitLabel={editingAccount ? 'Guardar cambios' : 'Agregar'}
+      submitting={activeMutation.isPending}
+      showDemoNotice={false}
       onClose={closePanel}
       onSubmit={handleSubmit}
     >
@@ -422,11 +538,11 @@ export default function AccountsPage() {
           placeholder="Ej. Nómina BBVA"
           value={fName}
           onChange={(e) => setFName(e.target.value)}
-          aria-invalid={showNameError || Boolean(createMut.error) || undefined}
+          aria-invalid={showNameError || Boolean(activeMutation.error) || undefined}
           aria-describedby={
             showNameError
               ? 'account-name-error'
-              : createMut.error
+              : activeMutation.error
                 ? 'account-create-error'
                 : undefined
           }
@@ -445,6 +561,7 @@ export default function AccountsPage() {
             className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
             value={fType}
             onChange={(e) => setFType(e.target.value as AccountType)}
+            disabled={Boolean(editingAccount)}
           >
             <option value="debit">Débito</option>
             <option value="credit">Crédito</option>
@@ -485,9 +602,37 @@ export default function AccountsPage() {
           />
         </div>
       </div>
-      {createMut.error && (
+      {activeMutation.error && (
         <p id="account-create-error" role="alert" className="text-xs text-destructive">
-          No se pudo crear la cuenta. Intenta de nuevo.
+          {editingAccount
+            ? 'No se pudo actualizar la cuenta. Intenta de nuevo.'
+            : 'No se pudo crear la cuenta. Intenta de nuevo.'}
+        </p>
+      )}
+    </MockActionPanel>
+  )
+
+  const deletePanel = (
+    <MockActionPanel
+      open={deletingAccount !== null}
+      title="Eliminar cuenta"
+      description={`¿Eliminar “${deletingAccount?.name ?? ''}”? Esta acción no se puede deshacer.`}
+      submitLabel="Eliminar cuenta"
+      submitVariant="destructive"
+      submitting={deleteMut.isPending}
+      showDemoNotice={false}
+      onClose={closeDeletePanel}
+      onSubmit={() => {
+        if (!deletingAccount) return
+        deleteMut.reset()
+        deleteMut.mutate(deletingAccount.id, { onSuccess: closeDeletePanel })
+      }}
+    >
+      {deleteMut.error && (
+        <p role="alert" className="text-xs text-destructive">
+          {deleteMut.error instanceof Error
+            ? deleteMut.error.message
+            : 'No se pudo eliminar la cuenta.'}
         </p>
       )}
     </MockActionPanel>
@@ -500,7 +645,7 @@ export default function AccountsPage() {
           title="Cuentas"
           subtitle="Centro de control financiero"
           action={
-            <Button size="sm" onClick={openPanel}>
+            <Button size="sm" onClick={openCreatePanel}>
               Agregar cuenta
             </Button>
           }
@@ -535,7 +680,7 @@ export default function AccountsPage() {
         title="Cuentas"
         subtitle="Centro de control financiero"
         action={
-          <Button size="sm" onClick={openPanel}>
+          <Button size="sm" onClick={openCreatePanel}>
             Agregar cuenta
           </Button>
         }
@@ -557,7 +702,15 @@ export default function AccountsPage() {
               {debitAccounts.map((acc) => {
                 const sharePct =
                   totalDebit > 0 ? Math.round((acc.balanceOrDebt / totalDebit) * 100) : 0
-                return <DebitCardItem key={acc.id} account={acc} sharePct={sharePct} />
+                return (
+                  <DebitCardItem
+                    key={acc.id}
+                    account={acc}
+                    sharePct={sharePct}
+                    onEdit={() => openEditPanel(acc)}
+                    onDelete={() => openDeletePanel(acc)}
+                  />
+                )
               })}
             </div>
           </div>
@@ -604,6 +757,8 @@ export default function AccountsPage() {
                   msiPurchases={msiPurchases.filter(
                     (m) => m.accountId === acc.id && m.status === 'active',
                   )}
+                  onEdit={() => openEditPanel(acc)}
+                  onDelete={() => openDeletePanel(acc)}
                 />
               ))}
             </div>
@@ -633,6 +788,7 @@ export default function AccountsPage() {
       </div>
 
       {accountPanel}
+      {deletePanel}
     </>
   )
 }

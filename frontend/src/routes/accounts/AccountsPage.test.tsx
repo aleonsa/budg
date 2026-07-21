@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { MemoryRouter } from 'react-router-dom'
@@ -58,7 +58,9 @@ vi.mock('@tanstack/react-query', () => ({
   },
 }))
 
-vi.mock('@/lib/api', () => ({ api: { createAccount: vi.fn() } }))
+vi.mock('@/lib/api', () => ({
+  api: { createAccount: vi.fn(), updateAccount: vi.fn(), deleteAccount: vi.fn() },
+}))
 
 const debit = (overrides: Partial<Account> = {}): Account => ({
   id: 'debit-1',
@@ -126,6 +128,8 @@ describe('AccountsPage', () => {
     state.reset.mockReset()
     state.payloads.length = 0
     vi.mocked(api.createAccount).mockReset()
+    vi.mocked(api.updateAccount).mockReset()
+    vi.mocked(api.deleteAccount).mockReset()
   })
 
   it('shows loading until both account and MSI queries settle', () => {
@@ -337,6 +341,48 @@ describe('AccountsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Cerrar' }))
     await user.click(screen.getByRole('button', { name: 'Agregar cuenta' }))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('edits a debit account through the real API mutation without changing its type', async () => {
+    state.accounts.data = [debit()]
+    vi.mocked(api.updateAccount).mockResolvedValue()
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Editar Nómina' }))
+    const dialog = screen.getByRole('dialog', { name: 'Editar cuenta' })
+    expect(within(dialog).getByRole('combobox', { name: 'Tipo' })).toBeDisabled()
+    expect(within(dialog).getByRole('textbox', { name: 'Saldo inicial' })).toHaveValue('300.00')
+    await user.clear(within(dialog).getByRole('textbox', { name: 'Nombre' }))
+    await user.type(within(dialog).getByRole('textbox', { name: 'Nombre' }), 'Nómina principal')
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar cambios' }))
+    await flushMutation()
+
+    expect(api.updateAccount).toHaveBeenCalledWith('debit-1', {
+      name: 'Nómina principal',
+      institution: 'BBVA',
+      last4: '1111',
+      balance: 30_000,
+    })
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['accounts'] })
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
+  })
+
+  it('confirms and deletes an account through the real API mutation', async () => {
+    state.accounts.data = [debit()]
+    vi.mocked(api.deleteAccount).mockResolvedValue()
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Eliminar Nómina' }))
+    const dialog = screen.getByRole('dialog', { name: 'Eliminar cuenta' })
+    expect(dialog).toHaveTextContent('¿Eliminar “Nómina”?')
+    await user.click(within(dialog).getByRole('button', { name: 'Eliminar cuenta' }))
+    await flushMutation()
+
+    expect(api.deleteAccount).toHaveBeenCalledWith('debit-1')
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['accounts'] })
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
   })
 
   it('resets the account mutation before retrying a failed create', async () => {
