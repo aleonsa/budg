@@ -12,17 +12,21 @@ import (
 )
 
 type stubSavingsGoalStore struct {
-	listErr      error
-	createErr    error
-	updateErr    error
-	deleteErr    error
-	listResult   []store.SavingsGoal
-	createInput  store.SavingsGoalInput
-	updateID     string
-	updatePatch  store.SavingsGoalPatch
-	deleteID     string
-	createResult store.SavingsGoal
-	updateResult store.SavingsGoal
+	listErr          error
+	createErr        error
+	updateErr        error
+	contributeErr    error
+	deleteErr        error
+	listResult       []store.SavingsGoal
+	createInput      store.SavingsGoalInput
+	updateID         string
+	updatePatch      store.SavingsGoalPatch
+	contributeID     string
+	contributeAmount int64
+	deleteID         string
+	createResult     store.SavingsGoal
+	updateResult     store.SavingsGoal
+	contributeResult store.SavingsGoal
 }
 
 func (s *stubSavingsGoalStore) List(_ context.Context, _ string) ([]store.SavingsGoal, error) {
@@ -38,6 +42,12 @@ func (s *stubSavingsGoalStore) Update(_ context.Context, _, id string, patch sto
 	s.updateID = id
 	s.updatePatch = patch
 	return s.updateResult, s.updateErr
+}
+
+func (s *stubSavingsGoalStore) Contribute(_ context.Context, _, id string, amount int64) (store.SavingsGoal, error) {
+	s.contributeID = id
+	s.contributeAmount = amount
+	return s.contributeResult, s.contributeErr
 }
 
 func (s *stubSavingsGoalStore) Delete(_ context.Context, _, id string) error {
@@ -167,6 +177,45 @@ func TestUpdateSavingsGoalReportsNotFound(t *testing.T) {
 	router := newSavingsGoalsRouter(stub)
 
 	rec := doRequest(router, http.MethodPatch, "/v1/savings-goals/missing", `{"name":"X"}`)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestContributeToSavingsGoalAppliesAmount(t *testing.T) {
+	t.Parallel()
+	stub := &stubSavingsGoalStore{
+		contributeResult: store.SavingsGoal{ID: "goal-1", CurrentAmount: 6000},
+	}
+	router := newSavingsGoalsRouter(stub)
+
+	rec := doRequest(router, http.MethodPost, "/v1/savings-goals/goal-1/contributions", `{"amount":1000}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	if stub.contributeID != "goal-1" || stub.contributeAmount != 1000 {
+		t.Fatalf("contribution = (%q, %d), want (goal-1, 1000)", stub.contributeID, stub.contributeAmount)
+	}
+}
+
+func TestContributeToSavingsGoalRejectsZeroAmount(t *testing.T) {
+	t.Parallel()
+	router := newSavingsGoalsRouter(&stubSavingsGoalStore{})
+
+	rec := doRequest(router, http.MethodPost, "/v1/savings-goals/goal-1/contributions", `{"amount":0}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestContributeToSavingsGoalReportsNotFound(t *testing.T) {
+	t.Parallel()
+	router := newSavingsGoalsRouter(&stubSavingsGoalStore{contributeErr: store.ErrNotFound})
+
+	rec := doRequest(router, http.MethodPost, "/v1/savings-goals/missing/contributions", `{"amount":1000}`)
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)

@@ -16,6 +16,7 @@ type SavingsGoalStore interface {
 	List(ctx context.Context, userID string) ([]store.SavingsGoal, error)
 	Create(ctx context.Context, userID string, in store.SavingsGoalInput) (store.SavingsGoal, error)
 	Update(ctx context.Context, userID, id string, patch store.SavingsGoalPatch) (store.SavingsGoal, error)
+	Contribute(ctx context.Context, userID, id string, amount int64) (store.SavingsGoal, error)
 	Delete(ctx context.Context, userID, id string) error
 }
 
@@ -104,6 +105,52 @@ func (h *savingsGoalsHandler) update(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusInternalServerError, errorResponse{
 			Error: apiError{Code: "internal_error", Message: "could not update savings goal"},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (h *savingsGoalsHandler) contribute(w http.ResponseWriter, r *http.Request) {
+	user, err := auth.FromContext(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{
+			Error: apiError{Code: "unauthorized", Message: "a valid access token is required"},
+		})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Error: apiError{Code: "invalid_request", Message: "savings goal id is required"},
+		})
+		return
+	}
+	var input struct {
+		Amount int64 `json:"amount"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Error: apiError{Code: "invalid_request", Message: "request body is not valid JSON"},
+		})
+		return
+	}
+	if input.Amount == 0 {
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Error: apiError{Code: "invalid_request", Message: "amount must not be zero"},
+		})
+		return
+	}
+	updated, err := h.store.Contribute(r.Context(), user.ID, id, input.Amount)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, errorResponse{
+				Error: apiError{Code: "not_found", Message: "savings goal was not found"},
+			})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorResponse{
+			Error: apiError{Code: "internal_error", Message: "could not contribute to savings goal"},
 		})
 		return
 	}

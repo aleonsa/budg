@@ -44,12 +44,10 @@ export async function updateSavingsGoal(id: string, patch: Partial<SavingsGoal>)
 }
 
 export async function contributeToSavingsGoal(id: string, amount: number): Promise<void> {
-  // Frontend helper that fetches current goal or patches currentAmount directly.
-  // Since backend supports PATCH, we fetch existing goals or patch via client.
-  const res = await authFetch(`/v1/savings-goals/${id}`, {
-    method: 'PATCH',
+  const res = await authFetch(`/v1/savings-goals/${id}/contributions`, {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ currentAmount: amount }),
+    body: JSON.stringify({ amount }),
   })
   if (!res.ok) {
     throw new Error(`Request failed: ${res.status}`)
@@ -87,16 +85,12 @@ function toFrontend(g: BackendSavingsGoal): SavingsGoal {
   }
 }
 
-function toBackend(
-  input: Omit<SavingsGoal, 'id' | 'order'>,
-  order: number,
-): Omit<BackendSavingsGoal, 'id'> {
+function toBackend(input: Omit<SavingsGoal, 'id' | 'order'>, order: number) {
   return {
     name: input.name,
     targetAmount: input.targetAmount,
     currentAmount: input.currentAmount,
     accountId: input.accountId ?? null,
-    isCompleted: input.isCompleted,
     order,
   }
 }

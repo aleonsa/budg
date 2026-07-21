@@ -56,6 +56,22 @@ func TestSavingsGoalRepositoryCRUD(t *testing.T) {
 		t.Fatalf("updated name = %q, want Long Trip", updated.Name)
 	}
 
+	contributed, err := repo.Contribute(ctx, userID, created.ID, 45000)
+	if err != nil {
+		t.Fatalf("contribute: %v", err)
+	}
+	if contributed.CurrentAmount != 50000 || !contributed.IsCompleted {
+		t.Fatalf("contributed row = %+v, want current_amount=50000 completed=true", contributed)
+	}
+
+	reversed, err := repo.Contribute(ctx, userID, created.ID, -60000)
+	if err != nil {
+		t.Fatalf("reverse contribution: %v", err)
+	}
+	if reversed.CurrentAmount != 0 || reversed.IsCompleted {
+		t.Fatalf("reversed row = %+v, want current_amount=0 completed=false", reversed)
+	}
+
 	if err := repo.Delete(ctx, userID, created.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}

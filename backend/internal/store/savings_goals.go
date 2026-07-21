@@ -149,6 +149,33 @@ func (r *SavingsGoalRepository) Update(ctx context.Context, userID, id string, p
 	return g, nil
 }
 
+// Contribute atomically applies an amount to a goal. Negative amounts reverse a
+// contribution without allowing the stored balance to fall below zero.
+func (r *SavingsGoalRepository) Contribute(ctx context.Context, userID, id string, amount int64) (SavingsGoal, error) {
+	var g SavingsGoal
+	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			UPDATE public.savings_goals SET
+				current_amount = GREATEST(0, current_amount + $3),
+				is_completed   = GREATEST(0, current_amount + $3) >= target_amount,
+				updated_at     = now()
+			WHERE user_id = $1 AND id = $2
+			RETURNING `+savingsGoalColumns,
+			userID, id, amount,
+		).Scan(
+			&g.ID, &g.UserID, &g.Name, &g.TargetAmount, &g.CurrentAmount,
+			&g.AccountID, &g.IsCompleted, &g.SortOrder, &g.CreatedAt, &g.UpdatedAt,
+		)
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SavingsGoal{}, ErrNotFound
+		}
+		return SavingsGoal{}, fmt.Errorf("contribute to savings goal: %w", err)
+	}
+	return g, nil
+}
+
 // Delete removes a savings goal owned by userID.
 func (r *SavingsGoalRepository) Delete(ctx context.Context, userID, id string) error {
 	var rowsAffected int64
