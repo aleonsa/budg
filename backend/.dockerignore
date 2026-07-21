@@ -1,0 +1,15 @@
+# Never bake local secrets, dev tooling output, or source noise into the image.
+.env
+.env.*
+!.env.example
+coverage.out
+*.log
+
+# Version control and editor metadata.
+.git
+.gitignore
+
+# Nothing under scripts/ or migrations/ is needed at runtime: migrations run
+# as a separate Goose step, never from the API's entrypoint.
+scripts/
+migrations/
