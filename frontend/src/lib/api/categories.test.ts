@@ -126,7 +126,12 @@ describe('categories api client', () => {
     expect(String(url)).toMatch(/\/v1\/categories$/)
     expect((init as RequestInit).method).toBe('POST')
     const body = JSON.parse((init as RequestInit).body as string)
-    expect(body).toMatchObject({
+    // toEqual (not toMatchObject): the real backend's decodeJSON uses
+    // DisallowUnknownFields, so an extra id/isSystem field here — which
+    // toMatchObject would silently accept — is a real 400 in production, not
+    // just noise. This regression shipped and broke `POST /v1/categories`
+    // undetected until a real end-to-end smoke test caught it.
+    expect(body).toEqual({
       name: 'Pets',
       kind: 'expense',
       color: 'orange',

@@ -84,15 +84,13 @@ function toFrontend(c: BackendCategory): Category {
 function toBackend(
   input: Omit<Category, 'id' | 'order' | 'isSystem'>,
   order: number,
-): BackendCategory {
+): Omit<BackendCategory, 'id' | 'isSystem'> {
   return {
-    id: '',
     name: input.name,
     kind: input.kind,
     color: input.color,
     icon: input.icon,
     parentId: input.parentId,
-    isSystem: false,
     order,
   }
 }
