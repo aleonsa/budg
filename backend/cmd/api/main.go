@@ -56,6 +56,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			Accounts:       store.NewAccountRepository(pool),
 			Transactions:   store.NewTransactionRepository(pool),
 			Budgets:        store.NewBudgetRepository(pool),
+			SavingsGoals:   store.NewSavingsGoalRepository(pool),
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,

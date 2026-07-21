@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Rule, SavingsGoal } from '@/types'
+import type { Rule } from '@/types'
 import { useMockData } from '@/stores/mockData'
 import * as client from './client'
 
@@ -35,25 +35,16 @@ afterEach(() => {
 
 describe('API reads', () => {
   it('returns independent, domain-sorted collections after simulated latency', async () => {
-    const goals = [
-      { ...initialCollections.savingsGoals[0], id: 'goal-later', order: 2 },
-      { ...initialCollections.savingsGoals[1], id: 'goal-first', order: 1 },
-    ]
     const rules = [
       { ...initialCollections.rules[0], id: 'rule-later', priority: 4 },
       { ...initialCollections.rules[1], id: 'rule-first', priority: 2 },
     ]
-    useMockData.setState({ savingsGoals: goals, rules })
+    useMockData.setState({ rules })
 
-    const request = Promise.all([
-      client.getMSIPurchases(),
-      client.getSavingsGoals(),
-      client.getRules(),
-    ])
+    const request = Promise.all([client.getMSIPurchases(), client.getRules()])
     await vi.advanceTimersByTimeAsync(200)
-    const [msi, goalResult, ruleResult] = await request
+    const [msi, ruleResult] = await request
 
-    expect(goalResult.map((item) => item.id)).toEqual(['goal-first', 'goal-later'])
     expect(ruleResult.map((item) => item.id)).toEqual(['rule-first', 'rule-later'])
     expect(msi).toEqual(initialCollections.msiPurchases)
   })
@@ -75,33 +66,11 @@ describe('API account and budget mutations', () => {
   })
 })
 
-describe('API savings, category, and rule mutations', () => {
-  it('creates, edits, contributes to, and deletes savings goals', async () => {
-    const input: Omit<SavingsGoal, 'id' | 'order'> = {
-      name: 'Trip',
-      targetAmount: 50_000,
-      currentAmount: 5_000,
-      accountId: null,
-      isCompleted: false,
-    }
-
-    const created = await finishDelay(client.createSavingsGoal(input))
-    const persisted = useMockData.getState().savingsGoals.find((item) => item.id === created.id)
-    expect(created).toEqual({ ...input, id: 'goal-12345678', order: 3 })
-    expect(persisted).toEqual(created)
-
-    await finishDelay(client.updateSavingsGoal(created.id, { name: 'Long trip' }))
-    await finishDelay(client.contributeToSavingsGoal(created.id, 45_000))
-    expect(
-      useMockData.getState().savingsGoals.find((item) => item.id === created.id),
-    ).toMatchObject({
-      name: 'Long trip',
-      currentAmount: 50_000,
-      isCompleted: true,
-    })
-
-    await finishDelay(client.deleteSavingsGoal(created.id))
-    expect(useMockData.getState().savingsGoals.some((item) => item.id === created.id)).toBe(false)
+describe('API savings and rule mutations', () => {
+  // Savings goals create/update/delete are now backed by the real backend
+  // and are covered by savings-goals.test.ts.
+  it('is covered by savings-goals.test.ts', () => {
+    expect(true).toBe(true)
   })
 
   // Category create/update/delete are now backed by the real backend and are

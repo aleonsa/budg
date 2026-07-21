@@ -8,7 +8,7 @@
  * callsites stable.
  */
 
-import type { MSIPurchase, Rule, SavingsGoal } from '@/types'
+import type { MSIPurchase, Rule } from '@/types'
 import { useMockData } from '@/stores/mockData'
 
 // Re-export real implementations so callers using `import * as api from
@@ -22,6 +22,13 @@ export {
   deleteTransaction,
 } from './transactions'
 export { getBudgets, createBudget, updateBudget, deleteBudget } from './budgets'
+export {
+  getSavingsGoals,
+  createSavingsGoal,
+  updateSavingsGoal,
+  contributeToSavingsGoal,
+  deleteSavingsGoal,
+} from './savings-goals'
 
 /** Simulate network latency */
 const delay = (ms = 200) => new Promise((r) => setTimeout(r, ms))
@@ -35,12 +42,6 @@ export async function getMSIPurchases(): Promise<MSIPurchase[]> {
   return [...state().msiPurchases]
 }
 
-// ── Savings Goals ───────────────────────────────────────────
-export async function getSavingsGoals(): Promise<SavingsGoal[]> {
-  await delay()
-  return [...state().savingsGoals].sort((a, b) => a.order - b.order)
-}
-
 // ── Rules ───────────────────────────────────────────────────
 export async function getRules(): Promise<Rule[]> {
   await delay()
@@ -49,29 +50,7 @@ export async function getRules(): Promise<Rule[]> {
 
 // ── Mutations ───────────────────────────────────────────────
 
-// Transactions, accounts, and budgets are backed by their own API modules (re-exported above).
-
-export async function createSavingsGoal(
-  input: Omit<SavingsGoal, 'id' | 'order'>,
-): Promise<SavingsGoal> {
-  await delay()
-  return state().addSavingsGoal(input)
-}
-
-export async function updateSavingsGoal(id: string, patch: Partial<SavingsGoal>): Promise<void> {
-  await delay()
-  state().updateSavingsGoal(id, patch)
-}
-
-export async function contributeToSavingsGoal(id: string, amount: number): Promise<void> {
-  await delay()
-  state().contributeToGoal(id, amount)
-}
-
-export async function deleteSavingsGoal(id: string): Promise<void> {
-  await delay()
-  state().deleteSavingsGoal(id)
-}
+// Transactions, accounts, budgets, and savings goals are backed by their own API modules (re-exported above).
 
 // Category create/update/delete are backed by ./categories (re-exported above).
 
