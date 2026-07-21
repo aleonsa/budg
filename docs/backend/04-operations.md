@@ -65,7 +65,7 @@ production no comparten passwords, JWT config ni proyecto Supabase.
 | `CORS_ALLOWED_ORIGINS` | No | backend | Orígenes de desarrollo local; en producción el frontend es same-origin |
 | `VITE_SUPABASE_URL` | No | frontend | Proyecto Supabase (cliente público) |
 | `VITE_SUPABASE_ANON_KEY` | No | frontend | Anon key (segura para browser) |
-| `VITE_API_BASE_URL` | No | frontend | URL absoluta del dominio Vercel (same-origin en producción) |
+| `VITE_API_BASE_URL` | No | frontend | Sin setear en Production/Preview: default same-origin (ver `backend.ts`). Solo se usa en desarrollo local si el backend no corre en `localhost:8080` |
 
 Password DB y service role jamás usan prefijo `VITE_`. `DATABASE_URL` hosted
 exige TLS verificable (`sslmode=verify-full`); ver sección siguiente sobre el
