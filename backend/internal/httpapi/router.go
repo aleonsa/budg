@@ -20,6 +20,7 @@ type Options struct {
 	Budgets        BudgetStore
 	SavingsGoals   SavingsGoalStore
 	Rules          RuleStore
+	MSIPurchases   MSIPurchaseStore
 }
 
 // NewRouter builds the HTTP routing tree used by the API server and tests.
@@ -112,6 +113,13 @@ func NewRouter(opts Options) http.Handler {
 					item.Post("/toggle", h.toggle)
 					item.Delete("/", h.delete)
 				})
+			})
+		}
+
+		if opts.MSIPurchases != nil {
+			h := &msiPurchasesHandler{store: opts.MSIPurchases}
+			v1.Route("/msi-purchases", func(msi chi.Router) {
+				msi.Get("/", h.list)
 			})
 		}
 	})

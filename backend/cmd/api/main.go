@@ -58,6 +58,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			Budgets:        store.NewBudgetRepository(pool),
 			SavingsGoals:   store.NewSavingsGoalRepository(pool),
 			Rules:          store.NewRuleRepository(pool),
+			MSIPurchases:   store.NewMSIPurchaseRepository(pool),
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,

@@ -1,33 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useMockData } from '@/stores/mockData'
-import * as client from './client'
-
-const initialState = useMockData.getState()
-const initialCollections = {
-  msiPurchases: initialState.msiPurchases,
-}
-
-beforeEach(() => {
-  vi.useFakeTimers()
-  vi.stubGlobal('crypto', { randomUUID: () => '12345678-abcd-ef00-1234-567890abcdef' })
-  useMockData.setState({
-    msiPurchases: initialCollections.msiPurchases.map((item) => ({ ...item })),
-  })
-})
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 afterEach(() => {
-  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
-describe('API reads', () => {
-  it('returns independent, domain-sorted collections after simulated latency', async () => {
-    const request = client.getMSIPurchases()
-    await vi.advanceTimersByTimeAsync(200)
-    const msi = await request
-
-    expect(msi).toEqual(initialCollections.msiPurchases)
+describe('API MSI purchases', () => {
+  // MSI purchases are read-only and now backed by the real backend, covered
+  // by msi-purchases.test.ts.
+  it('is covered by msi-purchases.test.ts', () => {
+    expect(true).toBe(true)
   })
 })
 
