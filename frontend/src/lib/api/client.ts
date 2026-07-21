@@ -8,25 +8,25 @@
  * callsites stable.
  */
 
-import type { Budget, MSIPurchase, Rule, SavingsGoal, Transaction } from '@/types'
+import type { Budget, MSIPurchase, Rule, SavingsGoal } from '@/types'
 import { useMockData } from '@/stores/mockData'
 
 // Re-export real implementations so callers using `import * as api from
 // '@/lib/api/client'` keep working transparently across the migration.
 export { getCategories, createCategory, updateCategory, deleteCategory } from './categories'
 export { getAccounts, createAccount, updateAccount, deleteAccount } from './accounts'
+export {
+  getTransactions,
+  createTransaction,
+  updateTransaction,
+  deleteTransaction,
+} from './transactions'
 
 /** Simulate network latency */
 const delay = (ms = 200) => new Promise((r) => setTimeout(r, ms))
 
 /** Snapshot accessor — always reads the latest in-memory state. */
 const state = () => useMockData.getState()
-
-// ── Transactions ────────────────────────────────────────────
-export async function getTransactions(): Promise<Transaction[]> {
-  await delay()
-  return [...state().transactions].sort((a, b) => b.date.localeCompare(a.date))
-}
 
 // ── MSI Purchases ───────────────────────────────────────────
 export async function getMSIPurchases(): Promise<MSIPurchase[]> {
@@ -54,24 +54,7 @@ export async function getRules(): Promise<Rule[]> {
 
 // ── Mutations ───────────────────────────────────────────────
 
-export async function createTransaction(
-  input: Omit<Transaction, 'id' | 'createdAt' | 'isReconciled'>,
-): Promise<Transaction> {
-  await delay()
-  return state().addTransaction(input)
-}
-
-export async function updateTransaction(id: string, patch: Partial<Transaction>): Promise<void> {
-  await delay()
-  state().updateTransaction(id, patch)
-}
-
-export async function deleteTransaction(id: string): Promise<void> {
-  await delay()
-  state().deleteTransaction(id)
-}
-
-// Account create/update/delete are backed by ./accounts (re-exported above).
+// Transactions and account create/update/delete are backed by their own API modules (re-exported above).
 
 export async function createBudget(input: Omit<Budget, 'id'>): Promise<Budget> {
   await delay()

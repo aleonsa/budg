@@ -130,6 +130,8 @@ describe('LoginPage', () => {
   })
 
   it('warns when Supabase is not configured and refuses to submit', async () => {
+    vi.stubEnv('VITE_SUPABASE_URL', '')
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
     __setSupabaseForTests(null)
     const user = userEvent.setup()
     renderLogin()

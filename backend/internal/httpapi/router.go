@@ -16,6 +16,7 @@ type Options struct {
 	CORSOrigins    []string
 	Categories     CategoryStore
 	Accounts       AccountStore
+	Transactions   TransactionStore
 }
 
 // NewRouter builds the HTTP routing tree used by the API server and tests.
@@ -56,6 +57,18 @@ func NewRouter(opts Options) http.Handler {
 				accts.Get("/", h.list)
 				accts.Post("/", h.create)
 				accts.Route("/{id}", func(item chi.Router) {
+					item.Patch("/", h.update)
+					item.Delete("/", h.delete)
+				})
+			})
+		}
+
+		if opts.Transactions != nil {
+			h := &transactionsHandler{store: opts.Transactions}
+			v1.Route("/transactions", func(txs chi.Router) {
+				txs.Get("/", h.list)
+				txs.Post("/", h.create)
+				txs.Route("/{id}", func(item chi.Router) {
 					item.Patch("/", h.update)
 					item.Delete("/", h.delete)
 				})

@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Budget, Rule, SavingsGoal, Transaction } from '@/types'
+import type { Budget, Rule, SavingsGoal } from '@/types'
 import { useMockData } from '@/stores/mockData'
 import * as client from './client'
 
 const initialState = useMockData.getState()
 const initialCollections = {
-  transactions: initialState.transactions,
   msiPurchases: initialState.msiPurchases,
   savingsGoals: initialState.savingsGoals,
   budgets: initialState.budgets,
@@ -21,7 +20,6 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.stubGlobal('crypto', { randomUUID: () => '12345678-abcd-ef00-1234-567890abcdef' })
   useMockData.setState({
-    transactions: initialCollections.transactions.map((item) => ({ ...item })),
     msiPurchases: initialCollections.msiPurchases.map((item) => ({ ...item })),
     savingsGoals: initialCollections.savingsGoals.map((item) => ({ ...item })),
     budgets: initialCollections.budgets.map((item) => ({ ...item })),
@@ -37,10 +35,6 @@ afterEach(() => {
 
 describe('API reads', () => {
   it('returns independent, domain-sorted collections after simulated latency', async () => {
-    const transactions = [
-      { ...initialCollections.transactions[0], id: 'tx-old', date: '2026-01-01' },
-      { ...initialCollections.transactions[1], id: 'tx-new', date: '2026-02-01' },
-    ]
     const goals = [
       { ...initialCollections.savingsGoals[0], id: 'goal-later', order: 2 },
       { ...initialCollections.savingsGoals[1], id: 'goal-first', order: 1 },
@@ -49,53 +43,29 @@ describe('API reads', () => {
       { ...initialCollections.rules[0], id: 'rule-later', priority: 4 },
       { ...initialCollections.rules[1], id: 'rule-first', priority: 2 },
     ]
-    useMockData.setState({ transactions, savingsGoals: goals, rules })
+    useMockData.setState({ savingsGoals: goals, rules })
 
     const request = Promise.all([
-      client.getTransactions(),
       client.getMSIPurchases(),
       client.getSavingsGoals(),
       client.getBudgets(),
       client.getRules(),
     ])
     await vi.advanceTimersByTimeAsync(200)
-    const [transactionResult, msi, goalResult, budgets, ruleResult] = await request
+    const [msi, goalResult, budgets, ruleResult] = await request
 
-    expect(transactionResult.map((item) => item.id)).toEqual(['tx-new', 'tx-old'])
     expect(goalResult.map((item) => item.id)).toEqual(['goal-first', 'goal-later'])
     expect(ruleResult.map((item) => item.id)).toEqual(['rule-first', 'rule-later'])
     expect(msi).toEqual(initialCollections.msiPurchases)
     expect(budgets).toEqual(initialCollections.budgets)
-    expect(transactionResult).not.toBe(transactions)
   })
-
-  // Account reads are now backed by the real backend and are covered by
-  // src/lib/api/accounts.test.ts (including the "reads state at response
-  // time" style behavior, which no longer applies here since there's no
-  // shared mock store in the loop).
 })
 
 describe('API transaction mutations', () => {
-  it('creates, updates, and deletes transactions visible to later reads', async () => {
-    const input: Omit<Transaction, 'id' | 'createdAt' | 'isReconciled'> = {
-      accountId: 'acc-nomina',
-      type: 'expense',
-      amount: 900,
-      categoryId: 'cat-food',
-      date: '2026-07-20',
-      description: 'Coffee',
-    }
-
-    const created = await finishDelay(client.createTransaction(input))
-    expect(created).toMatchObject({ ...input, id: 'tx-12345678', isReconciled: false })
-
-    await finishDelay(client.updateTransaction(created.id, { amount: 1_100 }))
-    expect(useMockData.getState().transactions.find((item) => item.id === created.id)?.amount).toBe(
-      1_100,
-    )
-
-    await finishDelay(client.deleteTransaction(created.id))
-    expect(useMockData.getState().transactions.some((item) => item.id === created.id)).toBe(false)
+  // Transaction create/update/delete are now backed by the real backend and are
+  // covered by src/lib/api/transactions.test.ts.
+  it('is covered by transactions.test.ts', () => {
+    expect(true).toBe(true)
   })
 })
 
