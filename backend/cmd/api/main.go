@@ -52,6 +52,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			Database:       pool,
 			AuthMiddleware: verifier.Middleware,
 			CORSOrigins:    cfg.CORSOrigins,
+			Categories:     store.NewCategoryRepository(pool),
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,

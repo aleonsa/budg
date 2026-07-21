@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Account, Budget, Category, Rule, SavingsGoal, Transaction } from '@/types'
+import type { Account, Budget, Rule, SavingsGoal, Transaction } from '@/types'
 import { useMockData } from '@/stores/mockData'
 import * as client from './client'
 
 const initialState = useMockData.getState()
 const initialCollections = {
-  categories: initialState.categories,
   accounts: initialState.accounts,
   transactions: initialState.transactions,
   msiPurchases: initialState.msiPurchases,
@@ -23,7 +22,6 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.stubGlobal('crypto', { randomUUID: () => '12345678-abcd-ef00-1234-567890abcdef' })
   useMockData.setState({
-    categories: initialCollections.categories.map((item) => ({ ...item })),
     accounts: initialCollections.accounts.map((item) => ({ ...item })),
     transactions: initialCollections.transactions.map((item) => ({ ...item })),
     msiPurchases: initialCollections.msiPurchases.map((item) => ({ ...item })),
@@ -41,10 +39,6 @@ afterEach(() => {
 
 describe('API reads', () => {
   it('returns independent, domain-sorted collections after simulated latency', async () => {
-    const categories = [
-      { ...initialCollections.categories[0], id: 'cat-later', order: 20 },
-      { ...initialCollections.categories[1], id: 'cat-first', order: 10 },
-    ]
     const transactions = [
       { ...initialCollections.transactions[0], id: 'tx-old', date: '2026-01-01' },
       { ...initialCollections.transactions[1], id: 'tx-new', date: '2026-02-01' },
@@ -57,10 +51,9 @@ describe('API reads', () => {
       { ...initialCollections.rules[0], id: 'rule-later', priority: 4 },
       { ...initialCollections.rules[1], id: 'rule-first', priority: 2 },
     ]
-    useMockData.setState({ categories, transactions, savingsGoals: goals, rules })
+    useMockData.setState({ transactions, savingsGoals: goals, rules })
 
     const request = Promise.all([
-      client.getCategories(),
       client.getAccounts(),
       client.getTransactions(),
       client.getMSIPurchases(),
@@ -69,17 +62,14 @@ describe('API reads', () => {
       client.getRules(),
     ])
     await vi.advanceTimersByTimeAsync(200)
-    const [categoryResult, accounts, transactionResult, msi, goalResult, budgets, ruleResult] =
-      await request
+    const [accounts, transactionResult, msi, goalResult, budgets, ruleResult] = await request
 
-    expect(categoryResult.map((item) => item.id)).toEqual(['cat-first', 'cat-later'])
     expect(transactionResult.map((item) => item.id)).toEqual(['tx-new', 'tx-old'])
     expect(goalResult.map((item) => item.id)).toEqual(['goal-first', 'goal-later'])
     expect(ruleResult.map((item) => item.id)).toEqual(['rule-first', 'rule-later'])
     expect(accounts).toEqual(initialCollections.accounts)
     expect(msi).toEqual(initialCollections.msiPurchases)
     expect(budgets).toEqual(initialCollections.budgets)
-    expect(categoryResult).not.toBe(categories)
     expect(transactionResult).not.toBe(transactions)
   })
 
@@ -188,28 +178,8 @@ describe('API savings, category, and rule mutations', () => {
     expect(useMockData.getState().savingsGoals.some((item) => item.id === created.id)).toBe(false)
   })
 
-  it('creates ordered categories, updates them, and deletes them', async () => {
-    const input: Omit<Category, 'id' | 'order' | 'isSystem'> = {
-      name: 'Pets',
-      kind: 'expense',
-      color: 'orange',
-      icon: 'PawPrint',
-      parentId: null,
-    }
-
-    const created = await finishDelay(client.createCategory(input))
-    const persisted = useMockData.getState().categories.find((item) => item.id === created.id)
-    expect(created).toEqual({ ...input, id: 'cat-12345678', isSystem: false, order: 9 })
-    expect(persisted).toEqual(created)
-
-    await finishDelay(client.updateCategory(created.id, { name: 'Dog' }))
-    expect(useMockData.getState().categories.find((item) => item.id === created.id)?.name).toBe(
-      'Dog',
-    )
-
-    await finishDelay(client.deleteCategory(created.id))
-    expect(useMockData.getState().categories.some((item) => item.id === created.id)).toBe(false)
-  })
+  // Category create/update/delete are now backed by the real backend and are
+  // covered by src/lib/api/categories.test.ts.
 
   it('creates default-priority rules, toggles them, and deletes them', async () => {
     const input: Omit<Rule, 'id' | 'priority'> = {

@@ -14,6 +14,7 @@ type Options struct {
 	Database       databasePinger
 	AuthMiddleware func(http.Handler) http.Handler
 	CORSOrigins    []string
+	Categories     CategoryStore
 }
 
 // NewRouter builds the HTTP routing tree used by the API server and tests.
@@ -35,6 +36,18 @@ func NewRouter(opts Options) http.Handler {
 			v1.Use(opts.AuthMiddleware)
 		}
 		v1.Handle("/me", &meHandler{})
+
+		if opts.Categories != nil {
+			h := &categoriesHandler{store: opts.Categories}
+			v1.Route("/categories", func(cats chi.Router) {
+				cats.Get("/", h.list)
+				cats.Post("/", h.create)
+				cats.Route("/{id}", func(item chi.Router) {
+					item.Patch("/", h.update)
+					item.Delete("/", h.delete)
+				})
+			})
+		}
 	})
 
 	return r
