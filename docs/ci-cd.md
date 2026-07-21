@@ -153,18 +153,17 @@ eliminó ese script y reemplazó el experimento ignorado por módulo canónico
 
 ## Job migrations
 
-Se agrega en Fase 2 cuando existe primera migración:
+Activo desde Fase 2 para garantizar que reconstrucción de esquema nunca falle:
 
-1. Arrancar Supabase local descartable con versión fijada.
-2. Crear rol runtime de prueba.
-3. Ejecutar `goose validate`.
-4. Ejecutar `goose up`.
-5. Ejecutar integración Go y pruebas de aislamiento.
-6. Ejecutar `goose down-to 0` solo en DB descartable.
-7. Ejecutar `goose up` otra vez.
+1. Instala Supabase CLI y Goose fijados.
+2. Arranca Supabase local descartable (sólo DB).
+3. Ejecuta script de bootstrap para rol runtime `budg_api`.
+4. Ejecuta `goose validate`.
+5. Ejecuta ciclo destructivo: `goose up -> goose down-to 0 -> goose up`.
 
-Nunca apunta a development compartido ni production. CI no recibe credenciales
-production.
+Job usa base local efímera; no afecta development ni production. Prueba Go de
+integración se documenta como validación local contra pooler porque CI separa DB
+de la suite unitaria.
 
 ## Job security
 
@@ -194,8 +193,7 @@ settings del repositorio. Version updates quedan activas al publicar
 Job final sin lógica de aplicación:
 
 ```txt
-ci needs frontend-quality, backend-quality, security
-ci also needs migrations cuando exista
+ci needs frontend-quality, backend-quality, migrations, security
 ci uses if: always()
 ci succeeds only if every required needs.<job>.result is success
 ```

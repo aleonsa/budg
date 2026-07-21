@@ -382,6 +382,30 @@ Por migración:
 9. Probar que referencias cruzadas fallan.
 10. Probar checks de dinero, tipo y fechas.
 
+## Estado: completado (setup local)
+
+Fase 2 implementó base de datos local y pipeline de migraciones:
+
+- `supabase/config.toml` habilitó pooler transaction y deshabilitó migraciones
+  y seeds automáticos de Supabase.
+- Creada migración Goose 00001 para `categories` con FK a `auth.users`, índices,
+  constraints CHECK y FORCE RLS.
+- Creado `bootstrap-runtime-role.sql` idempotente para inyectar password y crear
+  `budg_api` sin privilegios DDL.
+- Pipeline CI ejecuta ciclo destructivo `up -> down-to 0 -> up` sobre DB local
+  descartable en cada PR.
+- `GET /readyz` agregado con 2s timeout que usa pgxpool `Ping()` contra DB.
+- Prueba de integración local `TestPostgresPoolIntegration` verifica conexión
+  por Supavisor transaction pooler en puerto 54329.
+
+Nota: Supavisor cachea el password inicial de `budg_api`. Si el script bootstrap
+rota el password usando `ALTER ROLE`, Supavisor rechazará conexiones nuevas hasta
+que el contenedor `supabase_pooler_budg` sea reiniciado. El flujo local/CI
+requiere inicializar rol antes del primer intento de conexión.
+
+Falta setup de proyecto alojado (Hosted Development) y verificación de TLS contra
+pooler real; esto requiere intervención del administrador de proyecto.
+
 ## Decisiones aplazadas intencionalmente
 
 - Ledger canónico contra snapshots de saldo.

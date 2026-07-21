@@ -10,26 +10,35 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aleonsa/budg/backend/internal/config"
 	"github.com/aleonsa/budg/backend/internal/httpapi"
+	"github.com/aleonsa/budg/backend/internal/store"
 )
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	if err := run(logger); err != nil {
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("configuration is invalid", "error", err)
+		os.Exit(1)
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
+	if err := run(cfg, logger); err != nil {
 		logger.Error("server failed", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger) error {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+func run(cfg config.Config, logger *slog.Logger) error {
+	pool, err := store.NewPostgresPool(context.Background(), cfg.DatabaseURL)
+	if err != nil {
+		return err
 	}
+	defer pool.Close()
 
 	srv := &http.Server{
-		Addr:              ":" + port,
-		Handler:           httpapi.NewRouter(),
+		Addr:              ":" + cfg.Port,
+		Handler:           httpapi.NewRouter(pool),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -38,7 +47,7 @@ func run(logger *slog.Logger) error {
 
 	serverErr := make(chan error, 1)
 	go func() {
-		logger.Info("server starting", "addr", srv.Addr)
+		logger.Info("server starting", "addr", srv.Addr, "environment", cfg.Environment)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 		}

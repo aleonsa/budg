@@ -9,9 +9,7 @@ import (
 )
 
 // NewRouter builds the HTTP routing tree used by the API server and tests.
-// Phase 1 exposes only /healthz; CORS, auth, and versioned resources arrive
-// in later phases so the wiring here must stay small and observable.
-func NewRouter() http.Handler {
+func NewRouter(database databasePinger) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -21,6 +19,7 @@ func NewRouter() http.Handler {
 	r.Use(middleware.Logger)
 
 	r.Handle("/healthz", &healthHandler{})
+	r.Handle("/readyz", &readyHandler{database: database})
 
 	return r
 }
