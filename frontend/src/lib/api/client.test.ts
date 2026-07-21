@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Account, Budget, Rule, SavingsGoal, Transaction } from '@/types'
+import type { Budget, Rule, SavingsGoal, Transaction } from '@/types'
 import { useMockData } from '@/stores/mockData'
 import * as client from './client'
 
 const initialState = useMockData.getState()
 const initialCollections = {
-  accounts: initialState.accounts,
   transactions: initialState.transactions,
   msiPurchases: initialState.msiPurchases,
   savingsGoals: initialState.savingsGoals,
@@ -22,7 +21,6 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.stubGlobal('crypto', { randomUUID: () => '12345678-abcd-ef00-1234-567890abcdef' })
   useMockData.setState({
-    accounts: initialCollections.accounts.map((item) => ({ ...item })),
     transactions: initialCollections.transactions.map((item) => ({ ...item })),
     msiPurchases: initialCollections.msiPurchases.map((item) => ({ ...item })),
     savingsGoals: initialCollections.savingsGoals.map((item) => ({ ...item })),
@@ -54,7 +52,6 @@ describe('API reads', () => {
     useMockData.setState({ transactions, savingsGoals: goals, rules })
 
     const request = Promise.all([
-      client.getAccounts(),
       client.getTransactions(),
       client.getMSIPurchases(),
       client.getSavingsGoals(),
@@ -62,23 +59,20 @@ describe('API reads', () => {
       client.getRules(),
     ])
     await vi.advanceTimersByTimeAsync(200)
-    const [accounts, transactionResult, msi, goalResult, budgets, ruleResult] = await request
+    const [transactionResult, msi, goalResult, budgets, ruleResult] = await request
 
     expect(transactionResult.map((item) => item.id)).toEqual(['tx-new', 'tx-old'])
     expect(goalResult.map((item) => item.id)).toEqual(['goal-first', 'goal-later'])
     expect(ruleResult.map((item) => item.id)).toEqual(['rule-first', 'rule-later'])
-    expect(accounts).toEqual(initialCollections.accounts)
     expect(msi).toEqual(initialCollections.msiPurchases)
     expect(budgets).toEqual(initialCollections.budgets)
     expect(transactionResult).not.toBe(transactions)
   })
 
-  it('reads state at response time rather than capturing a stale request snapshot', async () => {
-    const request = client.getAccounts()
-    useMockData.setState({ accounts: [] })
-
-    expect(await finishDelay(request)).toEqual([])
-  })
+  // Account reads are now backed by the real backend and are covered by
+  // src/lib/api/accounts.test.ts (including the "reads state at response
+  // time" style behavior, which no longer applies here since there's no
+  // shared mock store in the loop).
 })
 
 describe('API transaction mutations', () => {
@@ -106,27 +100,8 @@ describe('API transaction mutations', () => {
 })
 
 describe('API account and budget mutations', () => {
-  it('exposes account create, update, and delete outcomes', async () => {
-    const input: Omit<Account, 'id' | 'isActive'> = {
-      name: 'Cash',
-      type: 'debit',
-      institution: 'Wallet',
-      last4: '0000',
-      currency: 'MXN',
-      balance: 2_000,
-    }
-
-    const created = await finishDelay(client.createAccount(input))
-    expect(created).toEqual({ ...input, id: 'acc-12345678', isActive: true })
-
-    await finishDelay(client.updateAccount(created.id, { balance: 3_000 }))
-    expect(useMockData.getState().accounts.find((item) => item.id === created.id)?.balance).toBe(
-      3_000,
-    )
-
-    await finishDelay(client.deleteAccount(created.id))
-    expect(useMockData.getState().accounts.some((item) => item.id === created.id)).toBe(false)
-  })
+  // Account create/update/delete are now backed by the real backend and are
+  // covered by src/lib/api/accounts.test.ts.
 
   it('exposes budget create, update, and delete outcomes', async () => {
     const input: Omit<Budget, 'id'> = {

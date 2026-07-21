@@ -15,6 +15,7 @@ type Options struct {
 	AuthMiddleware func(http.Handler) http.Handler
 	CORSOrigins    []string
 	Categories     CategoryStore
+	Accounts       AccountStore
 }
 
 // NewRouter builds the HTTP routing tree used by the API server and tests.
@@ -43,6 +44,18 @@ func NewRouter(opts Options) http.Handler {
 				cats.Get("/", h.list)
 				cats.Post("/", h.create)
 				cats.Route("/{id}", func(item chi.Router) {
+					item.Patch("/", h.update)
+					item.Delete("/", h.delete)
+				})
+			})
+		}
+
+		if opts.Accounts != nil {
+			h := &accountsHandler{store: opts.Accounts}
+			v1.Route("/accounts", func(accts chi.Router) {
+				accts.Get("/", h.list)
+				accts.Post("/", h.create)
+				accts.Route("/{id}", func(item chi.Router) {
 					item.Patch("/", h.update)
 					item.Delete("/", h.delete)
 				})

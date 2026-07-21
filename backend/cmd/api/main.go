@@ -53,6 +53,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			AuthMiddleware: verifier.Middleware,
 			CORSOrigins:    cfg.CORSOrigins,
 			Categories:     store.NewCategoryRepository(pool),
+			Accounts:       store.NewAccountRepository(pool),
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
