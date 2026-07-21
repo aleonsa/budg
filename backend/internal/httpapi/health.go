@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 )
 
@@ -43,4 +44,18 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// writeInternalError logs the real, unredacted error server-side (never sent
+// to the client — see docs/backend/04-operations.md's logging policy) and
+// writes the generic 500 body callers already used. Every handler's
+// "internal_error" response should go through this instead of writeJSON
+// directly, otherwise a real failure (bad DSN, RLS denial, network error to
+// Postgres, ...) is completely invisible in production: chi's
+// middleware.Logger only records the status code, not why it was 500.
+func writeInternalError(w http.ResponseWriter, r *http.Request, err error, message string) {
+	slog.ErrorContext(r.Context(), message, "error", err, "method", r.Method, "path", r.URL.Path)
+	writeJSON(w, http.StatusInternalServerError, errorResponse{
+		Error: apiError{Code: "internal_error", Message: message},
+	})
 }

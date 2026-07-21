@@ -34,9 +34,7 @@ func (h *savingsGoalsHandler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	goals, err := h.store.List(r.Context(), user.ID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: apiError{Code: "internal_error", Message: "could not list savings goals"},
-		})
+		writeInternalError(w, r, err, "could not list savings goals")
 		return
 	}
 	writeJSON(w, http.StatusOK, savingsGoalsResponse{Data: goals})
@@ -65,9 +63,7 @@ func (h *savingsGoalsHandler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	created, err := h.store.Create(r.Context(), user.ID, in)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: apiError{Code: "internal_error", Message: "could not create savings goal"},
-		})
+		writeInternalError(w, r, err, "could not create savings goal")
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
@@ -103,9 +99,7 @@ func (h *savingsGoalsHandler) update(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: apiError{Code: "internal_error", Message: "could not update savings goal"},
-		})
+		writeInternalError(w, r, err, "could not update savings goal")
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -149,9 +143,7 @@ func (h *savingsGoalsHandler) contribute(w http.ResponseWriter, r *http.Request)
 			})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: apiError{Code: "internal_error", Message: "could not contribute to savings goal"},
-		})
+		writeInternalError(w, r, err, "could not contribute to savings goal")
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -179,9 +171,7 @@ func (h *savingsGoalsHandler) delete(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: apiError{Code: "internal_error", Message: "could not delete savings goal"},
-		})
+		writeInternalError(w, r, err, "could not delete savings goal")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

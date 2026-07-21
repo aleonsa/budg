@@ -37,9 +37,7 @@ func (h *accountsHandler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	accounts, err := h.store.List(r.Context(), user.ID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: apiError{Code: "internal_error", Message: "could not list accounts"},
-		})
+		writeInternalError(w, r, err, "could not list accounts")
 		return
 	}
 	writeJSON(w, http.StatusOK, accountsResponse{Data: accounts})
@@ -68,9 +66,7 @@ func (h *accountsHandler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	created, err := h.store.Create(r.Context(), user.ID, in)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: apiError{Code: "internal_error", Message: "could not create account"},
-		})
+		writeInternalError(w, r, err, "could not create account")
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
@@ -106,9 +102,7 @@ func (h *accountsHandler) update(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: apiError{Code: "internal_error", Message: "could not update account"},
-		})
+		writeInternalError(w, r, err, "could not update account")
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -136,9 +130,7 @@ func (h *accountsHandler) delete(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: apiError{Code: "internal_error", Message: "could not delete account"},
-		})
+		writeInternalError(w, r, err, "could not delete account")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

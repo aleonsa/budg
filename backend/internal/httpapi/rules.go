@@ -34,9 +34,7 @@ func (h *rulesHandler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	rules, err := h.store.List(r.Context(), user.ID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: apiError{Code: "internal_error", Message: "could not list rules"},
-		})
+		writeInternalError(w, r, err, "could not list rules")
 		return
 	}
 	writeJSON(w, http.StatusOK, rulesResponse{Data: rules})
@@ -65,9 +63,7 @@ func (h *rulesHandler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	created, err := h.store.Create(r.Context(), user.ID, in)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: apiError{Code: "internal_error", Message: "could not create rule"},
-		})
+		writeInternalError(w, r, err, "could not create rule")
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
@@ -96,9 +92,7 @@ func (h *rulesHandler) toggle(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: apiError{Code: "internal_error", Message: "could not toggle rule"},
-		})
+		writeInternalError(w, r, err, "could not toggle rule")
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -126,9 +120,7 @@ func (h *rulesHandler) delete(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: apiError{Code: "internal_error", Message: "could not delete rule"},
-		})
+		writeInternalError(w, r, err, "could not delete rule")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
