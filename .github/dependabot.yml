@@ -9,6 +9,11 @@ updates:
       timezone: America/Mexico_City
     open-pull-requests-limit: 5
     target-branch: main
+    # @types/node must stay on the major that matches the declared runtime
+    # (engines.node in package.json). Allow patch + minor, ignore majors.
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
