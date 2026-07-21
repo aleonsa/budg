@@ -8,7 +8,7 @@
  * callsites stable.
  */
 
-import type { Budget, MSIPurchase, Rule, SavingsGoal } from '@/types'
+import type { MSIPurchase, Rule, SavingsGoal } from '@/types'
 import { useMockData } from '@/stores/mockData'
 
 // Re-export real implementations so callers using `import * as api from
@@ -21,6 +21,7 @@ export {
   updateTransaction,
   deleteTransaction,
 } from './transactions'
+export { getBudgets, createBudget, updateBudget, deleteBudget } from './budgets'
 
 /** Simulate network latency */
 const delay = (ms = 200) => new Promise((r) => setTimeout(r, ms))
@@ -40,12 +41,6 @@ export async function getSavingsGoals(): Promise<SavingsGoal[]> {
   return [...state().savingsGoals].sort((a, b) => a.order - b.order)
 }
 
-// ── Budgets ─────────────────────────────────────────────────
-export async function getBudgets(): Promise<Budget[]> {
-  await delay()
-  return [...state().budgets]
-}
-
 // ── Rules ───────────────────────────────────────────────────
 export async function getRules(): Promise<Rule[]> {
   await delay()
@@ -54,22 +49,7 @@ export async function getRules(): Promise<Rule[]> {
 
 // ── Mutations ───────────────────────────────────────────────
 
-// Transactions and account create/update/delete are backed by their own API modules (re-exported above).
-
-export async function createBudget(input: Omit<Budget, 'id'>): Promise<Budget> {
-  await delay()
-  return state().addBudget(input)
-}
-
-export async function updateBudget(id: string, patch: Partial<Budget>): Promise<void> {
-  await delay()
-  state().updateBudget(id, patch)
-}
-
-export async function deleteBudget(id: string): Promise<void> {
-  await delay()
-  state().deleteBudget(id)
-}
+// Transactions, accounts, and budgets are backed by their own API modules (re-exported above).
 
 export async function createSavingsGoal(
   input: Omit<SavingsGoal, 'id' | 'order'>,

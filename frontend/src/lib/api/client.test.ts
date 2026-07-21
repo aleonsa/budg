@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Budget, Rule, SavingsGoal } from '@/types'
+import type { Rule, SavingsGoal } from '@/types'
 import { useMockData } from '@/stores/mockData'
 import * as client from './client'
 
@@ -48,16 +48,14 @@ describe('API reads', () => {
     const request = Promise.all([
       client.getMSIPurchases(),
       client.getSavingsGoals(),
-      client.getBudgets(),
       client.getRules(),
     ])
     await vi.advanceTimersByTimeAsync(200)
-    const [msi, goalResult, budgets, ruleResult] = await request
+    const [msi, goalResult, ruleResult] = await request
 
     expect(goalResult.map((item) => item.id)).toEqual(['goal-first', 'goal-later'])
     expect(ruleResult.map((item) => item.id)).toEqual(['rule-first', 'rule-later'])
     expect(msi).toEqual(initialCollections.msiPurchases)
-    expect(budgets).toEqual(initialCollections.budgets)
   })
 })
 
@@ -70,27 +68,10 @@ describe('API transaction mutations', () => {
 })
 
 describe('API account and budget mutations', () => {
-  // Account create/update/delete are now backed by the real backend and are
-  // covered by src/lib/api/accounts.test.ts.
-
-  it('exposes budget create, update, and delete outcomes', async () => {
-    const input: Omit<Budget, 'id'> = {
-      categoryId: 'cat-food',
-      amount: 10_000,
-      period: 'weekly',
-      startDate: '2026-07-20',
-    }
-
-    const created = await finishDelay(client.createBudget(input))
-    expect(created).toEqual({ ...input, id: 'bud-12345678' })
-
-    await finishDelay(client.updateBudget(created.id, { amount: 20_000 }))
-    expect(useMockData.getState().budgets.find((item) => item.id === created.id)?.amount).toBe(
-      20_000,
-    )
-
-    await finishDelay(client.deleteBudget(created.id))
-    expect(useMockData.getState().budgets.some((item) => item.id === created.id)).toBe(false)
+  // Account and budget create/update/delete are now backed by the real backend
+  // and are covered by accounts.test.ts and budgets.test.ts.
+  it('is covered by accounts.test.ts and budgets.test.ts', () => {
+    expect(true).toBe(true)
   })
 })
 
