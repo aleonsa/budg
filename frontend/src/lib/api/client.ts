@@ -1,33 +1,24 @@
 /**
  * API Client — mock implementation backed by an in-memory Zustand store.
  *
- * When the Go backend is ready, replace the internals of each function
- * with `fetch()` calls. The function signatures and return types stay
- * the same, so no component or hook needs to change.
+ * Category CRUD has been migrated to the real backend (see ./categories);
+ * this file still hosts the remaining mock resources until each lands in
+ * Phase 4+. When a resource is migrated, delete its functions here and
+ * re-export the real implementation to keep callsites stable.
  */
 
-import type {
-  Account,
-  Budget,
-  Category,
-  MSIPurchase,
-  Rule,
-  SavingsGoal,
-  Transaction,
-} from '@/types'
+import type { Account, Budget, MSIPurchase, Rule, SavingsGoal, Transaction } from '@/types'
 import { useMockData } from '@/stores/mockData'
+
+// Re-export real implementations so callers using `import * as api from
+// '@/lib/api/client'` keep working transparently across the migration.
+export { getCategories, createCategory, updateCategory, deleteCategory } from './categories'
 
 /** Simulate network latency */
 const delay = (ms = 200) => new Promise((r) => setTimeout(r, ms))
 
 /** Snapshot accessor — always reads the latest in-memory state. */
 const state = () => useMockData.getState()
-
-// ── Categories ──────────────────────────────────────────────
-export async function getCategories(): Promise<Category[]> {
-  await delay()
-  return [...state().categories].sort((a, b) => a.order - b.order)
-}
 
 // ── Accounts ────────────────────────────────────────────────
 export async function getAccounts(): Promise<Account[]> {
@@ -136,22 +127,7 @@ export async function deleteSavingsGoal(id: string): Promise<void> {
   state().deleteSavingsGoal(id)
 }
 
-export async function createCategory(
-  input: Omit<Category, 'id' | 'order' | 'isSystem'>,
-): Promise<Category> {
-  await delay()
-  return state().addCategory(input)
-}
-
-export async function updateCategory(id: string, patch: Partial<Category>): Promise<void> {
-  await delay()
-  state().updateCategory(id, patch)
-}
-
-export async function deleteCategory(id: string): Promise<void> {
-  await delay()
-  state().deleteCategory(id)
-}
+// Category create/update/delete are backed by ./categories (re-exported above).
 
 export async function createRule(input: Omit<Rule, 'id' | 'priority'>): Promise<Rule> {
   await delay()
