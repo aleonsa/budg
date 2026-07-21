@@ -1,15 +1,30 @@
 import { render, screen } from '@testing-library/react'
 import { act } from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
-import { useAuth } from '@/stores/auth'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { __setSupabaseForTests } from '@/lib/supabase/client'
+import { __resetAuthSubscriptionBindingForTests, useAuth } from '@/stores/auth'
 import { Providers } from './providers'
 import { router } from './router'
 
 describe('Providers', () => {
-  afterEach(() => useAuth.setState({ user: null }))
+  beforeEach(() => {
+    __resetAuthSubscriptionBindingForTests()
+    __setSupabaseForTests({
+      auth: {
+        getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+        onAuthStateChange: vi.fn(() => ({ unsubscribe: vi.fn() })),
+      },
+    } as never)
+    useAuth.setState({ status: 'loading', user: null, error: null })
+  })
+
+  afterEach(() => {
+    __setSupabaseForTests(null)
+    __resetAuthSubscriptionBindingForTests()
+    useAuth.setState({ status: 'loading', user: null, error: null })
+  })
 
   it('wires the application router to the public login route', async () => {
-    useAuth.setState({ user: null })
     await act(() => router.navigate('/login'))
 
     render(<Providers />)

@@ -19,11 +19,14 @@ function renderMenu() {
 }
 
 describe('MobileUserMenu', () => {
-  afterEach(() => useAuth.setState({ user: null }))
+  afterEach(() => useAuth.setState({ status: 'unauthenticated', user: null, error: null }))
 
   it('shows signed-in account details and closes after navigating to settings', async () => {
     const user = userEvent.setup()
-    useAuth.setState({ user: { name: 'ana pérez', email: 'ana@example.com' } })
+    useAuth.setState({
+      status: 'authenticated',
+      user: { id: 'u1', email: 'ana@example.com', name: 'ana pérez' },
+    })
     renderMenu()
 
     await user.click(screen.getByRole('button', { name: 'Cuenta' }))
@@ -37,7 +40,10 @@ describe('MobileUserMenu', () => {
 
   it('signs out and replaces the current route with login', async () => {
     const user = userEvent.setup()
-    useAuth.setState({ user: { name: 'Ana', email: 'ana@example.com' } })
+    useAuth.setState({
+      status: 'authenticated',
+      user: { id: 'u1', email: 'ana@example.com', name: 'Ana' },
+    })
     renderMenu()
 
     await user.click(screen.getByRole('button', { name: 'Cuenta' }))
@@ -49,7 +55,7 @@ describe('MobileUserMenu', () => {
 
   it('uses guest account fallbacks when no session exists', async () => {
     const user = userEvent.setup()
-    useAuth.setState({ user: null })
+    useAuth.setState({ status: 'unauthenticated', user: null })
     renderMenu()
 
     await user.click(screen.getByRole('button', { name: 'Cuenta' }))

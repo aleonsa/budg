@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aleonsa/budg/backend/internal/auth"
 	"github.com/aleonsa/budg/backend/internal/config"
 	"github.com/aleonsa/budg/backend/internal/httpapi"
 	"github.com/aleonsa/budg/backend/internal/store"
@@ -30,6 +31,15 @@ func main() {
 }
 
 func run(cfg config.Config, logger *slog.Logger) error {
+	keyOption, err := auth.NewCachedKeyOption(context.Background(), cfg.JWKSURL)
+	if err != nil {
+		return err
+	}
+	verifier := auth.NewVerifier(keyOption, auth.Config{
+		Issuer:   cfg.JWTIssuer,
+		Audience: cfg.JWTAudience,
+	})
+
 	pool, err := store.NewPostgresPool(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -37,8 +47,12 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	defer pool.Close()
 
 	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           httpapi.NewRouter(pool),
+		Addr: ":" + cfg.Port,
+		Handler: httpapi.NewRouter(httpapi.Options{
+			Database:       pool,
+			AuthMiddleware: verifier.Middleware,
+			CORSOrigins:    cfg.CORSOrigins,
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,

@@ -177,7 +177,7 @@ export default function SettingsPage() {
   }
 
   const handleSignOut = () => {
-    signOut()
+    void signOut()
     navigate('/login', { replace: true })
   }
 

@@ -1,48 +1,46 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Info } from 'lucide-react'
 import { Button, Card, Input, Label } from '@/components/ui'
 import { useAuth } from '@/stores/auth'
-
-const DEMO_EMAIL = 'demo@budg.app'
-const DEMO_PASSWORD = 'demo1234'
 
 export default function LoginPage() {
   const navigate = useNavigate()
   const signIn = useAuth((s) => s.signIn)
+  const storeError = useAuth((s) => s.error)
+  const clearError = useAuth((s) => s.clearError)
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  const submit = (emailValue: string, passwordValue: string) => {
+  const activeError = error ?? storeError
+
+  const submit = async (emailValue: string, passwordValue: string) => {
     setError(null)
+    clearError()
     if (!emailValue.trim() || !passwordValue.trim()) {
       setError('Ingresa email y contraseña.')
       return
     }
     setSubmitting(true)
-    // Simulate a tiny delay for UX realism
-    setTimeout(() => {
-      signIn(emailValue, passwordValue)
-      navigate('/', { replace: true })
-    }, 250)
+    const result = await signIn(emailValue, passwordValue)
+    setSubmitting(false)
+    if (!result.ok) {
+      setError(result.error ?? 'No se pudo iniciar sesión.')
+      return
+    }
+    navigate('/', { replace: true })
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    submit(email, password)
+    void submit(email, password)
   }
 
-  const useDemoCredentials = () => {
-    setEmail(DEMO_EMAIL)
-    setPassword(DEMO_PASSWORD)
-    submit(DEMO_EMAIL, DEMO_PASSWORD)
-  }
-
-  const emailInvalid = error !== null && !email.trim()
-  const passwordInvalid = error !== null && !password.trim()
+  const emailInvalid = activeError !== null && !email.trim()
+  const passwordInvalid = activeError !== null && !password.trim()
+  const showCredentialsError = activeError !== null && !emailInvalid && !passwordInvalid
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[hsl(var(--sidebar-bg))] p-4">
@@ -82,9 +80,9 @@ export default function LoginPage() {
               />
             </div>
 
-            {error && (
+            {activeError && (
               <p id="login-error" role="alert" className="text-xs text-destructive">
-                {error}
+                {showCredentialsError ? activeError : 'Ingresa email y contraseña.'}
               </p>
             )}
 
@@ -92,33 +90,10 @@ export default function LoginPage() {
               {submitting ? 'Ingresando…' : 'Iniciar sesión'}
             </Button>
           </form>
-
-          {/* Demo credentials banner */}
-          <div className="mt-3.5 flex items-start gap-2 rounded-[8px] bg-muted p-2.5">
-            <Info className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--color-blue))]" />
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-medium text-foreground">
-                Ambiente mock — usa credenciales demo
-              </p>
-              <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
-                {DEMO_EMAIL} / {DEMO_PASSWORD}
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-2 w-full"
-                onClick={useDemoCredentials}
-                disabled={submitting}
-              >
-                Usar credenciales demo
-              </Button>
-            </div>
-          </div>
         </Card>
 
         <p className="text-center text-[11px] text-muted-foreground">
-          Demo local · los datos se reinician al recargar
+          Inicia sesión con tu cuenta Supabase
         </p>
       </div>
     </div>

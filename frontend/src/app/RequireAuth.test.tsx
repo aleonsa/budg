@@ -29,10 +29,19 @@ function renderProtectedRoute() {
 }
 
 describe('RequireAuth', () => {
-  afterEach(() => useAuth.setState({ user: null }))
+  afterEach(() => useAuth.setState({ status: 'loading', user: null, error: null }))
 
-  it('redirects signed-out users to login and preserves their destination', () => {
-    useAuth.setState({ user: null })
+  it('renders nothing while session status is still loading', () => {
+    useAuth.setState({ status: 'loading', user: null })
+
+    renderProtectedRoute()
+
+    expect(screen.queryByText('Private accounts')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Login requested/)).not.toBeInTheDocument()
+  })
+
+  it('redirects unauthenticated users to login and preserves their destination', () => {
+    useAuth.setState({ status: 'unauthenticated', user: null })
 
     renderProtectedRoute()
 
@@ -40,8 +49,11 @@ describe('RequireAuth', () => {
     expect(screen.queryByText('Private accounts')).not.toBeInTheDocument()
   })
 
-  it('shows protected content to signed-in users', () => {
-    useAuth.setState({ user: { name: 'Ana', email: 'ana@example.com' } })
+  it('shows protected content to authenticated users', () => {
+    useAuth.setState({
+      status: 'authenticated',
+      user: { id: 'u1', email: 'ana@example.com', name: 'Ana' },
+    })
 
     renderProtectedRoute()
 

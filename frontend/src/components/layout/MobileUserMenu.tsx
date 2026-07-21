@@ -22,7 +22,7 @@ export function MobileUserMenu() {
 
   const handleSignOut = () => {
     setOpen(false)
-    signOut()
+    void signOut()
     navigate('/login', { replace: true })
   }
 

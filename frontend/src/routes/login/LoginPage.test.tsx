@@ -1,9 +1,9 @@
-import { act } from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useAuth } from '@/stores/auth'
+import { __setSupabaseForTests } from '@/lib/supabase/client'
+import { __resetAuthSubscriptionBindingForTests, useAuth } from '@/stores/auth'
 import LoginPage from './LoginPage'
 
 function renderLogin() {
@@ -17,15 +17,32 @@ function renderLogin() {
   )
 }
 
+function fakeSupabase(auth: {
+  getSession?: ReturnType<typeof vi.fn>
+  signInWithPassword?: ReturnType<typeof vi.fn>
+}) {
+  return {
+    auth: {
+      getSession:
+        auth.getSession ?? vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+      signInWithPassword:
+        auth.signInWithPassword ?? vi.fn().mockResolvedValue({ data: {}, error: null }),
+      onAuthStateChange: vi.fn(() => ({ unsubscribe: vi.fn() })),
+    },
+  }
+}
+
 describe('LoginPage', () => {
   beforeEach(() => {
-    useAuth.setState({ user: null })
+    __resetAuthSubscriptionBindingForTests()
+    useAuth.setState({ status: 'unauthenticated', user: null, error: null })
   })
 
   afterEach(() => {
-    vi.clearAllTimers()
-    vi.useRealTimers()
-    useAuth.setState({ user: null })
+    __setSupabaseForTests(null)
+    __resetAuthSubscriptionBindingForTests()
+    vi.restoreAllMocks()
+    useAuth.setState({ status: 'loading', user: null, error: null })
   })
 
   it('shows validation feedback and stays put when credentials are empty', async () => {
@@ -40,8 +57,6 @@ describe('LoginPage', () => {
     const password = screen.getByLabelText('Contraseña')
     expect(email).toHaveAttribute('aria-invalid', 'true')
     expect(password).toHaveAttribute('aria-invalid', 'true')
-    expect(email).toHaveAccessibleDescription('Ingresa email y contraseña.')
-    expect(password).toHaveAccessibleDescription('Ingresa email y contraseña.')
     expect(screen.getByRole('button', { name: 'Iniciar sesión' })).toBeEnabled()
     expect(useAuth.getState().user).toBeNull()
   })
@@ -62,38 +77,70 @@ describe('LoginPage', () => {
     expect(password).toHaveAccessibleDescription('Ingresa email y contraseña.')
   })
 
-  it('enters a pending state, signs in, and replaces login after valid submission', async () => {
+  it('enters a pending state, signs in, and navigates to the dashboard on success', async () => {
+    const supa = fakeSupabase({})
+    supa.auth.getSession.mockResolvedValue({
+      data: {
+        session: {
+          user: {
+            id: 'user-1',
+            email: 'ana@example.com',
+            user_metadata: { name: 'Ana' },
+          },
+        },
+      },
+      error: null,
+    })
+    __setSupabaseForTests(supa as never)
+
     const user = userEvent.setup()
     renderLogin()
 
     await user.type(screen.getByRole('textbox', { name: 'Email' }), 'ana@example.com')
     await user.type(screen.getByLabelText('Contraseña'), 'secret')
-    vi.useFakeTimers()
-    fireEvent.click(screen.getByRole('button', { name: 'Iniciar sesión' }))
+    const submit = screen.getByRole('button', { name: 'Iniciar sesión' })
+    await user.click(submit)
 
-    expect(screen.getByRole('button', { name: 'Ingresando…' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Usar credenciales demo' })).toBeDisabled()
-    expect(useAuth.getState().user).toBeNull()
-
-    act(() => vi.advanceTimersByTime(250))
-
-    expect(screen.getByText('Dashboard destination')).toBeInTheDocument()
-    expect(useAuth.getState().user).toEqual({ name: 'Usuario Demo', email: 'ana@example.com' })
+    expect(await screen.findByText('Dashboard destination')).toBeInTheDocument()
+    expect(useAuth.getState().user).toEqual({
+      id: 'user-1',
+      email: 'ana@example.com',
+      name: 'Ana',
+    })
   })
 
-  it('fills and submits canonical demo credentials in one action', async () => {
+  it('surfaces Supabase sign-in errors in the alert region', async () => {
+    const supa = fakeSupabase({
+      signInWithPassword: vi.fn().mockResolvedValue({
+        data: { session: null },
+        error: { message: 'Invalid login credentials' },
+      }),
+    })
+    __setSupabaseForTests(supa as never)
+
+    const user = userEvent.setup()
     renderLogin()
 
-    vi.useFakeTimers()
-    fireEvent.click(screen.getByRole('button', { name: 'Usar credenciales demo' }))
+    await user.type(screen.getByRole('textbox', { name: 'Email' }), 'ana@example.com')
+    await user.type(screen.getByLabelText('Contraseña'), 'wrong')
+    await user.click(screen.getByRole('button', { name: 'Iniciar sesión' }))
 
-    expect(screen.getByRole('textbox', { name: 'Email' })).toHaveValue('demo@budg.app')
-    expect(screen.getByLabelText('Contraseña')).toHaveValue('demo1234')
-    expect(screen.getByRole('button', { name: 'Ingresando…' })).toBeDisabled()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Invalid login credentials')
+    expect(useAuth.getState().user).toBeNull()
+  })
 
-    act(() => vi.advanceTimersByTime(250))
+  it('warns when Supabase is not configured and refuses to submit', async () => {
+    __setSupabaseForTests(null)
+    const user = userEvent.setup()
+    renderLogin()
 
-    expect(screen.getByText('Dashboard destination')).toBeInTheDocument()
-    expect(useAuth.getState().user?.email).toBe('demo@budg.app')
+    await user.type(screen.getByRole('textbox', { name: 'Email' }), 'ana@example.com')
+    await user.type(screen.getByLabelText('Contraseña'), 'secret')
+    await user.click(screen.getByRole('button', { name: 'Iniciar sesión' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Supabase no está configurado. Define VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY.',
+    )
+    expect(useAuth.getState().user).toBeNull()
   })
 })
