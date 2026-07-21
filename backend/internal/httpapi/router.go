@@ -95,6 +95,7 @@ func NewRouter(opts Options) http.Handler {
 				goals.Get("/", h.list)
 				goals.Post("/", h.create)
 				goals.Route("/{id}", func(item chi.Router) {
+					item.Post("/contributions", h.contribute)
 					item.Patch("/", h.update)
 					item.Delete("/", h.delete)
 				})

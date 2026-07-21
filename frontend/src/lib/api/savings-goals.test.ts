@@ -103,12 +103,12 @@ describe('savings goals api client', () => {
     expect(String(url)).toMatch(/\/v1\/savings-goals$/)
     expect((init as RequestInit).method).toBe('POST')
     const body = JSON.parse((init as RequestInit).body as string)
-    expect(body).toMatchObject({
+    expect(body).toEqual({
       name: 'Car',
       targetAmount: 200000,
       currentAmount: 0,
       accountId: null,
-      isCompleted: false,
+      order: 0,
     })
     expect(created.id).toBe('goal-new')
   })
@@ -126,14 +126,16 @@ describe('savings goals api client', () => {
     expect(body).toEqual({ name: 'New Trip' })
   })
 
-  it('contributeToSavingsGoal patches currentAmount', async () => {
+  it('contributeToSavingsGoal posts an additive contribution', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}, 200))
     vi.stubGlobal('fetch', fetchMock)
 
     await savingsGoals.contributeToSavingsGoal('goal-1', 1000)
 
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)
-    expect(body).toEqual({ currentAmount: 1000 })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toMatch(/\/v1\/savings-goals\/goal-1\/contributions$/)
+    expect((init as RequestInit).method).toBe('POST')
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ amount: 1000 })
   })
 
   it('deleteSavingsGoal issues DELETE and resolves on success', async () => {
