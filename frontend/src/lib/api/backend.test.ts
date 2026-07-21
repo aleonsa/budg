@@ -25,6 +25,8 @@ describe('backend api adapter', () => {
   })
 
   it('throws when Supabase is not configured', async () => {
+    vi.stubEnv('VITE_SUPABASE_URL', '')
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
     __setSupabaseForTests(null)
     await expect(authFetch('/v1/me')).rejects.toThrow(/no está configurado/i)
   })
