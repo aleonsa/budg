@@ -128,7 +128,7 @@ func (r *AccountRepository) List(ctx context.Context, userID string) ([]Account,
 func (r *AccountRepository) Create(ctx context.Context, userID string, in AccountInput) (Account, error) {
 	var a Account
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
+		row := tx.QueryRow(ctx, `
 			INSERT INTO public.accounts (
 				user_id, name, type, institution, last4, currency,
 				balance_cents, credit_limit_cents, available_credit_cents,
@@ -139,11 +139,8 @@ func (r *AccountRepository) Create(ctx context.Context, userID string, in Accoun
 			userID, in.Name, in.Type, in.Institution, in.Last4, in.Currency,
 			in.BalanceCents, in.CreditLimitCents, in.AvailableCreditCents,
 			in.StatementCutDay, in.PaymentDueDay,
-		).Scan(
-			&a.ID, &a.UserID, &a.Name, &a.Type, &a.Institution, &a.Last4, &a.Currency,
-			&a.BalanceCents, &a.CreditLimitCents, &a.AvailableCreditCents,
-			&a.StatementCutDay, &a.PaymentDueDay, &a.IsActive, &a.CreatedAt, &a.UpdatedAt,
 		)
+		return scanAccount(row, &a)
 	})
 	if err != nil {
 		return Account{}, fmt.Errorf("create account: %w", err)
@@ -155,7 +152,7 @@ func (r *AccountRepository) Create(ctx context.Context, userID string, in Accoun
 func (r *AccountRepository) Update(ctx context.Context, userID, id string, patch AccountPatch) (Account, error) {
 	var a Account
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
+		row := tx.QueryRow(ctx, `
 			UPDATE public.accounts SET
 				name                    = COALESCE($3, name),
 				institution             = COALESCE($4, institution),
@@ -176,11 +173,8 @@ func (r *AccountRepository) Update(ctx context.Context, userID, id string, patch
 			patch.AvailableCreditCents.Set, patch.AvailableCreditCents.Value,
 			patch.StatementCutDay.Set, patch.StatementCutDay.Value,
 			patch.PaymentDueDay.Set, patch.PaymentDueDay.Value,
-		).Scan(
-			&a.ID, &a.UserID, &a.Name, &a.Type, &a.Institution, &a.Last4, &a.Currency,
-			&a.BalanceCents, &a.CreditLimitCents, &a.AvailableCreditCents,
-			&a.StatementCutDay, &a.PaymentDueDay, &a.IsActive, &a.CreatedAt, &a.UpdatedAt,
 		)
+		return scanAccount(row, &a)
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
