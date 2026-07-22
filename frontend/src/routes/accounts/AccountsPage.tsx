@@ -387,6 +387,7 @@ export default function AccountsPage() {
   const [fType, setFType] = useState<AccountType>('debit')
   const [fInstitution, setFInstitution] = useState('')
   const [fBalance, setFBalance] = useState('')
+  const [fDebt, setFDebt] = useState('')
   const [fLast4, setFLast4] = useState('')
   const [showNameError, setShowNameError] = useState(false)
   const [fMSIAccount, setFMSIAccount] = useState('')
@@ -455,6 +456,7 @@ export default function AccountsPage() {
     setFType('debit')
     setFInstitution('')
     setFBalance('')
+    setFDebt('')
     setFLast4('')
     setShowNameError(false)
     setIsAccountPanelOpen(true)
@@ -467,6 +469,11 @@ export default function AccountsPage() {
     setFType(account.type)
     setFInstitution(account.institution)
     setFBalance(centsToInput(account.type === 'credit' ? account.creditLimit : account.balance))
+    setFDebt(
+      account.type === 'credit'
+        ? centsToInput((account.creditLimit ?? 0) - (account.availableCredit ?? 0))
+        : '',
+    )
     setFLast4(account.last4)
     setShowNameError(false)
     setIsAccountPanelOpen(true)
@@ -497,6 +504,11 @@ export default function AccountsPage() {
     }
     const isCredit = fType === 'credit'
     const balance = toCents(fBalance)
+    // For credit accounts, the user enters how much they currently owe
+    // ("Deuda actual"), which we store as the derived availableCredit
+    // (limit - debt) — the field the rest of the app already reads.
+    const debt = isCredit ? toCents(fDebt || '0') : 0
+    const availableCredit = balance - debt
     if (editingAccount) {
       updateMut.reset()
       updateMut.mutate(
@@ -506,7 +518,7 @@ export default function AccountsPage() {
             name: fName.trim(),
             institution: fInstitution.trim() || 'Banco',
             last4: fLast4.trim().slice(-4) || '0000',
-            ...(isCredit ? { creditLimit: balance } : { balance }),
+            ...(isCredit ? { creditLimit: balance, availableCredit } : { balance }),
           },
         },
         { onSuccess: closePanel },
@@ -521,7 +533,7 @@ export default function AccountsPage() {
         institution: fInstitution.trim() || 'Banco',
         last4: fLast4.trim().slice(-4) || '0000',
         currency: 'MXN',
-        ...(isCredit ? { creditLimit: balance, availableCredit: balance } : { balance }),
+        ...(isCredit ? { creditLimit: balance, availableCredit } : { balance }),
       },
       { onSuccess: closePanel },
     )
@@ -667,10 +679,36 @@ export default function AccountsPage() {
             onChange={(e) => setFBalance(e.target.value)}
           />
         </div>
+        {fType === 'credit' ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="account-debt">Deuda actual</Label>
+            <Input
+              id="account-debt"
+              placeholder="$0.00"
+              inputMode="decimal"
+              value={fDebt}
+              onChange={(e) => setFDebt(e.target.value)}
+            />
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            <Label htmlFor="account-last4">Últimos 4</Label>
+            <Input
+              id="account-last4"
+              placeholder="1234"
+              inputMode="numeric"
+              maxLength={4}
+              value={fLast4}
+              onChange={(e) => setFLast4(e.target.value)}
+            />
+          </div>
+        )}
+      </div>
+      {fType === 'credit' && (
         <div className="space-y-1.5">
-          <Label htmlFor="account-last4">Últimos 4</Label>
+          <Label htmlFor="account-last4-credit">Últimos 4</Label>
           <Input
-            id="account-last4"
+            id="account-last4-credit"
             placeholder="1234"
             inputMode="numeric"
             maxLength={4}
@@ -678,7 +716,7 @@ export default function AccountsPage() {
             onChange={(e) => setFLast4(e.target.value)}
           />
         </div>
-      </div>
+      )}
       {activeMutation.error && (
         <p id="account-create-error" role="alert" className="text-xs text-destructive">
           {editingAccount
