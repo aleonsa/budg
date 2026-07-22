@@ -20,7 +20,6 @@ interface MockActionPanelProps {
   onSubmit?: () => void
   submitting?: boolean
   submitVariant?: 'default' | 'destructive'
-  showDemoNotice?: boolean
   children: React.ReactNode
 }
 
@@ -33,7 +32,6 @@ export function MockActionPanel({
   onSubmit,
   submitting = false,
   submitVariant = 'default',
-  showDemoNotice = true,
   children,
 }: MockActionPanelProps) {
   const titleId = useId()
@@ -124,12 +122,6 @@ export function MockActionPanel({
         </div>
 
         <div className="mt-3.5 space-y-3">{children}</div>
-
-        {showDemoNotice && (
-          <div className="mt-3.5 rounded-[7px] bg-muted p-2 text-[11px] text-muted-foreground">
-            Ambiente demo: los cambios se guardan en memoria y se reinician al recargar.
-          </div>
-        )}
 
         {onSubmit && (
           <div className="mt-3.5 flex justify-end gap-1.5">

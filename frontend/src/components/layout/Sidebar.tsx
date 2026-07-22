@@ -123,7 +123,7 @@ export function Sidebar() {
             </div>
 
             <div className="mt-3 rounded-md bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
-              Sesión mock · Ambiente demo
+              Producción · {import.meta.env.VITE_API_BASE_URL || 'mismo origen'}
             </div>
 
             <div className="mt-2 space-y-1">
