@@ -189,7 +189,7 @@ function ChatPanel() {
         {/* Input */}
         <form
           onSubmit={handleSubmit}
-          className="flex items-center gap-2 border-t border-border p-3 pb-safe"
+          className="flex items-center gap-2 border-t border-border px-3.5 pt-3 pb-4 pb-safe sm:pb-3"
         >
           <input
             type="text"
