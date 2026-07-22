@@ -394,5 +394,21 @@ Corregido en dos frentes:
   campo no-puntero como "usa el valor cero", así que no hizo falta cambiar
   ningún struct de argumentos en Go.
 
-Pendiente inmediato: confirmar el smoke test manual contra OpenAI real con
-esta corrección, y evals/tools de mutación (paso 7, sin empezar).
+Smoke test manual confirmado contra OpenAI real (2026-07-22): flujo completo
+de streaming, tool call de `search_transactions` y `response.completed` con
+`FinalResponse` válida y correcta. Paso 9 completado.
+
+### Nota de UX: `response.delta` transmite JSON crudo, no texto legible
+
+Como el modelo solo produce JSON estructurado (contrato `FinalResponse`), los
+eventos `response.delta` transmiten los caracteres del JSON según se generan
+token por token (el smoke test mostró decenas de deltas terminando en
+fragmentos como `"}"`). Es coherente con el diseño actual, pero no es útil
+para renderizar como texto progresivo en un chat UI. Pendiente decidir: (a)
+dejarlo así y que el frontend ignore `response.delta` hasta `response.completed`,
+o (b) dejar de reenviar `response.delta` al cliente en este endpoint (seguir
+emitiéndolo internamente por si se usa después) y depender solo de
+`tool.started`/`tool.completed` más `response.completed` para progreso.
+
+Pendiente inmediato: decidir la nota de UX anterior, y evals/tools de
+mutación (paso 7, sin empezar).
