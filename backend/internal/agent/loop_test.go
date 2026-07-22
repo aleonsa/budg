@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // scriptedProvider returns a queued response per model call so loop behavior is
@@ -303,6 +304,60 @@ func TestRunnerDoesNotEmitToolCompletedOnDuplicateStop(t *testing.T) {
 	// dispatch even starts, so it must not emit either lifecycle event.
 	if toolStartedCount != 1 || toolCompletedCount != 1 {
 		t.Fatalf("tool_started=%d tool_completed=%d, want 1/1", toolStartedCount, toolCompletedCount)
+	}
+}
+
+func TestRunnerExtractsPendingConfirmationFromToolResult(t *testing.T) {
+	proposal := ToolResult{
+		Status:  ToolStatusSuccess,
+		Summary: "Propuesta lista",
+		Data: json.RawMessage(
+			`{"proposal":{"amountCents":10000},"confirmationToken":"tok123","confirmationExpiresAt":"2026-07-22T15:35:00Z"}`,
+		),
+		NextActions: []string{},
+	}
+	provider := &scriptedProvider{responses: []ModelResponse{
+		{FinishReason: FinishReasonToolCalls, ToolCalls: []ToolCall{toolCall("c1", "create_transaction", `{"amountCents":10000}`)}},
+		{FinishReason: FinishReasonCompleted, Output: json.RawMessage(
+			`{"status":"confirmation_required","message":"¿Confirmas?","summary":"Propuesta","artifacts":[]}`,
+		)},
+	}}
+	tool := staticTool("create_transaction", proposal)
+	runner := newTestRunner(t, provider, defaultLimits(), tool)
+
+	result, err := runner.Run(context.Background(), userTurn("Registra un gasto"))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if result.Outcome != OutcomeCompleted || result.Response.Status != StatusConfirmationRequired {
+		t.Fatalf("result = %+v", result)
+	}
+	if result.PendingConfirmation == nil {
+		t.Fatal("PendingConfirmation was not extracted from the tool result")
+	}
+	if result.PendingConfirmation.Token != "tok123" || result.PendingConfirmation.ToolName != "create_transaction" {
+		t.Fatalf("pending confirmation = %+v", result.PendingConfirmation)
+	}
+	wantExpiry := time.Date(2026, 7, 22, 15, 35, 0, 0, time.UTC)
+	if !result.PendingConfirmation.ExpiresAt.Equal(wantExpiry) {
+		t.Fatalf("pending confirmation expiresAt = %v, want %v", result.PendingConfirmation.ExpiresAt, wantExpiry)
+	}
+}
+
+func TestRunnerLeavesPendingConfirmationNilForOrdinaryTools(t *testing.T) {
+	provider := &scriptedProvider{responses: []ModelResponse{
+		{FinishReason: FinishReasonToolCalls, ToolCalls: []ToolCall{toolCall("c1", "search_transactions", `{}`)}},
+		{FinishReason: FinishReasonCompleted, Output: json.RawMessage(`{"status":"completed","message":"ok","summary":"ok","artifacts":[]}`)},
+	}}
+	tool := staticTool("search_transactions", ToolResult{Status: ToolStatusSuccess, Summary: "ok", Data: json.RawMessage(`{"count":0}`), NextActions: []string{}})
+	runner := newTestRunner(t, provider, defaultLimits(), tool)
+
+	result, err := runner.Run(context.Background(), userTurn("Busca"))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if result.PendingConfirmation != nil {
+		t.Fatalf("unexpected pending confirmation for a read-only tool: %+v", result.PendingConfirmation)
 	}
 }
 

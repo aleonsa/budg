@@ -24,12 +24,12 @@ func TestServiceChatCompletesReadOnlyFlow(t *testing.T) {
 		{FinishReason: FinishReasonToolCalls, ToolCalls: []ToolCall{toolCall("c1", "get_financial_summary", `{"startDate":"2026-07-01","endDate":"2026-07-31"}`)}},
 		{FinishReason: FinishReasonCompleted, Output: json.RawMessage(`{"status":"completed","message":"Gastaste MXN 700.00","summary":"Julio","artifacts":[]}`)},
 	}}
-	service, err := NewService(provider, sampleStore(), testAgentConfig())
+	service, err := NewService(provider, sampleStore(), testConfirmer(t), testAgentConfig())
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
 
-	result, err := service.Chat(context.Background(), testUser, userTurn("¿Cuánto gasté en julio?"), nil, nil)
+	result, err := service.Chat(context.Background(), testUser, userTurn("¿Cuánto gasté en julio?"), nil, "", nil)
 	if err != nil {
 		t.Fatalf("chat: %v", err)
 	}
@@ -59,13 +59,13 @@ func TestServiceChatInjectsViewContext(t *testing.T) {
 	provider := &scriptedProvider{responses: []ModelResponse{
 		{FinishReason: FinishReasonCompleted, Output: json.RawMessage(`{"status":"completed","message":"ok","summary":"ok","artifacts":[]}`)},
 	}}
-	service, err := NewService(provider, sampleStore(), testAgentConfig())
+	service, err := NewService(provider, sampleStore(), testConfirmer(t), testAgentConfig())
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
 
 	view := &ViewContext{Route: "/accounts/acc-banamex", EntityType: "account", EntityID: "acc-banamex"}
-	if _, err := service.Chat(context.Background(), testUser, userTurn("¿Qué cuenta es esta?"), view, nil); err != nil {
+	if _, err := service.Chat(context.Background(), testUser, userTurn("¿Qué cuenta es esta?"), view, "", nil); err != nil {
 		t.Fatalf("chat: %v", err)
 	}
 	if !strings.Contains(provider.requests[0].Instructions, "/accounts/acc-banamex") {
@@ -75,11 +75,11 @@ func TestServiceChatInjectsViewContext(t *testing.T) {
 
 func TestServiceChatRequiresUserID(t *testing.T) {
 	provider := &scriptedProvider{}
-	service, err := NewService(provider, sampleStore(), testAgentConfig())
+	service, err := NewService(provider, sampleStore(), testConfirmer(t), testAgentConfig())
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
-	if _, err := service.Chat(context.Background(), "", userTurn("Hola"), nil, nil); err == nil {
+	if _, err := service.Chat(context.Background(), "", userTurn("Hola"), nil, "", nil); err == nil {
 		t.Fatal("chat accepted empty user id")
 	}
 }
@@ -87,7 +87,7 @@ func TestServiceChatRequiresUserID(t *testing.T) {
 func TestNewServiceValidatesLimits(t *testing.T) {
 	cfg := testAgentConfig()
 	cfg.MaxSteps = 0
-	if _, err := NewService(&scriptedProvider{}, sampleStore(), cfg); err == nil {
+	if _, err := NewService(&scriptedProvider{}, sampleStore(), testConfirmer(t), cfg); err == nil {
 		t.Fatal("service accepted invalid limits")
 	}
 }

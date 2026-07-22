@@ -306,7 +306,7 @@ Métricas iniciales:
 5. Conectar tools read-only a las stores (accounts, categories, transactions, summary). Hecho.
 6. Crear evals deterministas y pasar quality gates. Hecho para el alcance
    read-only; evals de mutaciones se añaden junto con esas tools en el paso 7.
-7. Añadir propuestas y confirmación de mutaciones.
+7. Añadir propuestas y confirmación de mutaciones. Hecho.
 8. Exponer endpoint SSE autenticado. Hecho.
 9. Ejecutar smoke test contra OpenAI con modelo configurado. Pendiente: requiere
    `OPENAI_API_KEY` real para validar en desarrollo (ver estado abajo).
@@ -411,4 +411,65 @@ quiere usar la actividad de deltas sin su contenido). El cliente ve progreso
 únicamente vía `tool.started`/`tool.completed` y el `response.completed`
 final.
 
-Pendiente inmediato: tools de mutación con confirmación explícita (paso 7).
+### Tools de mutación con confirmación explícita (paso 7)
+
+Implementado en `backend/internal/agent`:
+
+- `confirmation.go`: `Confirmer` firma y verifica tokens de confirmación con
+  HMAC-SHA256 sobre un payload autocontenido (`userId`, `tool`, argumentos
+  canonicalizados, expiración). No hay estado en servidor: el token es válido
+  si y solo si su firma, expiración y payload coinciden con la solicitud
+  actual, lo que evita necesitar persistencia de conversaciones o de
+  confirmaciones pendientes. `canonicalizeJSON` ordena claves y preserva
+  números exactos (`json.Number`) para que argumentos semánticamente iguales
+  verifiquen igual sin importar el orden de claves. `WithConfirmationToken`/
+  `ConfirmationTokenFromContext` propagan el token vía `context.Context` para
+  que cualquier tool lo lea sin cambiar la firma del `Runner`.
+- `loop.go`: `Result` gana `PendingConfirmation *PendingConfirmation`.
+  `extractPendingConfirmation` es un mecanismo genérico basado en convención:
+  cualquier tool cuyo `ToolResult.Data` incluya la clave `confirmationToken`
+  activa la extracción, sin que el loop necesite saber qué tools son de
+  mutación. El modelo nunca ve ni reproduce el token: viaja únicamente por
+  `Result` (nivel Go), separado del JSON que el modelo produce.
+- `tools_mutate.go`: `create_transaction`, `update_transaction` y
+  `delete_transaction` sobre una interfaz `WriteStore` angosta (compuesta con
+  `ReadStore` en `Store`). Cada una implementa la dualidad propone/ejecuta:
+  - Sin `confirmationToken` en el contexto (o si no verifica), valida
+    profundamente los argumentos (cuenta/categoría existen y pertenecen al
+    usuario, monto entero positivo, fecha válida, forma de transferencia) y
+    responde con una propuesta + un token fresco, sin tocar la base de datos.
+  - Con un `confirmationToken` que verifica exactamente contra userID, tool y
+    argumentos (canonicalizados), ejecuta la mutación real.
+  - Un token ausente, expirado o cuyos argumentos ya no coinciden (el usuario
+    o el modelo cambiaron algo) cae de vuelta a proponer con un token nuevo,
+    nunca ejecuta con datos obsoletos ni falla de forma confusa.
+  - `create_transaction` deriva una `idempotency_key` estable a partir del
+    hash del token, reutilizando el mecanismo de replay ya existente en
+    `TransactionRepository.Create` (migración 00013): confirmar el mismo
+    token dos veces no duplica el movimiento.
+  - `delete_transaction` trata un `ErrNotFound` en la ejecución confirmada
+    como éxito idempotente ("ya estaba eliminado"), no como error.
+  - Simplificación consciente de alcance: `update_transaction` no implementa
+    detección de edición concurrente de terceros entre proponer y confirmar
+    (solo valida que el movimiento siga existiendo); documentado aquí como
+    limitación conocida, aceptable para una app de uso personal/dual.
+- `config.go`: `AgentConfig.ConfirmationSecret`/`ConfirmationTTL` vía
+  `AGENT_CONFIRMATION_SECRET` (opcional, ≥16 caracteres) y
+  `AGENT_CONFIRMATION_TTL_SECONDS` (default 300s, acotado 30-1800). Sin
+  secreto configurado, `cmd/api/main.go` genera uno efímero por proceso con
+  `crypto/rand` y registra una advertencia: las confirmaciones pendientes no
+  sobreviven un reinicio ni múltiples instancias sin secreto explícito,
+  aceptable para una app personal de bajo tráfico.
+- `prompt.go`: system prompt actualizado (versión `2026-07-22.2`) con reglas
+  explícitas de confirmación: el modelo nunca inventa ni repite el token,
+  solo decide `status`/`message`; al confirmar debe repetir exactamente los
+  mismos argumentos.
+- `internal/httpapi/agent.go`: el frame `response.completed` incluye
+  `confirmationToken`/`confirmationExpiresAt` (vía `agentCompletedFrame`,
+  que aplana `agent.FinalResponse` embebido) solo cuando hay una confirmación
+  pendiente; el cliente debe reenviar el token tal cual en `confirmationToken`
+  del siguiente turno.
+
+Pendiente inmediato: evals de mutación mapeadas al Service (complementando
+las pruebas ya exhaustivas a nivel de tool en `tools_mutate_test.go`), y
+Fase 3 (frontend).

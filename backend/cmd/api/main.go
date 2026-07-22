@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -20,28 +21,40 @@ import (
 	"github.com/aleonsa/budg/backend/internal/store"
 )
 
-// agentReadStore composes the read-only repository methods the agent's tools
-// depend on (see internal/agent.ReadStore). It exists only because
-// AccountRepository, CategoryRepository, and TransactionRepository each
-// expose a same-named List method: one struct embedding all three could not
-// satisfy an interface requiring three distinctly named methods without this
-// small adapter. It carries no logic of its own.
-type agentReadStore struct {
+// agentStore composes the repository methods the agent's tools depend on
+// (see internal/agent.Store). It exists only because AccountRepository,
+// CategoryRepository, and TransactionRepository each expose same-named
+// List/Create/Update/Delete methods: one struct embedding all three could not
+// satisfy an interface requiring distinctly named methods without this small
+// adapter. It carries no logic of its own.
+type agentStore struct {
 	accounts     *store.AccountRepository
 	categories   *store.CategoryRepository
 	transactions *store.TransactionRepository
 }
 
-func (s *agentReadStore) ListAccounts(ctx context.Context, userID string) ([]store.Account, error) {
+func (s *agentStore) ListAccounts(ctx context.Context, userID string) ([]store.Account, error) {
 	return s.accounts.List(ctx, userID)
 }
 
-func (s *agentReadStore) ListCategories(ctx context.Context, userID string) ([]store.Category, error) {
+func (s *agentStore) ListCategories(ctx context.Context, userID string) ([]store.Category, error) {
 	return s.categories.List(ctx, userID)
 }
 
-func (s *agentReadStore) ListTransactions(ctx context.Context, userID string) ([]store.Transaction, error) {
+func (s *agentStore) ListTransactions(ctx context.Context, userID string) ([]store.Transaction, error) {
 	return s.transactions.List(ctx, userID)
+}
+
+func (s *agentStore) CreateTransaction(ctx context.Context, userID string, in store.TransactionInput) (store.Transaction, error) {
+	return s.transactions.Create(ctx, userID, in)
+}
+
+func (s *agentStore) UpdateTransaction(ctx context.Context, userID, id string, patch store.TransactionPatch) (store.Transaction, error) {
+	return s.transactions.Update(ctx, userID, id, patch)
+}
+
+func (s *agentStore) DeleteTransaction(ctx context.Context, userID, id string) error {
+	return s.transactions.Delete(ctx, userID, id)
 }
 
 func main() {
@@ -79,14 +92,29 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	// same pattern every other resource above already follows).
 	var agentService *agent.Service
 	if cfg.Agent.Enabled {
+		confirmationSecret := cfg.Agent.ConfirmationSecret
+		if len(confirmationSecret) == 0 {
+			confirmationSecret = make([]byte, 32)
+			if _, err := rand.Read(confirmationSecret); err != nil {
+				return err
+			}
+			logger.Warn("AGENT_CONFIRMATION_SECRET is unset; generated an ephemeral secret for this process. " +
+				"Pending mutation confirmations will not survive a restart or land on a different instance. " +
+				"Set AGENT_CONFIRMATION_SECRET explicitly in production.")
+		}
+		confirmer, err := agent.NewConfirmer(confirmationSecret, cfg.Agent.ConfirmationTTL)
+		if err != nil {
+			return err
+		}
+
 		client := openai.NewClient(option.WithAPIKey(cfg.Agent.APIKey))
 		provider := agent.NewOpenAIProvider(&client, cfg.Agent.Model)
-		readStore := &agentReadStore{
+		combinedStore := &agentStore{
 			accounts:     store.NewAccountRepository(pool),
 			categories:   store.NewCategoryRepository(pool),
 			transactions: store.NewTransactionRepository(pool),
 		}
-		agentService, err = agent.NewService(provider, readStore, cfg.Agent)
+		agentService, err = agent.NewService(provider, combinedStore, confirmer, cfg.Agent)
 		if err != nil {
 			return err
 		}

@@ -8,23 +8,31 @@ import (
 )
 
 // Service builds and runs per-request agents. It captures shared dependencies
-// (the model provider, read store, and bounded limits) once, then constructs a
-// user-scoped runner for each request.
+// (the model provider, the read/write store, the confirmation engine, and
+// bounded limits) once, then constructs a user-scoped runner for each
+// request. Mutation tools are always registered alongside read tools
+// whenever the agent itself is enabled -- there is no separate toggle for
+// them, since every mutation still requires its own explicit confirmation
+// round-trip regardless.
 type Service struct {
-	provider Provider
-	data     ReadStore
-	limits   Limits
+	provider  Provider
+	data      Store
+	confirmer *Confirmer
+	limits    Limits
 }
 
 // NewService wires the agent service from configuration. The provider is
 // injected so tests and the HTTP layer can supply a real OpenAI adapter or a
 // fake without changing this code.
-func NewService(provider Provider, data ReadStore, cfg config.AgentConfig) (*Service, error) {
+func NewService(provider Provider, data Store, confirmer *Confirmer, cfg config.AgentConfig) (*Service, error) {
 	if provider == nil {
 		return nil, errors.New("provider is required")
 	}
 	if data == nil {
-		return nil, errors.New("read store is required")
+		return nil, errors.New("store is required")
+	}
+	if confirmer == nil {
+		return nil, errors.New("confirmer is required")
 	}
 	limits := Limits{
 		MaxSteps:        cfg.MaxSteps,
@@ -34,29 +42,34 @@ func NewService(provider Provider, data ReadStore, cfg config.AgentConfig) (*Ser
 	if err := limits.validate(); err != nil {
 		return nil, err
 	}
-	return &Service{provider: provider, data: data, limits: limits}, nil
+	return &Service{provider: provider, data: data, confirmer: confirmer, limits: limits}, nil
 }
 
 // Chat runs one agent turn for a user. The userID must come from the verified
-// JWT; view is optional screen context. Emit streams text deltas; pass nil to
-// ignore streaming.
+// JWT; view is optional screen context; confirmationToken is the value the
+// client resent from a prior turn's PendingConfirmation, or "" if none.
+// Emit streams text deltas; pass nil to ignore streaming.
 func (s *Service) Chat(
 	ctx context.Context,
 	userID string,
 	conversation []Message,
 	view *ViewContext,
+	confirmationToken string,
 	emit func(ModelEvent) error,
 ) (Result, error) {
 	if userID == "" {
 		return Result{}, errors.New("user id is required")
 	}
-	registry, err := NewReadOnlyToolRegistry(s.data, userID)
-	if err != nil {
+	registry := NewToolRegistry()
+	if err := RegisterReadOnlyTools(registry, s.data, userID); err != nil {
+		return Result{}, err
+	}
+	if err := RegisterMutationTools(registry, s.data, s.confirmer, userID); err != nil {
 		return Result{}, err
 	}
 	runner, err := NewRunner(s.provider, registry, BuildSystemPrompt(view), s.limits)
 	if err != nil {
 		return Result{}, err
 	}
-	return runner.RunStreaming(ctx, conversation, emit)
+	return runner.RunStreaming(WithConfirmationToken(ctx, confirmationToken), conversation, emit)
 }

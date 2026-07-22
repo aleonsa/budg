@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Limits bounds a single run so the loop can never spin indefinitely or emit
@@ -44,13 +45,19 @@ const (
 )
 
 // Result is the normalized output of a run. Response is only meaningful when
-// Outcome is OutcomeCompleted.
+// Outcome is OutcomeCompleted. PendingConfirmation is set when a mutation
+// tool proposed an action instead of executing it (see dispatchToolCalls);
+// it is orthogonal to Outcome/Response, since the model's own FinalResponse
+// still carries the human-readable "please confirm" message and status --
+// PendingConfirmation only carries the machine-verifiable token the harness
+// itself produced, which the model never sees or has to reproduce.
 type Result struct {
-	Outcome   Outcome
-	Response  FinalResponse
-	Steps     int
-	ToolCalls int
-	Usage     Usage
+	Outcome             Outcome
+	Response            FinalResponse
+	Steps               int
+	ToolCalls           int
+	Usage               Usage
+	PendingConfirmation *PendingConfirmation
 }
 
 // Runner executes the bounded model/tool loop. It owns all control policy:
@@ -221,6 +228,14 @@ func (r *Runner) dispatchToolCalls(
 			Content: fmt.Sprintf("%s: %s", call.Name, payload),
 		})
 
+		if pending := extractPendingConfirmation(call.Name, toolResult.Data); pending != nil {
+			// Last one wins if a single response somehow proposes more than
+			// one mutation in the same batch; a well-behaved model should
+			// never do that, and both step/tool-call limits still bound the
+			// harness safely either way.
+			result.PendingConfirmation = pending
+		}
+
 		if emit != nil {
 			if err := emit(ModelEvent{Type: ModelEventToolCompleted, ToolName: call.Name, ToolCallID: call.ID}); err != nil {
 				return "", nil, err
@@ -234,6 +249,31 @@ func (r *Runner) dispatchToolCalls(
 func toolCallFingerprint(call ToolCall) string {
 	sum := sha256.Sum256([]byte(call.Name + "\x00" + string(call.Arguments)))
 	return hex.EncodeToString(sum[:])
+}
+
+// extractPendingConfirmation probes a tool's result data for the two
+// well-known optional keys any mutation tool includes when it proposes an
+// action instead of executing it: confirmationToken and
+// confirmationExpiresAt (RFC 3339). This is a generic, convention-based
+// mechanism rather than a "is this tool a mutation tool" special case, so
+// the loop stays uniform for every tool. Read-only tools simply never
+// include these keys, so this is a no-op for them. A malformed or missing
+// expiry does not fail the run: the token itself is still usable (Confirmer
+// enforces the real, signed expiry independently), so the harness only
+// loses the cosmetic expiresAt hint, never correctness.
+func extractPendingConfirmation(toolName string, data json.RawMessage) *PendingConfirmation {
+	if len(data) == 0 {
+		return nil
+	}
+	var probe struct {
+		ConfirmationToken     string `json:"confirmationToken"`
+		ConfirmationExpiresAt string `json:"confirmationExpiresAt"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil || probe.ConfirmationToken == "" {
+		return nil
+	}
+	expiresAt, _ := time.Parse(time.RFC3339, probe.ConfirmationExpiresAt)
+	return &PendingConfirmation{ToolName: toolName, Token: probe.ConfirmationToken, ExpiresAt: expiresAt}
 }
 
 // finalResponseSchema is the strict JSON schema every completed response must

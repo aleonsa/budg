@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/aleonsa/budg/backend/internal/store"
@@ -25,6 +26,25 @@ func (f *fakeReadStore) ListCategories(context.Context, string) ([]store.Categor
 }
 func (f *fakeReadStore) ListTransactions(context.Context, string) ([]store.Transaction, error) {
 	return f.transactions, f.err
+}
+
+// The three methods below let *fakeReadStore satisfy Store (ReadStore +
+// WriteStore) so tests that only care about read behavior can still pass it
+// to NewService without constructing a full fakeWriteStore. They fail loudly
+// rather than silently succeeding: a scripted eval accidentally exercising a
+// mutation path against a read-only fixture is a test bug worth surfacing,
+// not masking. fakeWriteStore (tools_mutate_test.go) overrides all three with
+// real, assertable behavior for tests that actually exercise mutations.
+func (f *fakeReadStore) CreateTransaction(context.Context, string, store.TransactionInput) (store.Transaction, error) {
+	return store.Transaction{}, errors.New("fakeReadStore does not support mutations; use fakeWriteStore")
+}
+
+func (f *fakeReadStore) UpdateTransaction(context.Context, string, string, store.TransactionPatch) (store.Transaction, error) {
+	return store.Transaction{}, errors.New("fakeReadStore does not support mutations; use fakeWriteStore")
+}
+
+func (f *fakeReadStore) DeleteTransaction(context.Context, string, string) error {
+	return errors.New("fakeReadStore does not support mutations; use fakeWriteStore")
 }
 
 func cents(v int64) *int64 { return &v }

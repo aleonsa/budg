@@ -23,14 +23,28 @@ type ReadStore interface {
 // authenticated user. The userID always comes from the verified JWT and is
 // captured in closures so the model can never supply or override it.
 func NewReadOnlyToolRegistry(data ReadStore, userID string) (*ToolRegistry, error) {
+	registry := NewToolRegistry()
+	if err := RegisterReadOnlyTools(registry, data, userID); err != nil {
+		return nil, err
+	}
+	return registry, nil
+}
+
+// RegisterReadOnlyTools adds the read-only tools to an existing registry,
+// letting a caller combine them with mutation tools (see
+// RegisterMutationTools) in one shared registry instead of needing two
+// separate ones.
+func RegisterReadOnlyTools(registry *ToolRegistry, data ReadStore, userID string) error {
+	if registry == nil {
+		return errors.New("registry is required")
+	}
 	if data == nil {
-		return nil, errors.New("read store is required")
+		return errors.New("read store is required")
 	}
 	if userID == "" {
-		return nil, errors.New("user id is required")
+		return errors.New("user id is required")
 	}
 
-	registry := NewToolRegistry()
 	tools := []Tool{
 		newListAccountsTool(data, userID),
 		newListCategoriesTool(data, userID),
@@ -39,10 +53,10 @@ func NewReadOnlyToolRegistry(data ReadStore, userID string) (*ToolRegistry, erro
 	}
 	for _, tool := range tools {
 		if err := registry.Register(tool); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return registry, nil
+	return nil
 }
 
 // decodeToolArgs strictly decodes tool arguments, rejecting unknown fields so a

@@ -183,6 +183,12 @@ func TestLoadUsesSafeAgentDefaults(t *testing.T) {
 	if cfg.Agent.Timeout != 30*time.Second || cfg.Agent.MaxOutputTokens != 1200 {
 		t.Fatalf("agent timeout/output = %v/%d", cfg.Agent.Timeout, cfg.Agent.MaxOutputTokens)
 	}
+	if len(cfg.Agent.ConfirmationSecret) != 0 {
+		t.Fatal("confirmation secret should be empty when AGENT_CONFIRMATION_SECRET is unset; caller generates an ephemeral one")
+	}
+	if cfg.Agent.ConfirmationTTL != 5*time.Minute {
+		t.Fatalf("confirmation ttl = %v, want 5m default", cfg.Agent.ConfirmationTTL)
+	}
 }
 
 func TestLoadParsesAgentConfig(t *testing.T) {
@@ -194,6 +200,8 @@ func TestLoadParsesAgentConfig(t *testing.T) {
 	t.Setenv("AGENT_MAX_TOOL_CALLS", "5")
 	t.Setenv("AGENT_TIMEOUT_SECONDS", "20")
 	t.Setenv("AGENT_MAX_OUTPUT_TOKENS", "700")
+	t.Setenv("AGENT_CONFIRMATION_SECRET", "a-configured-secret-value-with-enough-bytes")
+	t.Setenv("AGENT_CONFIRMATION_TTL_SECONDS", "120")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -208,6 +216,35 @@ func TestLoadParsesAgentConfig(t *testing.T) {
 	}
 	if cfg.Agent.Timeout != 20*time.Second || cfg.Agent.MaxOutputTokens != 700 {
 		t.Fatalf("agent timeout/output = %v/%d", cfg.Agent.Timeout, cfg.Agent.MaxOutputTokens)
+	}
+	if string(cfg.Agent.ConfirmationSecret) != "a-configured-secret-value-with-enough-bytes" {
+		t.Fatalf("confirmation secret = %q, want the configured value", cfg.Agent.ConfirmationSecret)
+	}
+	if cfg.Agent.ConfirmationTTL != 2*time.Minute {
+		t.Fatalf("confirmation ttl = %v, want 2m", cfg.Agent.ConfirmationTTL)
+	}
+}
+
+func TestLoadRejectsShortConfirmationSecret(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgresql://budg_api:secret@localhost/postgres")
+	setValidAuthEnv(t)
+	t.Setenv("AGENT_CONFIRMATION_SECRET", "too-short")
+
+	if _, err := config.Load(); err == nil {
+		t.Fatal("load config accepted a confirmation secret shorter than 16 bytes")
+	}
+}
+
+func TestLoadRejectsInvalidConfirmationTTL(t *testing.T) {
+	for _, value := range []string{"0", "29", "1801", "many"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgresql://budg_api:secret@localhost/postgres")
+			setValidAuthEnv(t)
+			t.Setenv("AGENT_CONFIRMATION_TTL_SECONDS", value)
+			if _, err := config.Load(); err == nil {
+				t.Fatal("load config accepted an invalid confirmation ttl")
+			}
+		})
 	}
 }
 

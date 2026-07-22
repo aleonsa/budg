@@ -17,13 +17,14 @@ import (
 // stubAgentService is a fake agent.Service replacement so handler tests never
 // touch a real model provider or database.
 type stubAgentService struct {
-	result       agent.Result
-	err          error
-	gotUserID    string
-	gotMessages  []agent.Message
-	gotView      *agent.ViewContext
-	emitEvents   []agent.ModelEvent
-	emitErrAfter int // if > 0, the (emitErrAfter)-th emitted event returns an error
+	result               agent.Result
+	err                  error
+	gotUserID            string
+	gotMessages          []agent.Message
+	gotView              *agent.ViewContext
+	gotConfirmationToken string
+	emitEvents           []agent.ModelEvent
+	emitErrAfter         int // if > 0, the (emitErrAfter)-th emitted event returns an error
 }
 
 func (s *stubAgentService) Chat(
@@ -31,11 +32,13 @@ func (s *stubAgentService) Chat(
 	userID string,
 	conversation []agent.Message,
 	view *agent.ViewContext,
+	confirmationToken string,
 	emit func(agent.ModelEvent) error,
 ) (agent.Result, error) {
 	s.gotUserID = userID
 	s.gotMessages = conversation
 	s.gotView = view
+	s.gotConfirmationToken = confirmationToken
 	for i, event := range s.emitEvents {
 		if err := emit(event); err != nil {
 			return agent.Result{}, err
@@ -304,6 +307,76 @@ func TestAgentChatSurfacesUnexpectedErrorSafely(t *testing.T) {
 	}
 	if strings.Contains(fmt.Sprint(data["message"]), "secret") || strings.Contains(fmt.Sprint(data["message"]), "10.0.0.1") {
 		t.Fatalf("internal error details leaked to client: %+v", data)
+	}
+}
+
+func TestAgentChatForwardsConfirmationTokenToService(t *testing.T) {
+	t.Parallel()
+	stub := &stubAgentService{result: agent.Result{
+		Outcome:  agent.OutcomeCompleted,
+		Response: agent.FinalResponse{Status: agent.StatusCompleted, Message: "ok", Summary: "ok", Artifacts: []agent.Artifact{}},
+	}}
+	router := newAgentRouter(stub)
+
+	rec := doRequest(router, http.MethodPost, "/v1/agent/chat",
+		`{"messages":[{"role":"user","content":"sí, confirmo"}],"confirmationToken":"tok-abc123"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if stub.gotConfirmationToken != "tok-abc123" {
+		t.Fatalf("confirmation token forwarded = %q, want tok-abc123", stub.gotConfirmationToken)
+	}
+}
+
+func TestAgentChatIncludesPendingConfirmationInCompletedFrame(t *testing.T) {
+	t.Parallel()
+	expiresAt := time.Date(2026, 7, 22, 16, 0, 0, 0, time.UTC)
+	stub := &stubAgentService{result: agent.Result{
+		Outcome: agent.OutcomeCompleted,
+		Response: agent.FinalResponse{
+			Status: agent.StatusConfirmationRequired, Message: "¿Confirmas el gasto?", Summary: "Propuesta", Artifacts: []agent.Artifact{},
+		},
+		PendingConfirmation: &agent.PendingConfirmation{ToolName: "create_transaction", Token: "tok-xyz789", ExpiresAt: expiresAt},
+	}}
+	router := newAgentRouter(stub)
+
+	rec := doRequest(router, http.MethodPost, "/v1/agent/chat",
+		`{"messages":[{"role":"user","content":"Registra un gasto"}]}`)
+
+	frames := sseFrames(t, rec.Body.String())
+	last := frames[len(frames)-1]
+	if last["type"] != "response.completed" {
+		t.Fatalf("last frame type = %v, want response.completed", last["type"])
+	}
+	data := last["data"].(map[string]any)
+	if data["status"] != "confirmation_required" {
+		t.Fatalf("status = %v, want confirmation_required", data["status"])
+	}
+	if data["confirmationToken"] != "tok-xyz789" {
+		t.Fatalf("confirmationToken = %v, want tok-xyz789", data["confirmationToken"])
+	}
+	if data["confirmationExpiresAt"] != "2026-07-22T16:00:00Z" {
+		t.Fatalf("confirmationExpiresAt = %v, want 2026-07-22T16:00:00Z", data["confirmationExpiresAt"])
+	}
+}
+
+func TestAgentChatOmitsConfirmationFieldsWhenNoneIsPending(t *testing.T) {
+	t.Parallel()
+	stub := &stubAgentService{result: agent.Result{
+		Outcome:  agent.OutcomeCompleted,
+		Response: agent.FinalResponse{Status: agent.StatusCompleted, Message: "ok", Summary: "ok", Artifacts: []agent.Artifact{}},
+	}}
+	router := newAgentRouter(stub)
+
+	rec := doRequest(router, http.MethodPost, "/v1/agent/chat",
+		`{"messages":[{"role":"user","content":"hola"}]}`)
+
+	frames := sseFrames(t, rec.Body.String())
+	last := frames[len(frames)-1]
+	data := last["data"].(map[string]any)
+	if _, exists := data["confirmationToken"]; exists {
+		t.Fatalf("confirmationToken should be omitted when there is no pending confirmation: %+v", data)
 	}
 }
 

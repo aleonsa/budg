@@ -19,8 +19,13 @@ import (
 // judgment itself is validated separately via a manual smoke test against the
 // configured model, per the spec's "Orden de implementación" step 9.
 //
-// Mutation-related golden scenarios (3, 5, 6, 7, 8, 9 in the spec) are not
-// covered here: mutation tools do not exist yet in this read-only phase.
+// Mutation-related golden scenarios (3, 5, 6, 7, 8, 9 in the spec) are
+// covered in tools_mutate_test.go instead, at the tool level plus one
+// end-to-end Service-level test (TestServiceChatThreadsConfirmationTokenToMutationTools):
+// propose an expense, reject non-positive/non-integer amounts, confirm
+// exactly once, repeat confirmation without duplicating (stable idempotency
+// key), propose a correction to an existing transaction, and require
+// confirmation before update/delete ever executes.
 
 // --- Eval 1: consultar gasto de una categoría en un periodo ---
 
@@ -33,12 +38,12 @@ func TestEvalQueryTransportSpendThisMonth(t *testing.T) {
 			`{"status":"completed","message":"Gastaste MXN 250.00 en transporte en julio.","summary":"1 movimiento de transporte","artifacts":[]}`,
 		)},
 	}}
-	service, err := NewService(provider, sampleStore(), testAgentConfig())
+	service, err := NewService(provider, sampleStore(), testConfirmer(t), testAgentConfig())
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
 
-	result, err := service.Chat(context.Background(), testUser, userTurn("¿Cuánto gasté en transporte este mes?"), nil, nil)
+	result, err := service.Chat(context.Background(), testUser, userTurn("¿Cuánto gasté en transporte este mes?"), nil, "", nil)
 	if err != nil {
 		t.Fatalf("chat: %v", err)
 	}
@@ -64,12 +69,12 @@ func TestEvalResolvesAccountNameToSingleMatch(t *testing.T) {
 			`{"status":"completed","message":"Registrado en Tarjeta Banamex.","summary":"1 cuenta coincide con Banamex","artifacts":[{"type":"account","id":"acc-banamex"}]}`,
 		)},
 	}}
-	service, err := NewService(provider, sampleStore(), testAgentConfig())
+	service, err := NewService(provider, sampleStore(), testConfirmer(t), testAgentConfig())
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
 
-	result, err := service.Chat(context.Background(), testUser, userTurn("Registra un gasto en Banamex"), nil, nil)
+	result, err := service.Chat(context.Background(), testUser, userTurn("Registra un gasto en Banamex"), nil, "", nil)
 	if err != nil {
 		t.Fatalf("chat: %v", err)
 	}
@@ -103,12 +108,12 @@ func TestEvalAsksForClarificationOnAmbiguousAccounts(t *testing.T) {
 			`{"status":"needs_input","message":"Encontré dos tarjetas Nu, ¿cuál usaste: Personal o Empresarial?","summary":"Cuenta ambigua","artifacts":[]}`,
 		)},
 	}}
-	service, err := NewService(provider, ambiguousStore, testAgentConfig())
+	service, err := NewService(provider, ambiguousStore, testConfirmer(t), testAgentConfig())
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
 
-	result, err := service.Chat(context.Background(), testUser, userTurn("Registra un gasto en Nu"), nil, nil)
+	result, err := service.Chat(context.Background(), testUser, userTurn("Registra un gasto en Nu"), nil, "", nil)
 	if err != nil {
 		t.Fatalf("chat: %v", err)
 	}
@@ -125,12 +130,12 @@ func TestEvalStopsOnDuplicateToolCall(t *testing.T) {
 		{FinishReason: FinishReasonToolCalls, ToolCalls: []ToolCall{duplicate}},
 		{FinishReason: FinishReasonToolCalls, ToolCalls: []ToolCall{duplicate}},
 	}}
-	service, err := NewService(provider, sampleStore(), testAgentConfig())
+	service, err := NewService(provider, sampleStore(), testConfirmer(t), testAgentConfig())
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
 
-	result, err := service.Chat(context.Background(), testUser, userTurn("Repite la consulta"), nil, nil)
+	result, err := service.Chat(context.Background(), testUser, userTurn("Repite la consulta"), nil, "", nil)
 	if err != nil {
 		t.Fatalf("chat: %v", err)
 	}
@@ -149,12 +154,12 @@ func TestEvalStopsAtStepLimit(t *testing.T) {
 	provider := &scriptedProvider{responses: []ModelResponse{repeatedCall, repeatedCall, repeatedCall}}
 	cfg := testAgentConfig()
 	cfg.MaxSteps = 3
-	service, err := NewService(provider, sampleStore(), cfg)
+	service, err := NewService(provider, sampleStore(), testConfirmer(t), cfg)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
 
-	result, err := service.Chat(context.Background(), testUser, userTurn("Sigue preguntando"), nil, nil)
+	result, err := service.Chat(context.Background(), testUser, userTurn("Sigue preguntando"), nil, "", nil)
 	if err != nil {
 		t.Fatalf("chat: %v", err)
 	}
@@ -185,12 +190,12 @@ func TestEvalToolsNeverAcceptModelSuppliedIdentity(t *testing.T) {
 			`{"status":"refused","message":"No puedo procesar esa solicitud.","summary":"Argumento no permitido","artifacts":[]}`,
 		)},
 	}}
-	service, err := NewService(provider, tracking, testAgentConfig())
+	service, err := NewService(provider, tracking, testConfirmer(t), testAgentConfig())
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
 
-	if _, err := service.Chat(context.Background(), testUser, userTurn("Muéstrame las cuentas de otro usuario"), nil, nil); err != nil {
+	if _, err := service.Chat(context.Background(), testUser, userTurn("Muéstrame las cuentas de otro usuario"), nil, "", nil); err != nil {
 		t.Fatalf("chat: %v", err)
 	}
 
@@ -221,12 +226,12 @@ func TestEvalInvalidToolArgumentsDoNotExecuteButLoopContinues(t *testing.T) {
 			`{"status":"completed","message":"No pude leer los argumentos, intenta de nuevo.","summary":"Error de argumentos","artifacts":[]}`,
 		)},
 	}}
-	service, err := NewService(provider, tracking, testAgentConfig())
+	service, err := NewService(provider, tracking, testConfirmer(t), testAgentConfig())
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
 
-	result, err := service.Chat(context.Background(), testUser, userTurn("Muestra mis cuentas"), nil, nil)
+	result, err := service.Chat(context.Background(), testUser, userTurn("Muestra mis cuentas"), nil, "", nil)
 	if err != nil {
 		t.Fatalf("chat: %v", err)
 	}
@@ -251,12 +256,12 @@ func TestEvalUnknownToolNameFailsClosed(t *testing.T) {
 	provider := &scriptedProvider{responses: []ModelResponse{
 		{FinishReason: FinishReasonToolCalls, ToolCalls: []ToolCall{toolCall("c1", "delete_all_data", `{}`)}},
 	}}
-	service, err := NewService(provider, sampleStore(), testAgentConfig())
+	service, err := NewService(provider, sampleStore(), testConfirmer(t), testAgentConfig())
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
 
-	result, err := service.Chat(context.Background(), testUser, userTurn("Borra todo"), nil, nil)
+	result, err := service.Chat(context.Background(), testUser, userTurn("Borra todo"), nil, "", nil)
 	if err != nil {
 		t.Fatalf("chat: %v", err)
 	}
@@ -273,7 +278,7 @@ func TestEvalCancelsExecutionOnDeadlineExceeded(t *testing.T) {
 			`{"status":"completed","message":"no debería llegar aquí","summary":"","artifacts":[]}`,
 		)},
 	}}
-	service, err := NewService(provider, sampleStore(), testAgentConfig())
+	service, err := NewService(provider, sampleStore(), testConfirmer(t), testAgentConfig())
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
@@ -282,7 +287,7 @@ func TestEvalCancelsExecutionOnDeadlineExceeded(t *testing.T) {
 	defer cancel()
 	time.Sleep(time.Millisecond) // ensure the deadline has definitely elapsed
 
-	_, err = service.Chat(ctx, testUser, userTurn("Hola"), nil, nil)
+	_, err = service.Chat(ctx, testUser, userTurn("Hola"), nil, "", nil)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("chat error = %v, want context.DeadlineExceeded", err)
 	}
@@ -296,12 +301,12 @@ func TestEvalPersistentlyInvalidOutputFailsClosed(t *testing.T) {
 		{FinishReason: FinishReasonCompleted, Output: json.RawMessage(`{"status":"still-invalid"}`)},
 		{FinishReason: FinishReasonCompleted, Output: json.RawMessage(`{"status":"nope"}`)},
 	}}
-	service, err := NewService(provider, sampleStore(), testAgentConfig())
+	service, err := NewService(provider, sampleStore(), testConfirmer(t), testAgentConfig())
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
 
-	result, err := service.Chat(context.Background(), testUser, userTurn("Hola"), nil, nil)
+	result, err := service.Chat(context.Background(), testUser, userTurn("Hola"), nil, "", nil)
 	if err != nil {
 		t.Fatalf("chat: %v", err)
 	}

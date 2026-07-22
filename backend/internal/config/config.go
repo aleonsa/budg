@@ -19,6 +19,16 @@ type AgentConfig struct {
 	MaxToolCalls    int
 	Timeout         time.Duration
 	MaxOutputTokens int
+	// ConfirmationSecret is empty when AGENT_CONFIRMATION_SECRET is unset.
+	// The caller (cmd/api/main.go) must generate an ephemeral one in that
+	// case; config.Load stays a pure function so this is testable without
+	// mocking randomness. An ephemeral secret means pending confirmations do
+	// not survive a process restart or, in a multi-instance deployment, a
+	// request landing on a different instance -- acceptable for a personal-
+	// use app (the user just sees "expired, try again"), but production
+	// should set this explicitly for a stable, shared secret.
+	ConfirmationSecret []byte
+	ConfirmationTTL    time.Duration
 }
 
 type Config struct {
@@ -50,6 +60,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	confirmationTTLSeconds, err := boundedIntEnv("AGENT_CONFIRMATION_TTL_SECONDS", 300, 30, 1800)
+	if err != nil {
+		return Config{}, err
+	}
+	confirmationSecret := os.Getenv("AGENT_CONFIRMATION_SECRET")
+	if confirmationSecret != "" && len(confirmationSecret) < 16 {
+		return Config{}, errors.New("AGENT_CONFIRMATION_SECRET must be at least 16 characters")
+	}
 	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 
 	cfg := Config{
@@ -60,13 +78,15 @@ func Load() (Config, error) {
 		JWKSURL:     os.Getenv("SUPABASE_JWKS_URL"),
 		JWTAudience: envOrDefault("SUPABASE_JWT_AUDIENCE", "authenticated"),
 		Agent: AgentConfig{
-			Enabled:         apiKey != "",
-			APIKey:          apiKey,
-			Model:           strings.TrimSpace(envOrDefault("AGENT_MODEL", "gpt-5.4-nano")),
-			MaxSteps:        maxSteps,
-			MaxToolCalls:    maxToolCalls,
-			Timeout:         time.Duration(timeoutSeconds) * time.Second,
-			MaxOutputTokens: maxOutputTokens,
+			Enabled:            apiKey != "",
+			APIKey:             apiKey,
+			Model:              strings.TrimSpace(envOrDefault("AGENT_MODEL", "gpt-5.4-nano")),
+			MaxSteps:           maxSteps,
+			MaxToolCalls:       maxToolCalls,
+			Timeout:            time.Duration(timeoutSeconds) * time.Second,
+			MaxOutputTokens:    maxOutputTokens,
+			ConfirmationSecret: []byte(confirmationSecret),
+			ConfirmationTTL:    time.Duration(confirmationTTLSeconds) * time.Second,
 		},
 	}
 

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
 
@@ -24,6 +25,7 @@ type Agent interface {
 		userID string,
 		conversation []agent.Message,
 		view *agent.ViewContext,
+		confirmationToken string,
 		emit func(agent.ModelEvent) error,
 	) (agent.Result, error)
 }
@@ -39,14 +41,21 @@ const (
 )
 
 // agentChatRequest is the wire shape of POST /v1/agent/chat. ConfirmationToken
-// is accepted but not yet used: mutation tools and their confirmation flow
-// are a later slice (see the spec's "Política de mutaciones"). Accepting the
-// field now, even unused, lets a forward-compatible client always send it
-// without breaking strict decoding.
+// is the value the client received in a prior turn's response.completed frame
+// (see agentCompletedFrame) when a mutation tool proposed an action; resend
+// it verbatim, unmodified, on the turn where the user confirms. Send null (or
+// omit setting it) on every other turn.
 type agentChatRequest struct {
 	Messages          []agent.Message    `json:"messages"`
 	ViewContext       *agent.ViewContext `json:"viewContext"`
 	ConfirmationToken *string            `json:"confirmationToken"`
+}
+
+func (r agentChatRequest) confirmationTokenValue() string {
+	if r.ConfirmationToken == nil {
+		return ""
+	}
+	return *r.ConfirmationToken
 }
 
 func validateAgentChatRequest(req agentChatRequest) string {
@@ -121,7 +130,7 @@ func (h *agentHandler) chat(w http.ResponseWriter, r *http.Request) {
 	stream := &agentSSEWriter{w: w, flusher: flusher, runID: middleware.GetReqID(r.Context())}
 	stream.writeStarted()
 
-	result, err := h.service.Chat(r.Context(), user.ID, req.Messages, req.ViewContext, stream.writeModelEvent)
+	result, err := h.service.Chat(r.Context(), user.ID, req.Messages, req.ViewContext, req.confirmationTokenValue(), stream.writeModelEvent)
 	if err != nil {
 		switch {
 		case errors.Is(err, context.Canceled):
@@ -147,7 +156,7 @@ func (h *agentHandler) chat(w http.ResponseWriter, r *http.Request) {
 			"inputTokens", result.Usage.InputTokens,
 			"outputTokens", result.Usage.OutputTokens,
 		)
-		stream.writeCompleted(result.Response)
+		stream.writeCompleted(result)
 	case agent.OutcomeLimitReached:
 		slog.WarnContext(r.Context(), "agent chat stopped at a hard limit", "steps", result.Steps, "toolCalls", result.ToolCalls)
 		stream.writeErrorFrame("limit_reached", "El asistente alcanzó su límite de pasos o llamadas a herramientas. Intenta con una solicitud más simple.")
@@ -220,8 +229,28 @@ func (s *agentSSEWriter) writeModelEvent(event agent.ModelEvent) error {
 	}
 }
 
-func (s *agentSSEWriter) writeCompleted(response agent.FinalResponse) {
-	_ = s.write("response.completed", response)
+// agentCompletedFrame is the wire shape of a response.completed frame's data.
+// Embedding agent.FinalResponse flattens status/message/summary/artifacts to
+// the top level (Go's encoding/json promotes anonymous struct fields), with
+// the confirmation fields alongside them when a mutation is pending. The raw
+// token travels here -- attached by the harness, never produced or echoed by
+// the model itself (see loop.go's extractPendingConfirmation) -- so the
+// client can resend it verbatim as confirmationToken on the next turn.
+type agentCompletedFrame struct {
+	agent.FinalResponse
+	ConfirmationToken     string `json:"confirmationToken,omitempty"`
+	ConfirmationExpiresAt string `json:"confirmationExpiresAt,omitempty"`
+}
+
+func (s *agentSSEWriter) writeCompleted(result agent.Result) {
+	frame := agentCompletedFrame{FinalResponse: result.Response}
+	if result.PendingConfirmation != nil {
+		frame.ConfirmationToken = result.PendingConfirmation.Token
+		if !result.PendingConfirmation.ExpiresAt.IsZero() {
+			frame.ConfirmationExpiresAt = result.PendingConfirmation.ExpiresAt.UTC().Format(time.RFC3339)
+		}
+	}
+	_ = s.write("response.completed", frame)
 }
 
 // writeErrorFrame is a best-effort final frame: by the time an error
