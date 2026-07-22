@@ -24,6 +24,12 @@ coverage.out
 /backend/coverage.out
 /graphify-out/
 
+# Personal local data: import spreadsheets, statements, anything not for upstream
+/local/
+# Python bytecode (just in case any pyc slips out of /local/)
+__pycache__/
+*.pyc
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
