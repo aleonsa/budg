@@ -48,12 +48,23 @@ Estado: en implementación.
   [`agentic/phase-2-backend-agent.md`](agentic/phase-2-backend-agent.md).
 
 ### Fase 3: Frontend - Burbuja Flotante y Context-Awareness
-- Componente de burbuja flotante (`FabChat`) persistente en `AppShell`.
-- Hook `useViewContext()` para inyectar la ruta y estado activo al LLM.
+
+Estado: completada (PR #39 desplegado en Vercel).
+
+- Burbuja flotante `FabChat` en `AppShell`.
+- Hook `useViewContext` para ruta y entidad visible.
+- Cliente SSE con `fetch + ReadableStream`.
+- Store de Zustand y renderizado de markdown mínimo.
 
 ### Fase 4: Capacidades Multimodales (Comprobantes y OCR)
-- Soporte para adjuntar imágenes/fotos en el chat.
-- Procesamiento visual para conciliación y registro automático de gastos.
+
+Estado: diseñada, en inicio de implementación.
+
+- Soporte de adjuntos de imágenes (comprobantes SPEI, tickets, vouchers) en el chat.
+- Envío multimodal vía base64 al backend.
+- Procesamiento visual con el modelo OpenAI y propuesta de registro automático.
+- Especificación detallada en
+  [`agentic/phase-4-multimodal-ocr.md`](agentic/phase-4-multimodal-ocr.md).
 
 ### Fase 5: Notificaciones Push PWA en iOS
 - Service Worker con soporte de Push Manager.
