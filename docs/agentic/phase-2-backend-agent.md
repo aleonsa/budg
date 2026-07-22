@@ -398,17 +398,17 @@ Smoke test manual confirmado contra OpenAI real (2026-07-22): flujo completo
 de streaming, tool call de `search_transactions` y `response.completed` con
 `FinalResponse` válida y correcta. Paso 9 completado.
 
-### Nota de UX: `response.delta` transmite JSON crudo, no texto legible
+### Decisión de UX: `response.delta` ya no se reenvía al cliente
 
 Como el modelo solo produce JSON estructurado (contrato `FinalResponse`), los
-eventos `response.delta` transmiten los caracteres del JSON según se generan
-token por token (el smoke test mostró decenas de deltas terminando en
-fragmentos como `"}"`). Es coherente con el diseño actual, pero no es útil
-para renderizar como texto progresivo en un chat UI. Pendiente decidir: (a)
-dejarlo así y que el frontend ignore `response.delta` hasta `response.completed`,
-o (b) dejar de reenviar `response.delta` al cliente en este endpoint (seguir
-emitiéndolo internamente por si se usa después) y depender solo de
-`tool.started`/`tool.completed` más `response.completed` para progreso.
+eventos `response.delta` transmitían los caracteres del JSON según se
+generaban token por token (el smoke test mostró decenas de deltas
+terminando en fragmentos como `"}"`), lo cual no es útil para renderizar
+como texto progresivo en un chat UI. Decisión: `agentSSEWriter.writeModelEvent`
+ya no reenvía `ModelEventTextDelta` al cliente; el evento sigue existiendo en
+el contrato del paquete `agent` (por si un futuro indicador tipo "pensando…"
+quiere usar la actividad de deltas sin su contenido). El cliente ve progreso
+únicamente vía `tool.started`/`tool.completed` y el `response.completed`
+final.
 
-Pendiente inmediato: decidir la nota de UX anterior, y evals/tools de
-mutación (paso 7, sin empezar).
+Pendiente inmediato: tools de mutación con confirmación explícita (paso 7).

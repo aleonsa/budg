@@ -211,11 +211,21 @@ func TestAgentChatStreamsCompletedResponse(t *testing.T) {
 	}
 
 	frames := sseFrames(t, rec.Body.String())
-	if len(frames) < 6 {
-		t.Fatalf("expected at least 6 frames (started + 2 tool + 2 delta + completed), got %d: %+v", len(frames), frames)
+	// text_delta events must not be forwarded: the model only ever produces
+	// the FinalResponse JSON contract, so its "text" deltas are raw
+	// structured-JSON characters, not human-readable progressive text (see
+	// writeModelEvent). Only started + tool.started + tool.completed +
+	// completed should reach the wire, exactly 4 frames.
+	if len(frames) != 4 {
+		t.Fatalf("expected exactly 4 frames (started + tool.started + tool.completed + completed), got %d: %+v", len(frames), frames)
 	}
 	if frames[0]["type"] != "response.started" {
 		t.Fatalf("first frame type = %v, want response.started", frames[0]["type"])
+	}
+	for _, frame := range frames {
+		if frame["type"] == "response.delta" {
+			t.Fatalf("response.delta must not be forwarded to the client: %+v", frame)
+		}
 	}
 	last := frames[len(frames)-1]
 	if last["type"] != "response.completed" {

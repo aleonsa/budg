@@ -199,10 +199,18 @@ func (s *agentSSEWriter) writeStarted() {
 // return is load-bearing: Runner and Provider treat a non-nil error from this
 // callback as "the client is gone" and abort the in-flight run, which is
 // exactly what should happen when the underlying write fails.
+//
+// ModelEventTextDelta is intentionally not forwarded here. The model only
+// ever produces the FinalResponse JSON contract (never freeform prose), so
+// its "text" deltas are raw structured-JSON characters as they are generated
+// (confirmed live: a real run streamed dozens of fragments ending in things
+// like `"}"`). That is not useful to render progressively in a chat UI, so
+// clients see only tool.started/tool.completed for progress and the final
+// response.completed frame. The underlying event still exists in the agent
+// package's contract in case a future need (e.g. a "thinking..." indicator
+// keyed off delta activity rather than content) wants it.
 func (s *agentSSEWriter) writeModelEvent(event agent.ModelEvent) error {
 	switch event.Type {
-	case agent.ModelEventTextDelta:
-		return s.write("response.delta", map[string]string{"text": event.Delta})
 	case agent.ModelEventToolStarted:
 		return s.write("tool.started", map[string]string{"tool": event.ToolName, "callId": event.ToolCallID})
 	case agent.ModelEventToolCompleted:
