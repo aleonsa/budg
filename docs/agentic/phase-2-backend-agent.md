@@ -304,7 +304,8 @@ Métricas iniciales:
 3. Implementar adapter OpenAI y fake provider para tests. Hecho.
 4. Implementar loop acotado con registry de tools read-only. Hecho.
 5. Conectar tools read-only a las stores (accounts, categories, transactions, summary). Hecho.
-6. Crear evals deterministas y pasar quality gates.
+6. Crear evals deterministas y pasar quality gates. Hecho para el alcance
+   read-only; evals de mutaciones se añaden junto con esas tools en el paso 7.
 7. Añadir propuestas y confirmación de mutaciones.
 8. Exponer endpoint SSE autenticado.
 9. Ejecutar smoke test contra OpenAI con modelo configurado.
@@ -331,6 +332,20 @@ Completado en `backend/internal/agent`:
 - `prompt.go`: system prompt versionado e invariante más bloque opcional de
   `ViewContext` (solo pista, no autoridad).
 - `service.go`: `Service` que arma un runner user-scoped por request.
+- `eval_test.go`: 10 evals deterministas de aceptación contra `Service`
+  (el mismo punto de entrada que usará el endpoint HTTP), con proveedor
+  guionado y store falso. Cubren: responder con datos reales de una consulta
+  por categoría/periodo, resolver un nombre parcial de cuenta a una sola
+  coincidencia, pedir aclaración ante cuentas ambiguas (`needs_input`),
+  detener tool call duplicada, detener el loop al límite de pasos, rechazar
+  que el modelo suplante la identidad del usuario vía argumentos de tool,
+  recuperarse de argumentos de tool inválidos sin ejecutar la tool ni
+  detener la conversación, fallar cerrado ante un nombre de tool desconocido,
+  cancelar la ejecución al expirar el deadline, y fallar cerrado ante output
+  final persistentemente inválido. No cubren los escenarios de mutación del
+  spec (creación/edición/borrado con confirmación): esas tools no existen
+  todavía y sus evals se añaden junto con ellas en el paso 7. No reemplazan
+  el smoke test manual contra el modelo real del paso 9: aquí el "modelo" es
+  guionado, así que validan el harness, no el juicio del LLM.
 
-Pendiente inmediato: evals deterministas de aceptación y endpoint SSE
-autenticado con grupo de timeout de 30s.
+Pendiente inmediato: endpoint SSE autenticado con grupo de timeout de 30s.
