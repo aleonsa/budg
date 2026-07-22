@@ -27,7 +27,7 @@ export {
   deleteSavingsGoal,
 } from './savings-goals'
 export { getRules, createRule, toggleRule, deleteRule } from './rules'
-export { getMSIPurchases } from './msi-purchases'
+export { getMSIPurchases, createMSIPurchase } from './msi-purchases'
 
 // ── Mutations ───────────────────────────────────────────────
 
