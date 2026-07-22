@@ -303,7 +303,7 @@ Métricas iniciales:
 2. Definir schemas, eventos, límites y provider interface. Hecho.
 3. Implementar adapter OpenAI y fake provider para tests. Hecho.
 4. Implementar loop acotado con registry de tools read-only. Hecho.
-5. Conectar tools read-only a las stores (accounts, categories, transactions, summary).
+5. Conectar tools read-only a las stores (accounts, categories, transactions, summary). Hecho.
 6. Crear evals deterministas y pasar quality gates.
 7. Añadir propuestas y confirmación de mutaciones.
 8. Exponer endpoint SSE autenticado.
@@ -324,5 +324,13 @@ Completado en `backend/internal/agent`:
   call duplicada por hash, reparación de output inválido acotada, y estados
   terminales `completed`, `limit_reached`, `failed`.
 
-Pendiente inmediato: implementar las tools read-only concretas contra las stores
-y añadir evals deterministas.
+- `tools_read.go`: tools read-only (`list_accounts`, `list_categories`,
+  `search_transactions`, `get_financial_summary`) sobre una interfaz `ReadStore`
+  angosta, con schemas de input estrictos, `user_id` capturado del JWT en
+  closures, y errores de store convertidos en resultados seguros retryables.
+- `prompt.go`: system prompt versionado e invariante más bloque opcional de
+  `ViewContext` (solo pista, no autoridad).
+- `service.go`: `Service` que arma un runner user-scoped por request.
+
+Pendiente inmediato: evals deterministas de aceptación y endpoint SSE
+autenticado con grupo de timeout de 30s.
