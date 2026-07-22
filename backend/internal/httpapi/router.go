@@ -11,16 +11,17 @@ import (
 // Options wires the router's dependencies. Keeping them in a struct avoids a
 // growing positional signature as new capabilities arrive per phase.
 type Options struct {
-	Database       databasePinger
-	AuthMiddleware func(http.Handler) http.Handler
-	CORSOrigins    []string
-	Categories     CategoryStore
-	Accounts       AccountStore
-	Transactions   TransactionStore
-	Budgets        BudgetStore
-	SavingsGoals   SavingsGoalStore
-	Rules          RuleStore
-	MSIPurchases   MSIPurchaseStore
+	Database              databasePinger
+	AuthMiddleware        func(http.Handler) http.Handler
+	CORSOrigins           []string
+	Categories            CategoryStore
+	Accounts              AccountStore
+	Transactions          TransactionStore
+	Budgets               BudgetStore
+	SavingsGoals          SavingsGoalStore
+	Rules                 RuleStore
+	MSIPurchases          MSIPurchaseStore
+	RecurringTransactions RecurringTransactionStore
 }
 
 // NewRouter builds the HTTP routing tree used by the API server and tests.
@@ -121,6 +122,15 @@ func NewRouter(opts Options) http.Handler {
 			v1.Route("/msi-purchases", func(msi chi.Router) {
 				msi.Get("/", h.list)
 				msi.Post("/", h.create)
+			})
+		}
+
+		if opts.RecurringTransactions != nil {
+			h := &recurringTransactionsHandler{store: opts.RecurringTransactions}
+			v1.Route("/recurring-transactions", func(recurring chi.Router) {
+				recurring.Get("/", h.list)
+				recurring.Post("/", h.create)
+				recurring.Post("/process", h.process)
 			})
 		}
 	})

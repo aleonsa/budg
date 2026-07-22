@@ -11,6 +11,7 @@ import {
   ListFilter,
   BarChart3,
   Settings,
+  Repeat2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Sheet } from '@/components/ui/sheet'
@@ -28,6 +29,7 @@ const BOTTOM_ITEMS = [
 const SECONDARY_ITEMS = [
   { to: '/categories', label: 'Categorías', icon: Tags },
   { to: '/rules', label: 'Reglas', icon: ListFilter },
+  { to: '/subscriptions', label: 'Suscripciones', icon: Repeat2 },
   { to: '/stats', label: 'Estadísticas', icon: BarChart3 },
   { to: '/settings', label: 'Configuración', icon: Settings },
 ]

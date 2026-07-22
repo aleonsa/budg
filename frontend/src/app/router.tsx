@@ -10,6 +10,7 @@ import {
   GoalsPage,
   LoginPage,
   RouteSuspense,
+  RecurringTransactionsPage,
   RulesPage,
   SettingsPage,
   StatsPage,
@@ -42,6 +43,7 @@ export const router = createBrowserRouter([
       { path: 'categories', element: withSuspense(<CategoriesPage />) },
       { path: 'rules', element: withSuspense(<RulesPage />) },
       { path: 'stats', element: withSuspense(<StatsPage />) },
+      { path: 'subscriptions', element: withSuspense(<RecurringTransactionsPage />) },
     ],
   },
 ])

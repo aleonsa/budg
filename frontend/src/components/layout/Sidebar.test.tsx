@@ -33,6 +33,9 @@ describe('Sidebar', () => {
 
     await user.click(screen.getByRole('link', { name: 'Presupuestos' }))
     expect(screen.getByLabelText('Current path')).toHaveTextContent('/budgets')
+
+    await user.click(screen.getByRole('link', { name: 'Suscripciones' }))
+    expect(screen.getByLabelText('Current path')).toHaveTextContent('/subscriptions')
   })
 
   it('opens account details and closes them with Escape or an outside pointer', async () => {
