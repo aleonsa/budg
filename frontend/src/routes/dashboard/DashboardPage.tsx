@@ -784,7 +784,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="space-y-3">
             <MonthlyOverview income={monthIncome} expenses={monthExpenses} />
             <BudgetAlerts budgets={budgetProgress} categories={categoryMap} />
