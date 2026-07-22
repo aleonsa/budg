@@ -84,6 +84,22 @@ export interface MSIPurchase {
   status: 'active' | 'completed'
 }
 
+// ── Recurring Transaction (subscriptions) ────────────────────
+export type RecurringTransactionFrequency = 'monthly' | 'yearly'
+
+export interface RecurringTransaction {
+  id: ID
+  accountId: ID
+  categoryId: ID | null
+  description: string
+  merchant?: string
+  amount: Cents
+  frequency: RecurringTransactionFrequency
+  startDate: ISODate
+  nextDate: ISODate
+  isActive: boolean
+}
+
 // ── Savings Goal ───────────────────────────────────────────
 export interface SavingsGoal {
   id: ID

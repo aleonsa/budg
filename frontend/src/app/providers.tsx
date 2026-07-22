@@ -1,8 +1,15 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  QueryClient,
+  QueryClientProvider,
+  useMutation,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { RouterProvider } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { router } from './router'
 import { useAuth } from '@/stores/auth'
+import { api } from '@/lib/api'
+import { queryKeys } from '@/lib/query-keys'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -37,10 +44,31 @@ function SessionBootstrap({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function RecurringTransactionProcessor() {
+  const status = useAuth((s) => s.status)
+  const queryClient = useQueryClient()
+  const { mutate } = useMutation({
+    mutationFn: api.processRecurringTransactions,
+    onSuccess: ({ created }) => {
+      if (created === 0) return
+      queryClient.invalidateQueries({ queryKey: queryKeys.transactions })
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+      queryClient.invalidateQueries({ queryKey: queryKeys.recurringTransactions })
+    },
+  })
+
+  useEffect(() => {
+    if (status === 'authenticated') mutate()
+  }, [mutate, status])
+
+  return null
+}
+
 export function Providers() {
   return (
     <QueryClientProvider client={queryClient}>
       <SessionBootstrap>
+        <RecurringTransactionProcessor />
         <RouterProvider router={router} />
       </SessionBootstrap>
     </QueryClientProvider>

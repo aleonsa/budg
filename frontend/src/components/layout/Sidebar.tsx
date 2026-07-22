@@ -8,6 +8,7 @@ import {
   Target,
   Tags,
   Zap,
+  Repeat2,
   BarChart3,
   Settings,
   LogOut,
@@ -30,6 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/goals', label: 'Metas', icon: Target },
   { to: '/categories', label: 'Categorías', icon: Tags, secondary: true },
   { to: '/rules', label: 'Reglas', icon: Zap, secondary: true },
+  { to: '/subscriptions', label: 'Suscripciones', icon: Repeat2, secondary: true },
   { to: '/stats', label: 'Estadísticas', icon: BarChart3, secondary: true },
   { to: '/settings', label: 'Ajustes', icon: Settings, secondary: true },
 ]

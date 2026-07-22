@@ -9,6 +9,9 @@ export const SettingsPage = lazy(() => import('@/routes/settings/SettingsPage'))
 export const CategoriesPage = lazy(() => import('@/routes/categories/CategoriesPage'))
 export const RulesPage = lazy(() => import('@/routes/rules/RulesPage'))
 export const StatsPage = lazy(() => import('@/routes/stats/StatsPage'))
+export const RecurringTransactionsPage = lazy(
+  () => import('@/routes/recurring-transactions/RecurringTransactionsPage'),
+)
 export const LoginPage = lazy(() => import('@/routes/login/LoginPage'))
 
 export function RouteSuspense({ children }: { children: ReactNode }) {

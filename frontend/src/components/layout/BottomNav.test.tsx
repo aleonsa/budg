@@ -34,6 +34,10 @@ describe('BottomNav', () => {
     await user.click(screen.getByRole('button', { name: 'Más' }))
     expect(screen.getByRole('heading', { name: 'Más' })).toBeInTheDocument()
 
+    await user.click(screen.getByRole('button', { name: 'Suscripciones' }))
+    expect(screen.getByLabelText('Current path')).toHaveTextContent('/subscriptions')
+
+    await user.click(screen.getByRole('button', { name: 'Más' }))
     await user.click(screen.getByRole('button', { name: 'Reglas' }))
     expect(screen.getByLabelText('Current path')).toHaveTextContent('/rules')
     expect(screen.queryByRole('heading', { name: 'Más' })).not.toBeInTheDocument()

@@ -28,6 +28,11 @@ export {
 } from './savings-goals'
 export { getRules, createRule, toggleRule, deleteRule } from './rules'
 export { getMSIPurchases, createMSIPurchase } from './msi-purchases'
+export {
+  getRecurringTransactions,
+  createRecurringTransaction,
+  processRecurringTransactions,
+} from './recurring-transactions'
 
 // ── Mutations ───────────────────────────────────────────────
 

@@ -30,6 +30,13 @@ export function useMSIPurchases() {
   return useQuery({ queryKey: queryKeys.msiPurchases, queryFn: api.getMSIPurchases })
 }
 
+export function useRecurringTransactions() {
+  return useQuery({
+    queryKey: queryKeys.recurringTransactions,
+    queryFn: api.getRecurringTransactions,
+  })
+}
+
 export function useSavingsGoals() {
   return useQuery({ queryKey: queryKeys.savingsGoals, queryFn: api.getSavingsGoals })
 }
