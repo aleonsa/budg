@@ -357,6 +357,8 @@ export default function TransactionsPage() {
 
         <TransactionsList
           transactions={transactions}
+          accounts={accounts}
+          categories={categories}
           categoryMap={categoryMap}
           accountMap={accountMap}
           onSelect={setSelectedTx}
@@ -409,18 +411,22 @@ export default function TransactionsPage() {
 
 function TransactionsList({
   transactions,
+  accounts,
+  categories,
   categoryMap,
   accountMap,
   onSelect,
   onAdd,
 }: {
   transactions: Transaction[]
+  accounts: import('@/types').Account[]
+  categories: import('@/types').Category[]
   categoryMap: Map<string, import('@/types').Category>
   accountMap: Map<string, import('@/types').Account>
   onSelect: (tx: Transaction) => void
   onAdd: () => void
 }) {
-  const { filtered } = useFilteredTransactions(transactions)
+  const { filtered } = useFilteredTransactions(transactions, accounts, categories)
 
   if (filtered.length === 0) {
     return (

@@ -78,6 +78,18 @@ describe('FilterBar', () => {
     expect(useTransactionFilters.getState().type).toBe('income')
   })
 
+  it('filters by account from the visible account selector', async () => {
+    resetFilters()
+    const user = userEvent.setup()
+    render(<FilterBar categories={categories} accounts={accounts} />)
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filtrar por cuenta' }), 'credit')
+    expect(useTransactionFilters.getState().accountId).toBe('credit')
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filtrar por cuenta' }), '')
+    expect(useTransactionFilters.getState().accountId).toBeNull()
+  })
+
   it('navigates months across year boundaries', async () => {
     useTransactionFilters.setState({ month: '2026-01' })
     const user = userEvent.setup()

@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useTransactionFilters } from '@/stores/transactionFilters'
-import type { Transaction } from '@/types'
+import type { Account, Category, Transaction } from '@/types'
 import { useFilteredTransactions } from './useFilteredTransactions'
 
 const transactions: Transaction[] = [
@@ -65,6 +65,59 @@ const transactions: Transaction[] = [
   },
 ]
 
+const accounts: Account[] = [
+  {
+    id: 'checking',
+    name: 'Nómina BBVA',
+    type: 'debit',
+    institution: 'BBVA',
+    last4: '1234',
+    currency: 'MXN',
+    isActive: true,
+  },
+  {
+    id: 'credit',
+    name: 'Tarjeta Nu',
+    type: 'credit',
+    institution: 'Nu',
+    last4: '5678',
+    currency: 'MXN',
+    isActive: true,
+  },
+  {
+    id: 'savings',
+    name: 'Ahorro viaje',
+    type: 'debit',
+    institution: 'BBVA',
+    last4: '9999',
+    currency: 'MXN',
+    isActive: true,
+  },
+]
+
+const categories: Category[] = [
+  {
+    id: 'food',
+    name: 'Súper',
+    kind: 'expense',
+    color: 'orange',
+    icon: 'ShoppingCart',
+    parentId: null,
+    isSystem: false,
+    order: 1,
+  },
+  {
+    id: 'salary',
+    name: 'Nómina',
+    kind: 'income',
+    color: 'green',
+    icon: 'Briefcase',
+    parentId: null,
+    isSystem: false,
+    order: 2,
+  },
+]
+
 function setFilters(overrides: Partial<ReturnType<typeof useTransactionFilters.getState>> = {}) {
   useTransactionFilters.setState({
     search: '',
@@ -101,6 +154,27 @@ describe('useFilteredTransactions', () => {
     act(() => result.current.filters.setSearch('café'))
     rerender()
     expect(result.current.filtered.map((tx) => tx.id)).toEqual(['coffee'])
+  })
+
+  it('searches account, category, transfer destination, accents, and multiple terms', () => {
+    setFilters({ search: 'super' })
+    const { result, rerender } = renderHook(() =>
+      useFilteredTransactions(transactions, accounts, categories),
+    )
+
+    expect(result.current.filtered.map((tx) => tx.id)).toEqual(['groceries', 'coffee', 'old'])
+
+    act(() => result.current.filters.setSearch('nu nomada'))
+    rerender()
+    expect(result.current.filtered.map((tx) => tx.id)).toEqual(['coffee'])
+
+    act(() => result.current.filters.setSearch('viaje'))
+    rerender()
+    expect(result.current.filtered.map((tx) => tx.id)).toEqual(['transfer'])
+
+    act(() => result.current.filters.setSearch('anterior'))
+    rerender()
+    expect(result.current.filtered.map((tx) => tx.id)).toEqual(['old'])
   })
 
   it.each([
