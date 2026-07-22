@@ -371,7 +371,7 @@ export default function GoalsPage() {
         }
       />
       <div className="space-y-3 py-4">
-        <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.4fr_1fr]">
           <Card className="p-3.5">
             <div className="flex items-start justify-between gap-3">
               <div>
