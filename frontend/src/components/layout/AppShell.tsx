@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { BottomNav } from './BottomNav'
+import { FabChat } from '@/components/agent/FabChat'
 
 /**
  * AppShell — the persistent layout wrapping all routes.
@@ -21,6 +22,7 @@ export function AppShell() {
       </div>
 
       <BottomNav />
+      <FabChat />
     </div>
   )
 }
