@@ -11,6 +11,9 @@ vi.mock('lucide-react', () => {
   return {
     ShoppingCart: icon('Shopping cart'),
     ShoppingBag: icon('Shopping bag'),
+    Tag: icon('General'),
+    House: icon('House'),
+    Utensils: icon('Food'),
     UtensilsCrossed: icon('Utensils'),
     Coffee: icon('Coffee'),
     Car: icon('Car'),
@@ -61,6 +64,9 @@ describe('CategoryIcon', () => {
   // production. Every name added to ICONS should have a test asserting it
   // actually resolves, not just that the fallback works.
   it.each([
+    ['Tag', 'General'],
+    ['House', 'House'],
+    ['Utensils', 'Food'],
     ['PawPrint', 'Pets'],
     ['Sparkles', 'Personal care'],
     ['ShoppingBag', 'Shopping bag'],

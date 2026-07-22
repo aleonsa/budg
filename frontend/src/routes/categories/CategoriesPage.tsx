@@ -4,6 +4,7 @@ import { Header } from '@/components/layout/Header'
 import { Card, Badge, Progress, Button, Input, Label } from '@/components/ui'
 import { EmptyState } from '@/components/common/EmptyState'
 import { CategoryIcon } from '@/components/common/CategoryIcon'
+import { CategoryIconPicker } from '@/components/common/CategoryIconPicker'
 import { MockActionPanel } from '@/components/common/MockActionPanel'
 import { formatMoney } from '@/lib/format'
 import { deriveBudgetProgressForDate, getBudgetCycle } from '@/lib/budget-period'
@@ -353,13 +354,8 @@ export default function CategoriesPage() {
         </div>
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="category-icon">Icono (nombre lucide)</Label>
-        <Input
-          id="category-icon"
-          placeholder="Ej. UtensilsCrossed, Car, Film"
-          value={fIcon}
-          onChange={(e) => setFIcon(e.target.value)}
-        />
+        <Label>Icono</Label>
+        <CategoryIconPicker value={fIcon} color={fColor} onChange={setFIcon} />
       </div>
     </MockActionPanel>
   )

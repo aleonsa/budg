@@ -429,7 +429,7 @@ describe('CategoriesPage', () => {
     expect(screen.queryByText('$1.00')).not.toBeInTheDocument()
   })
 
-  it('creates a trimmed category with selected type, color, and icon fallback', async () => {
+  it('creates a trimmed category with selected type, color, and visual icon', async () => {
     const user = userEvent.setup()
     const queryClient = renderPage()
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
@@ -439,7 +439,8 @@ describe('CategoriesPage', () => {
     const selects = screen.getAllByRole('combobox')
     await user.selectOptions(selects[0], 'income')
     await user.selectOptions(selects[1], 'purple')
-    await user.clear(screen.getByPlaceholderText('Ej. UtensilsCrossed, Car, Film'))
+    await user.click(screen.getByRole('button', { name: 'Icono' }))
+    await user.click(screen.getByRole('option', { name: 'Bonos (Award)' }))
     await user.click(screen.getAllByRole('button', { name: 'Crear' }).at(-1)!)
 
     await waitFor(() => expect(api.createCategory).toHaveBeenCalledOnce())
@@ -447,7 +448,7 @@ describe('CategoriesPage', () => {
       name: 'Bonos',
       kind: 'income',
       color: 'purple',
-      icon: 'Tag',
+      icon: 'Award',
       parentId: null,
     })
     await waitFor(() =>
@@ -552,9 +553,7 @@ describe('CategoriesPage', () => {
     const nameInput = within(dialog).getByRole('textbox', { name: 'Nombre' })
     expect(within(dialog).getByRole('combobox', { name: 'Tipo' })).toBeInTheDocument()
     expect(within(dialog).getByRole('combobox', { name: 'Color' })).toBeInTheDocument()
-    expect(
-      within(dialog).getByRole('textbox', { name: 'Icono (nombre lucide)' }),
-    ).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Icono' })).toBeInTheDocument()
     await user.type(nameInput, '   ')
     await user.click(within(dialog).getByRole('button', { name: 'Crear' }))
 
