@@ -95,9 +95,45 @@ const (
 	RoleTool      Role = "tool"
 )
 
+// maxImageBytes bounds the size of a single attached image's encoded payload
+// (base64 string or data URL). ~5 MiB keeps a receipt photo well within the
+// model's context budget while still allowing a phone camera shot; anything
+// larger is almost certainly not a receipt and would risk a provider error.
+const maxImageBytes = 5 << 20 // 5 MiB
+
+// allowedImageMimeTypes is the allow-list of image formats the vision model
+// accepts for OCR. HEIC is included because iPhones default to it.
+var allowedImageMimeTypes = map[string]struct{}{
+	"image/jpeg": {},
+	"image/png":  {},
+	"image/webp": {},
+	"image/heic": {},
+}
+
+// ContentImage is an image attached to a user turn (e.g. a photo of a receipt
+// or transfer voucher) for OCR/vision extraction.
+type ContentImage struct {
+	MimeType string `json:"mimeType"` // e.g. image/jpeg, image/png
+	Data     string `json:"data"`     // base64 or data URL
+}
+
+func (c ContentImage) Validate() error {
+	if _, ok := allowedImageMimeTypes[strings.ToLower(strings.TrimSpace(c.MimeType))]; !ok {
+		return fmt.Errorf("unsupported image MIME type %q", c.MimeType)
+	}
+	if strings.TrimSpace(c.Data) == "" {
+		return errors.New("image data is required")
+	}
+	if len(c.Data) > maxImageBytes {
+		return fmt.Errorf("image data exceeds %d byte limit", maxImageBytes)
+	}
+	return nil
+}
+
 type Message struct {
-	Role    Role   `json:"role"`
-	Content string `json:"content"`
+	Role    Role           `json:"role"`
+	Content string         `json:"content"`
+	Images  []ContentImage `json:"images,omitempty"`
 }
 
 type ToolDefinition struct {
@@ -127,8 +163,16 @@ func (r ModelRequest) Validate() error {
 		default:
 			return fmt.Errorf("message %d has invalid role %q", i, message.Role)
 		}
-		if strings.TrimSpace(message.Content) == "" {
-			return fmt.Errorf("message %d content is required", i)
+		// A turn must carry either text or at least one image. An image-only
+		// user turn ("here is my receipt") is legitimate for OCR, so we no
+		// longer require non-empty content when images are present.
+		if strings.TrimSpace(message.Content) == "" && len(message.Images) == 0 {
+			return fmt.Errorf("message %d requires content or an image", i)
+		}
+		for j, image := range message.Images {
+			if err := image.Validate(); err != nil {
+				return fmt.Errorf("message %d image %d: %w", i, j, err)
+			}
 		}
 	}
 	if r.MaxOutputTokens < 64 || r.MaxOutputTokens > 8192 {
