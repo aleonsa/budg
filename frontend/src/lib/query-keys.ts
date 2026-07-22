@@ -5,6 +5,7 @@
 export const queryKeys = {
   categories: ['categories'] as const,
   accounts: ['accounts'] as const,
+  creditCardStatements: (accountId: string) => ['accounts', accountId, 'statements'] as const,
   transactions: ['transactions'] as const,
   msiPurchases: ['msi'] as const,
   recurringTransactions: ['recurring-transactions'] as const,

@@ -11,7 +11,15 @@
 // Re-export real implementations so callers using `import * as api from
 // '@/lib/api/client'` keep working transparently across the migration.
 export { getCategories, createCategory, updateCategory, deleteCategory } from './categories'
-export { getAccounts, createAccount, updateAccount, deleteAccount } from './accounts'
+export {
+  getAccounts,
+  createAccount,
+  updateAccount,
+  deleteAccount,
+  enableBalanceTracking,
+  reconcileBalance,
+} from './accounts'
+export { getCreditCardStatements, confirmCreditCardStatement } from './credit-card-statements'
 export {
   getTransactions,
   createTransaction,

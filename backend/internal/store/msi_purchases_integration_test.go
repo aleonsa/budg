@@ -80,6 +80,8 @@ func TestMSIPurchaseRepositoryCreateSchedulesExactInstallments(t *testing.T) {
 	pool, userID := setupPool(t, "public.msi_purchases")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	admin := newAdminPool(t, ctx)
+	defer admin.Close()
 
 	accounts := store.NewAccountRepository(pool)
 	account, err := accounts.Create(ctx, userID, store.AccountInput{
@@ -124,8 +126,8 @@ func TestMSIPurchaseRepositoryCreateSchedulesExactInstallments(t *testing.T) {
 
 	var amounts []int64
 	var dates []string
-	rows, err := pool.Query(ctx, `
-		SELECT amount, date::text
+	rows, err := admin.Query(ctx, `
+		SELECT amount, date::text, affects_balance
 		FROM public.transactions
 		WHERE user_id = $1 AND msi_purchase_id = $2
 		ORDER BY date ASC
@@ -137,8 +139,12 @@ func TestMSIPurchaseRepositoryCreateSchedulesExactInstallments(t *testing.T) {
 	for rows.Next() {
 		var amount int64
 		var date string
-		if err := rows.Scan(&amount, &date); err != nil {
+		var affectsBalance bool
+		if err := rows.Scan(&amount, &date, &affectsBalance); err != nil {
 			t.Fatalf("scan installment: %v", err)
+		}
+		if affectsBalance {
+			t.Fatal("MSI installment affects_balance = true, want false until lifecycle integration exists")
 		}
 		amounts = append(amounts, amount)
 		dates = append(dates, date)

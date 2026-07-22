@@ -3,6 +3,7 @@ import { lazy, Suspense, type ReactNode } from 'react'
 export const DashboardPage = lazy(() => import('@/routes/dashboard/DashboardPage'))
 export const TransactionsPage = lazy(() => import('@/routes/transactions/TransactionsPage'))
 export const AccountsPage = lazy(() => import('@/routes/accounts/AccountsPage'))
+export const CreditCardDetailPage = lazy(() => import('@/routes/accounts/CreditCardDetailPage'))
 export const BudgetsPage = lazy(() => import('@/routes/budgets/BudgetsPage'))
 export const GoalsPage = lazy(() => import('@/routes/goals/GoalsPage'))
 export const SettingsPage = lazy(() => import('@/routes/settings/SettingsPage'))

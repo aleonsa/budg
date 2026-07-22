@@ -20,10 +20,13 @@ export async function getTransactions(): Promise<Transaction[]> {
 
 export async function createTransaction(
   input: Omit<Transaction, 'id' | 'createdAt' | 'isReconciled'>,
+  options?: { idempotencyKey?: string },
 ): Promise<Transaction> {
+  const headers = new Headers({ 'Content-Type': 'application/json' })
+  if (options?.idempotencyKey) headers.set('Idempotency-Key', options.idempotencyKey)
   const res = await authFetch('/v1/transactions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(toBackend(input)),
   })
   if (!res.ok) {
@@ -63,6 +66,8 @@ interface BackendTransaction {
   merchant?: string
   msiPurchaseId?: string
   transferToAccountId?: string
+  creditCardStatementId?: string
+  affectsBalance?: boolean
   isReconciled: boolean
   createdAt: string
 }
@@ -79,6 +84,8 @@ function toFrontend(t: BackendTransaction): Transaction {
     merchant: t.merchant,
     msiPurchaseId: t.msiPurchaseId,
     transferToAccountId: t.transferToAccountId,
+    creditCardStatementId: t.creditCardStatementId,
+    affectsBalance: t.affectsBalance,
     isReconciled: t.isReconciled,
     createdAt: t.createdAt,
   }
@@ -97,6 +104,8 @@ function toBackend(
     merchant: input.merchant,
     msiPurchaseId: input.msiPurchaseId,
     transferToAccountId: input.transferToAccountId,
+    creditCardStatementId: input.creditCardStatementId,
+    affectsBalance: input.affectsBalance,
   }
 }
 
@@ -111,6 +120,9 @@ function toBackendPatch(patch: Partial<Transaction>): Partial<BackendTransaction
   if (patch.merchant !== undefined) out.merchant = patch.merchant
   if (patch.msiPurchaseId !== undefined) out.msiPurchaseId = patch.msiPurchaseId
   if (patch.transferToAccountId !== undefined) out.transferToAccountId = patch.transferToAccountId
+  if (patch.creditCardStatementId !== undefined)
+    out.creditCardStatementId = patch.creditCardStatementId
+  if (patch.affectsBalance !== undefined) out.affectsBalance = patch.affectsBalance
   if (patch.isReconciled !== undefined) out.isReconciled = patch.isReconciled
   return out
 }

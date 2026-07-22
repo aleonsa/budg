@@ -125,6 +125,47 @@ describe('transactions api client', () => {
     expect(created.id).toBe('tx-new')
   })
 
+  it('sends an idempotency key for retry-safe payments', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(
+        {
+          id: 'payment-1',
+          accountId: 'debit-1',
+          transferToAccountId: 'credit-1',
+          type: 'transfer',
+          amount: 30_000,
+          categoryId: null,
+          date: '2026-07-22',
+          description: 'Pago Tarjeta Oro',
+          affectsBalance: true,
+          isReconciled: false,
+          createdAt: '2026-07-22',
+        },
+        201,
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await transactions.createTransaction(
+      {
+        accountId: 'debit-1',
+        transferToAccountId: 'credit-1',
+        type: 'transfer',
+        amount: 30_000,
+        categoryId: null,
+        date: '2026-07-22',
+        description: 'Pago Tarjeta Oro',
+        affectsBalance: true,
+      },
+      { idempotencyKey: 'payment-attempt-1' },
+    )
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(((init as RequestInit).headers as Headers).get('Idempotency-Key')).toBe(
+      'payment-attempt-1',
+    )
+  })
+
   it('updateTransaction PATCHes only the fields provided', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}, 200))
     vi.stubGlobal('fetch', fetchMock)

@@ -53,6 +53,7 @@ function RecurringTransactionProcessor() {
       if (created === 0) return
       queryClient.invalidateQueries({ queryKey: queryKeys.transactions })
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+      queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
       queryClient.invalidateQueries({ queryKey: queryKeys.recurringTransactions })
     },
   })

@@ -46,6 +46,8 @@ export interface Account {
   availableCredit?: Cents
   statementCutDay?: number // 1–28
   paymentDueDay?: number // día límite de pago
+  balanceTrackingEnabled?: boolean
+  balanceTrackingStartedAt?: string
 
   isActive: boolean
 }
@@ -64,8 +66,34 @@ export interface Transaction {
   merchant?: string
   msiPurchaseId?: ID // if this is an MSI installment
   transferToAccountId?: ID // if type === 'transfer'
+  creditCardStatementId?: ID // payment applied to a confirmed statement
+  affectsBalance?: boolean
   isReconciled: boolean
   createdAt: ISODate
+}
+
+// ── Credit card statement ───────────────────────────────────
+export type CreditCardStatementStatus = 'pending' | 'partial' | 'paid' | 'overdue'
+
+export interface CreditCardStatement {
+  id: ID
+  accountId: ID
+  cycleStartDate: ISODate
+  cycleEndDate: ISODate
+  paymentDueDate: ISODate
+  statementBalance: Cents
+  minimumPayment?: Cents
+  paidAmount: Cents
+  status: CreditCardStatementStatus
+  confirmedAt: string
+}
+
+export interface CreditCardStatementInput {
+  cycleStartDate: ISODate
+  cycleEndDate: ISODate
+  paymentDueDate: ISODate
+  statementBalance: Cents
+  minimumPayment?: Cents
 }
 
 // ── MSI Purchase (meses sin intereses) ─────────────────────
