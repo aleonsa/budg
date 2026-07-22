@@ -129,12 +129,12 @@ function MetricCard({
         : 'text-foreground'
 
   return (
-    <Card className="min-w-[9.5rem] flex-1 p-3">
+    <Card className="min-w-[10.5rem] flex-1 shrink-0 snap-start p-3.5 sm:min-w-0">
       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
-      <Amount value={value} signed={value < 0} size="sm" className={`mt-1 block ${toneClass}`} />
-      {detail && <p className="mt-1 text-[11px] text-muted-foreground">{detail}</p>}
+      <Amount value={value} signed={value < 0} size="sm" className={`mt-1 block truncate ${toneClass}`} />
+      {detail && <p className="mt-1 text-[11px] text-muted-foreground truncate">{detail}</p>}
     </Card>
   )
 }
@@ -151,7 +151,7 @@ function PeriodSelector({
   return (
     <Card className="p-2.5">
       <div className="flex items-center justify-between gap-2">
-        <Button variant="ghost" size="icon" onClick={onPrev} aria-label="Periodo anterior">
+        <Button variant="ghost" size="icon" className="h-9 w-9" onClick={onPrev} aria-label="Periodo anterior">
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <div className="text-center">
@@ -160,7 +160,7 @@ function PeriodSelector({
           </p>
           <p className="text-sm font-semibold capitalize">{label}</p>
         </div>
-        <Button variant="ghost" size="icon" onClick={onNext} aria-label="Periodo siguiente">
+        <Button variant="ghost" size="icon" className="h-9 w-9" onClick={onNext} aria-label="Periodo siguiente">
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
@@ -174,18 +174,18 @@ function QuickActions({
   onAction: (action: Exclude<DashboardAction, null>) => void
 }) {
   return (
-    <Card className="p-3">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Button size="sm" onClick={() => onAction('expense')}>
+    <Card className="p-3.5">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <Button size="sm" className="h-9 text-xs font-medium" onClick={() => onAction('expense')}>
           Agregar gasto
         </Button>
-        <Button size="sm" variant="outline" onClick={() => onAction('income')}>
+        <Button size="sm" variant="outline" className="h-9 text-xs font-medium" onClick={() => onAction('income')}>
           Agregar ingreso
         </Button>
-        <Button size="sm" variant="outline" onClick={() => onAction('transfer')}>
+        <Button size="sm" variant="outline" className="h-9 text-xs font-medium" onClick={() => onAction('transfer')}>
           Transferencia
         </Button>
-        <Button size="sm" variant="outline" onClick={() => onAction('account')}>
+        <Button size="sm" variant="outline" className="h-9 text-xs font-medium" onClick={() => onAction('account')}>
           Nueva cuenta
         </Button>
       </div>
@@ -728,7 +728,7 @@ export default function DashboardPage() {
         />
         <QuickActions onAction={setAction} />
 
-        <div className="flex gap-3 overflow-x-auto pb-1 sm:grid sm:grid-cols-4 sm:overflow-visible">
+        <div className="flex gap-2.5 overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-1 -mx-3 px-3 sm:mx-0 sm:px-0 sm:grid sm:grid-cols-4 sm:overflow-visible sm:snap-none">
           <MetricCard
             label="Disponible"
             value={availableFunds}
