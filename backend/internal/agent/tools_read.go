@@ -115,8 +115,9 @@ func newListAccountsTool(data ReadStore, userID string) Tool {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"additionalProperties": false,
+				"required": ["includeInactive"],
 				"properties": {
-					"includeInactive": {"type": "boolean", "description": "Incluir cuentas inactivas"}
+					"includeInactive": {"type": ["boolean", "null"], "description": "Incluir cuentas inactivas. Usa null si no aplica."}
 				}
 			}`),
 		},
@@ -177,8 +178,9 @@ func newListCategoriesTool(data ReadStore, userID string) Tool {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"additionalProperties": false,
+				"required": ["kind"],
 				"properties": {
-					"kind": {"type": "string", "enum": ["expense", "income"]}
+					"kind": {"type": ["string", "null"], "enum": ["expense", "income", null], "description": "Usa null para no filtrar por tipo."}
 				}
 			}`),
 		},
@@ -239,13 +241,14 @@ func newSearchTransactionsTool(data ReadStore, userID string) Tool {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"additionalProperties": false,
+				"required": ["startDate", "endDate", "type", "accountId", "categoryId", "limit"],
 				"properties": {
-					"startDate": {"type": "string", "description": "Fecha inicial YYYY-MM-DD"},
-					"endDate": {"type": "string", "description": "Fecha final YYYY-MM-DD"},
-					"type": {"type": "string", "enum": ["expense", "income", "transfer"]},
-					"accountId": {"type": "string"},
-					"categoryId": {"type": "string"},
-					"limit": {"type": "integer", "minimum": 1, "maximum": 50}
+					"startDate": {"type": ["string", "null"], "description": "Fecha inicial YYYY-MM-DD. null para no acotar."},
+					"endDate": {"type": ["string", "null"], "description": "Fecha final YYYY-MM-DD. null para no acotar."},
+					"type": {"type": ["string", "null"], "enum": ["expense", "income", "transfer", null], "description": "null para no filtrar por tipo."},
+					"accountId": {"type": ["string", "null"], "description": "null para no filtrar por cuenta."},
+					"categoryId": {"type": ["string", "null"], "description": "null para no filtrar por categoría."},
+					"limit": {"type": ["integer", "null"], "minimum": 1, "maximum": 50, "description": "null usa el límite por defecto."}
 				}
 			}`),
 		},
@@ -319,9 +322,10 @@ func newFinancialSummaryTool(data ReadStore, userID string) Tool {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"additionalProperties": false,
+				"required": ["startDate", "endDate"],
 				"properties": {
-					"startDate": {"type": "string", "description": "Fecha inicial YYYY-MM-DD"},
-					"endDate": {"type": "string", "description": "Fecha final YYYY-MM-DD"}
+					"startDate": {"type": ["string", "null"], "description": "Fecha inicial YYYY-MM-DD. null para no acotar."},
+					"endDate": {"type": ["string", "null"], "description": "Fecha final YYYY-MM-DD. null para no acotar."}
 				}
 			}`),
 		},

@@ -372,6 +372,27 @@ Completado en `backend/internal/agent`:
   ser nunca menor que el timeout configurado del agente más margen (solo
   afloja el techo, nunca lo endurece).
 
-Pendiente inmediato: smoke test manual contra OpenAI real con
-`OPENAI_API_KEY` configurada en development, y evals/tools de mutación
-(paso 7, sin empezar).
+### Corrección: modo strict de OpenAI exige `required` completo
+
+El primer smoke test manual reveló que el validador propio
+(`validateStrictObjectSchema`) era más permisivo que el modo `strict: true`
+real de OpenAI: a diferencia de JSON Schema estándar, OpenAI exige que
+`required` exista y liste **todas** las claves de `properties`; un campo
+"opcional" se expresa permitiendo `null` en su propio `type`
+(`["string", "null"]`), no omitiéndolo de `required`. Sin esto, OpenAI
+rechazaba la llamada con `400 invalid_function_parameters`.
+
+Corregido en dos frentes:
+
+- `validateStrictObjectSchema` ahora exige `required` (array con todas las
+  claves de `properties`) cuando el schema declara propiedades, para atrapar
+  este error en el registro de la tool en vez de en una llamada real a
+  OpenAI.
+- Los 4 schemas de tools read-only en `tools_read.go` se actualizaron:
+  cada propiedad antes opcional ahora aparece en `required` con tipo
+  nullable. `encoding/json` de Go ya trata un `null` explícito sobre un
+  campo no-puntero como "usa el valor cero", así que no hizo falta cambiar
+  ningún struct de argumentos en Go.
+
+Pendiente inmediato: confirmar el smoke test manual contra OpenAI real con
+esta corrección, y evals/tools de mutación (paso 7, sin empezar).

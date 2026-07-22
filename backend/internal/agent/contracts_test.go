@@ -78,6 +78,54 @@ func TestModelRequestValidation(t *testing.T) {
 	}
 }
 
+// TestStrictSchemaRequiresEveryPropertyListed guards against a live 400 from
+// OpenAI's strict function-calling mode: unlike plain JSON Schema, it treats
+// "required" as mandatory and requires every key in "properties" to appear
+// there. A property meant to be optional must instead allow null in its own
+// type (see tools_read.go). This was previously only caught by a live OpenAI
+// call; it must fail here, at tool-registration time, instead.
+func TestStrictSchemaRequiresEveryPropertyListed(t *testing.T) {
+	missingRequired := json.RawMessage(`{
+		"type": "object",
+		"additionalProperties": false,
+		"properties": {
+			"includeInactive": {"type": "boolean"}
+		}
+	}`)
+	if err := validateStrictObjectSchema(missingRequired); err == nil {
+		t.Fatal("schema with a property missing from required was accepted")
+	}
+
+	requiredNotArray := json.RawMessage(`{
+		"type": "object",
+		"additionalProperties": false,
+		"required": "includeInactive",
+		"properties": {
+			"includeInactive": {"type": "boolean"}
+		}
+	}`)
+	if err := validateStrictObjectSchema(requiredNotArray); err == nil {
+		t.Fatal("schema with non-array required was accepted")
+	}
+
+	nullablePattern := json.RawMessage(`{
+		"type": "object",
+		"additionalProperties": false,
+		"required": ["includeInactive"],
+		"properties": {
+			"includeInactive": {"type": ["boolean", "null"], "description": "null si no aplica"}
+		}
+	}`)
+	if err := validateStrictObjectSchema(nullablePattern); err != nil {
+		t.Fatalf("valid nullable-optional schema rejected: %v", err)
+	}
+
+	noProperties := json.RawMessage(`{"type": "object", "additionalProperties": false}`)
+	if err := validateStrictObjectSchema(noProperties); err != nil {
+		t.Fatalf("schema with no properties should not need required: %v", err)
+	}
+}
+
 type fakeProvider struct {
 	response ModelResponse
 	events   []ModelEvent

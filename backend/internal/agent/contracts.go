@@ -257,5 +257,44 @@ func validateStrictObjectSchema(raw json.RawMessage) error {
 	if !exists || additional != false {
 		return errors.New("schema must set additionalProperties to false")
 	}
+
+	properties, _ := schema["properties"].(map[string]any)
+	if len(properties) == 0 {
+		return nil
+	}
+
+	// OpenAI's strict function-calling mode (the only mode this harness
+	// uses, see openai.go's ToolParamOfFunction(..., strict=true) call) does
+	// not support properties omitted from "required": every property key
+	// must be listed there. A field meant to be optional from the caller's
+	// perspective expresses that by allowing null in its own "type" instead
+	// (see tools_read.go for the pattern); Go's json.Unmarshal already
+	// treats an explicit JSON null on a non-pointer field as "leave the zero
+	// value", so no decode-side change is needed for that half of the
+	// contract. This was missed during a prior review and only surfaced live
+	// as an OpenAI 400 ("'required' is required to be supplied and to be an
+	// array including every key in properties") -- enforcing it here catches
+	// the same class of bug at tool-registration time instead.
+	requiredRaw, requiredExists := schema["required"]
+	if !requiredExists {
+		return errors.New("schema with properties must set required listing every property key")
+	}
+	requiredList, ok := requiredRaw.([]any)
+	if !ok {
+		return errors.New("schema required must be an array")
+	}
+	required := make(map[string]struct{}, len(requiredList))
+	for _, item := range requiredList {
+		name, ok := item.(string)
+		if !ok {
+			return errors.New("schema required entries must be strings")
+		}
+		required[name] = struct{}{}
+	}
+	for key := range properties {
+		if _, ok := required[key]; !ok {
+			return fmt.Errorf("schema property %q is missing from required; OpenAI strict mode requires every property to be listed there (use a nullable type for optional fields)", key)
+		}
+	}
 	return nil
 }
