@@ -3,6 +3,7 @@ import { MessageCircle, X, Send, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAgentStore } from '@/stores/agent'
 import { useViewContext } from '@/hooks/useViewContext'
+import { renderMarkdown } from '@/lib/agent/markdown'
 
 /**
  * FabChat — floating chat bubble persistent across all authenticated views.
@@ -148,6 +149,8 @@ function ChatPanel() {
                   <Loader2 className="h-3 w-3 animate-spin" />
                   <span className="text-xs">Pensando…</span>
                 </span>
+              ) : turn.role === 'assistant' ? (
+                renderMarkdown(turn.content)
               ) : (
                 turn.content
               )}
