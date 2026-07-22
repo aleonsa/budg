@@ -5,6 +5,9 @@ import type { AccentColor } from '@/types'
 import {
   ShoppingCart,
   ShoppingBag,
+  Tag,
+  House,
+  Utensils,
   UtensilsCrossed,
   Coffee,
   Car,
@@ -39,6 +42,9 @@ import {
 const ICONS: Record<string, typeof ShoppingCart> = {
   ShoppingCart,
   ShoppingBag,
+  Tag,
+  House,
+  Utensils,
   UtensilsCrossed,
   Coffee,
   Car,
