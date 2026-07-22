@@ -26,13 +26,13 @@ export function FilterBar({ categories, accounts }: FilterBarProps) {
 
   return (
     <div className="space-y-2">
-      {/* Search + type tabs row */}
+      {/* Global search + advanced category filter */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             aria-label="Buscar movimientos"
-            placeholder="Buscar…"
+            placeholder="Busca todo: descripción, comercio, cuenta o categoría…"
             value={filters.search}
             onChange={(e) => filters.setSearch(e.target.value)}
             className="pl-8"
@@ -66,6 +66,21 @@ export function FilterBar({ categories, accounts }: FilterBarProps) {
           )}
         </Button>
       </div>
+
+      {/* Account is frequent enough to deserve a visible one-tap selector. */}
+      <select
+        aria-label="Filtrar por cuenta"
+        className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+        value={filters.accountId ?? ''}
+        onChange={(event) => filters.setAccount(event.target.value || null)}
+      >
+        <option value="">Todas las cuentas</option>
+        {accounts.map((account) => (
+          <option key={account.id} value={account.id}>
+            {account.name} · {account.last4}
+          </option>
+        ))}
+      </select>
 
       {/* Type tabs — horizontally scrollable */}
       <div className="scrollbar-hide flex gap-1 overflow-x-auto rounded-lg bg-muted p-0.5">
