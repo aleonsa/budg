@@ -64,7 +64,12 @@ export function BottomNav() {
                 )}
               >
                 <item.icon className="h-5 w-5" strokeWidth={active ? 2.2 : 1.7} />
-                <span className={cn('text-[11px] leading-tight tracking-tight', active ? 'font-semibold' : 'font-normal')}>
+                <span
+                  className={cn(
+                    'text-[11px] leading-tight tracking-tight',
+                    active ? 'font-semibold' : 'font-normal',
+                  )}
+                >
                   {item.label}
                 </span>
               </div>
@@ -86,7 +91,12 @@ export function BottomNav() {
             )}
           >
             <Menu className="h-5 w-5" strokeWidth={isSecondaryActive ? 2.2 : 1.7} />
-            <span className={cn('text-[11px] leading-tight tracking-tight', isSecondaryActive ? 'font-semibold' : 'font-normal')}>
+            <span
+              className={cn(
+                'text-[11px] leading-tight tracking-tight',
+                isSecondaryActive ? 'font-semibold' : 'font-normal',
+              )}
+            >
               Más
             </span>
           </div>
