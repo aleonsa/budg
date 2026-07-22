@@ -196,11 +196,42 @@ describe('TransactionsPage', () => {
     ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Agregar movimiento' }))
-    expect(screen.getByText('Agregar gasto')).toBeInTheDocument()
-    expect(screen.getByText('Captura rápida de movimiento.')).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog', { name: 'Agregar movimiento' })
+    expect(within(dialog).getByText('Captura rápida de movimiento.')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Cerrar' }))
-    expect(screen.queryByText('Agregar gasto')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Cerrar' }))
+    expect(screen.queryByRole('dialog', { name: 'Agregar movimiento' })).not.toBeInTheDocument()
+  })
+
+  it('lets the generic add button switch between expense, income, and transfer', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Agregar' }))
+    const dialog = screen.getByRole('dialog', { name: 'Agregar movimiento' })
+
+    // Type toggle is visible (not locked) and defaults to "Gasto".
+    expect(within(dialog).getByRole('button', { name: 'Gasto' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(within(dialog).getByRole('combobox', { name: 'Categoría' })).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Ingreso' }))
+    expect(within(dialog).getByRole('button', { name: 'Ingreso' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(within(dialog).getByRole('combobox', { name: 'Categoría' })).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Transfer' }))
+    expect(within(dialog).getByRole('button', { name: 'Transfer' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(within(dialog).getByRole('combobox', { name: 'Destino' })).toBeInTheDocument()
+    expect(within(dialog).queryByRole('combobox', { name: 'Categoría' })).not.toBeInTheDocument()
+    expect(within(dialog).queryByLabelText('Comercio (opcional)')).not.toBeInTheDocument()
   })
 
   it('manages focus, keyboard dismissal, and scroll lock for the transaction modal', async () => {
@@ -209,7 +240,7 @@ describe('TransactionsPage', () => {
     const trigger = screen.getByRole('button', { name: 'Agregar' })
 
     await user.click(trigger)
-    const dialog = screen.getByRole('dialog', { name: 'Agregar gasto' })
+    const dialog = screen.getByRole('dialog', { name: 'Agregar movimiento' })
     const close = within(dialog).getByRole('button', { name: 'Cerrar' })
     const submit = within(dialog).getByRole('button', { name: 'Agregar' })
 
@@ -222,7 +253,7 @@ describe('TransactionsPage', () => {
     expect(close).toHaveFocus()
 
     await user.keyboard('{Escape}')
-    expect(screen.queryByRole('dialog', { name: 'Agregar gasto' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Agregar movimiento' })).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
     expect(document.body).not.toHaveStyle({ overflow: 'hidden' })
   })
@@ -233,7 +264,7 @@ describe('TransactionsPage', () => {
     renderPage()
 
     await user.click(screen.getByRole('button', { name: 'Agregar' }))
-    const dialog = screen.getByRole('dialog', { name: 'Agregar gasto' })
+    const dialog = screen.getByRole('dialog', { name: 'Agregar movimiento' })
 
     await user.keyboard('{Escape}')
     await user.click(dialog.parentElement!)
@@ -260,7 +291,7 @@ describe('TransactionsPage', () => {
     renderPage()
 
     await user.click(screen.getByRole('button', { name: 'Agregar' }))
-    const dialog = screen.getByRole('dialog', { name: 'Agregar gasto' })
+    const dialog = screen.getByRole('dialog', { name: 'Agregar movimiento' })
     await user.type(within(dialog).getByRole('textbox', { name: 'Monto' }), '25.50')
     await user.clear(within(dialog).getByLabelText('Fecha'))
     await user.type(within(dialog).getByLabelText('Fecha'), '2026-07-20')
@@ -285,7 +316,7 @@ describe('TransactionsPage', () => {
     expect(mocks.createReset.mock.invocationCallOrder[1]).toBeLessThan(
       mocks.createMutate.mock.invocationCallOrder[0],
     )
-    expect(screen.queryByText('Agregar gasto')).not.toBeInTheDocument()
+    expect(screen.queryByText('Agregar movimiento')).not.toBeInTheDocument()
   })
 
   it('opens detail, edits seeded data, and closes after update success', async () => {
@@ -421,7 +452,7 @@ describe('TransactionsPage', () => {
     renderPage()
 
     await user.click(screen.getByRole('button', { name: 'Agregar' }))
-    const dialog = screen.getByRole('dialog', { name: 'Agregar gasto' })
+    const dialog = screen.getByRole('dialog', { name: 'Agregar movimiento' })
 
     expect(within(dialog).getByRole('button', { name: 'Guardando…' })).toBeDisabled()
     expect(within(dialog).getByRole('button', { name: 'Cancelar' })).toBeDisabled()

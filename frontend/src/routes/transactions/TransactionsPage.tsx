@@ -243,7 +243,9 @@ export default function TransactionsPage() {
   const catQ = useCategories()
   const accQ = useAccounts()
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null)
-  const [action, setAction] = useState<'expense' | 'income' | 'transfer' | 'edit' | null>(null)
+  const [action, setAction] = useState<'add' | 'expense' | 'income' | 'transfer' | 'edit' | null>(
+    null,
+  )
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
   const [deletingTx, setDeletingTx] = useState<Transaction | null>(null)
 
@@ -251,9 +253,16 @@ export default function TransactionsPage() {
   const hasQueryError = txQ.isError || catQ.isError || accQ.isError
   const deleteMut = useDeleteTransaction()
 
-  const openAdd = (type: 'expense' | 'income' | 'transfer') => {
+  /**
+   * Opens the add-transaction panel. When `type` is omitted the panel opens
+   * with its type toggle visible (defaults to "Gasto" but switchable to
+   * "Ingreso"/"Transfer"). Passing an explicit type locks the toggle, for
+   * callers that want a dedicated shortcut (mirrors the dashboard quick
+   * actions).
+   */
+  const openAdd = (type?: 'expense' | 'income' | 'transfer') => {
     setEditingTx(null)
-    setAction(type)
+    setAction(type ?? 'add')
   }
 
   const openEdit = (tx: Transaction) => {
@@ -303,7 +312,7 @@ export default function TransactionsPage() {
           title="Movimientos"
           subtitle="Historial de transacciones"
           action={
-            <Button size="sm" onClick={() => openAdd('expense')}>
+            <Button size="sm" onClick={() => openAdd()}>
               Agregar
             </Button>
           }
@@ -329,7 +338,9 @@ export default function TransactionsPage() {
         ? 'Agregar gasto'
         : action === 'income'
           ? 'Agregar ingreso'
-          : 'Nueva transferencia'
+          : action === 'transfer'
+            ? 'Nueva transferencia'
+            : 'Agregar movimiento'
 
   const lockedType =
     action === 'expense'
@@ -346,7 +357,7 @@ export default function TransactionsPage() {
         title="Movimientos"
         subtitle="Historial de transacciones"
         action={
-          <Button size="sm" onClick={() => openAdd('expense')}>
+          <Button size="sm" onClick={() => openAdd()}>
             Agregar
           </Button>
         }
@@ -362,7 +373,7 @@ export default function TransactionsPage() {
           categoryMap={categoryMap}
           accountMap={accountMap}
           onSelect={setSelectedTx}
-          onAdd={() => openAdd('expense')}
+          onAdd={() => openAdd()}
         />
       </div>
 
