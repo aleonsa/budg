@@ -193,7 +193,6 @@ func (r *AccountRepository) Update(ctx context.Context, userID, id string, patch
 			availableCreditSet = true
 			availableCreditValue = &adjusted
 		}
-
 		row := tx.QueryRow(ctx, `
 			UPDATE public.accounts SET
 				name                    = COALESCE($3, name),
