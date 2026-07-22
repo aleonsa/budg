@@ -146,12 +146,14 @@ func (r *MSIPurchaseRepository) Create(ctx context.Context, userID string, in MS
 			return err
 		}
 
-		// Start-date-based interval math preserves month-end schedules: Jan 31
-		// becomes Feb 28 then Mar 31, rather than drifting after February.
+		// MSI lifecycle does not yet flow through the balance engine. Keep every
+		// future installment historical-only instead of applying the full future
+		// schedule to today's balance. A later lifecycle design can apply charges
+		// when installments actually post.
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO public.transactions (
 				user_id, account_id, type, amount, category_id, date,
-				description, merchant, msi_purchase_id
+				description, merchant, msi_purchase_id, affects_balance
 			)
 			SELECT
 				$1,
@@ -166,7 +168,8 @@ func (r *MSIPurchaseRepository) Create(ctx context.Context, userID string, in MS
 				($6::date + ((installment.number - 1) * interval '1 month'))::date,
 				$7 || ' (' || installment.number || '/' || $5 || ')',
 				$8,
-				$9
+				$9,
+				false
 			FROM generate_series(1, $5) AS installment(number)
 		`,
 			userID, in.AccountID, in.CategoryID, in.TotalAmount, in.InstallmentCount,

@@ -20,6 +20,8 @@ type AccountStore interface {
 	List(ctx context.Context, userID string) ([]store.Account, error)
 	Create(ctx context.Context, userID string, in store.AccountInput) (store.Account, error)
 	Update(ctx context.Context, userID, id string, patch store.AccountPatch) (store.Account, error)
+	EnableBalanceTracking(ctx context.Context, userID, id string, currentAmount int64) (store.Account, error)
+	ReconcileBalance(ctx context.Context, userID, id string, currentAmount int64) (store.Account, error)
 	Delete(ctx context.Context, userID, id string) error
 }
 
@@ -102,10 +104,89 @@ func (h *accountsHandler) update(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		if errors.Is(err, store.ErrDirectBalancePatchForbidden) {
+			writeJSON(w, http.StatusConflict, errorResponse{
+				Error: apiError{Code: "balance_tracking_conflict", Message: "tracked balances must be changed through reconciliation"},
+			})
+			return
+		}
+		if errors.Is(err, store.ErrInvalidAccountShape) {
+			writeJSON(w, http.StatusBadRequest, errorResponse{
+				Error: apiError{Code: "invalid_request", Message: "account fields do not form a valid account"},
+			})
+			return
+		}
 		writeInternalError(w, r, err, "could not update account")
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+}
+
+type currentAmountRequest struct {
+	CurrentAmount *int64 `json:"currentAmount"`
+}
+
+func (h *accountsHandler) enableBalanceTracking(w http.ResponseWriter, r *http.Request) {
+	h.handleCurrentAmountMutation(w, r, true)
+}
+
+func (h *accountsHandler) reconcileBalance(w http.ResponseWriter, r *http.Request) {
+	h.handleCurrentAmountMutation(w, r, false)
+}
+
+func (h *accountsHandler) handleCurrentAmountMutation(w http.ResponseWriter, r *http.Request, enable bool) {
+	user, err := auth.FromContext(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{
+			Error: apiError{Code: "unauthorized", Message: "a valid access token is required"},
+		})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Error: apiError{Code: "invalid_request", Message: "account id is required"},
+		})
+		return
+	}
+	var request currentAmountRequest
+	if err := decodeJSON(r, &request); err != nil || request.CurrentAmount == nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Error: apiError{Code: "invalid_request", Message: "currentAmount is required"},
+		})
+		return
+	}
+
+	var account store.Account
+	if enable {
+		account, err = h.store.EnableBalanceTracking(r.Context(), user.ID, id, *request.CurrentAmount)
+	} else {
+		account, err = h.store.ReconcileBalance(r.Context(), user.ID, id, *request.CurrentAmount)
+	}
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			writeJSON(w, http.StatusNotFound, errorResponse{
+				Error: apiError{Code: "not_found", Message: "account was not found"},
+			})
+		case errors.Is(err, store.ErrBalanceTrackingAlreadyEnabled):
+			writeJSON(w, http.StatusConflict, errorResponse{
+				Error: apiError{Code: "balance_tracking_conflict", Message: "balance tracking is already enabled"},
+			})
+		case errors.Is(err, store.ErrBalanceTrackingNotEnabled), errors.Is(err, store.ErrDirectBalancePatchForbidden):
+			writeJSON(w, http.StatusConflict, errorResponse{
+				Error: apiError{Code: "balance_tracking_conflict", Message: "balance tracking is not enabled"},
+			})
+		case errors.Is(err, store.ErrInvalidAccountShape):
+			writeJSON(w, http.StatusBadRequest, errorResponse{
+				Error: apiError{Code: "invalid_request", Message: "account fields do not form a valid account"},
+			})
+		default:
+			writeInternalError(w, r, err, "could not update account balance tracking")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, account)
 }
 
 func (h *accountsHandler) delete(w http.ResponseWriter, r *http.Request) {

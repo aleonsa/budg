@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { Header } from '@/components/layout/Header'
 import { Card, Badge, Progress, Separator, Button, Input, Label } from '@/components/ui'
 import { EmptyState } from '@/components/common/EmptyState'
@@ -286,6 +287,12 @@ function CreditCardItem({
             )}
           </div>
         )}
+        <Link
+          to={`/accounts/${account.id}`}
+          className="mt-3 inline-flex text-xs font-medium text-[hsl(var(--color-blue))] hover:underline"
+        >
+          Ver detalle y pagar
+        </Link>
         <AccountActions accountName={account.name} onEdit={onEdit} onDelete={onDelete} />
       </div>
 
@@ -389,6 +396,8 @@ export default function AccountsPage() {
   const [fBalance, setFBalance] = useState('')
   const [fDebt, setFDebt] = useState('')
   const [fLast4, setFLast4] = useState('')
+  const [fCutDay, setFCutDay] = useState('')
+  const [fDueDay, setFDueDay] = useState('')
   const [showNameError, setShowNameError] = useState(false)
   const [fMSIAccount, setFMSIAccount] = useState('')
   const [fMSICategory, setFMSICategory] = useState('')
@@ -458,6 +467,8 @@ export default function AccountsPage() {
     setFBalance('')
     setFDebt('')
     setFLast4('')
+    setFCutDay('')
+    setFDueDay('')
     setShowNameError(false)
     setIsAccountPanelOpen(true)
   }
@@ -475,6 +486,8 @@ export default function AccountsPage() {
         : '',
     )
     setFLast4(account.last4)
+    setFCutDay(account.statementCutDay ? String(account.statementCutDay) : '')
+    setFDueDay(account.paymentDueDay ? String(account.paymentDueDay) : '')
     setShowNameError(false)
     setIsAccountPanelOpen(true)
   }
@@ -509,6 +522,14 @@ export default function AccountsPage() {
     // (limit - debt) — the field the rest of the app already reads.
     const debt = isCredit ? toCents(fDebt || '0') : 0
     const availableCredit = balance - debt
+    const cutDay = Number(fCutDay)
+    const dueDay = Number(fDueDay)
+    const creditSchedule = {
+      ...(Number.isInteger(cutDay) && cutDay >= 1 && cutDay <= 28
+        ? { statementCutDay: cutDay }
+        : {}),
+      ...(Number.isInteger(dueDay) && dueDay >= 1 && dueDay <= 28 ? { paymentDueDay: dueDay } : {}),
+    }
     if (editingAccount) {
       updateMut.reset()
       updateMut.mutate(
@@ -518,7 +539,19 @@ export default function AccountsPage() {
             name: fName.trim(),
             institution: fInstitution.trim() || 'Banco',
             last4: fLast4.trim().slice(-4) || '0000',
-            ...(isCredit ? { creditLimit: balance, availableCredit } : { balance }),
+            ...(!editingAccount.balanceTrackingEnabled
+              ? isCredit
+                ? { creditLimit: balance, availableCredit }
+                : { balance }
+              : isCredit
+                ? { creditLimit: balance }
+                : {}),
+            ...(isCredit && cutDay !== editingAccount.statementCutDay
+              ? { statementCutDay: creditSchedule.statementCutDay }
+              : {}),
+            ...(isCredit && dueDay !== editingAccount.paymentDueDay
+              ? { paymentDueDay: creditSchedule.paymentDueDay }
+              : {}),
           },
         },
         { onSuccess: closePanel },
@@ -533,7 +566,7 @@ export default function AccountsPage() {
         institution: fInstitution.trim() || 'Banco',
         last4: fLast4.trim().slice(-4) || '0000',
         currency: 'MXN',
-        ...(isCredit ? { creditLimit: balance, availableCredit } : { balance }),
+        ...(isCredit ? { creditLimit: balance, availableCredit, ...creditSchedule } : { balance }),
       },
       { onSuccess: closePanel },
     )
@@ -677,6 +710,7 @@ export default function AccountsPage() {
             inputMode="decimal"
             value={fBalance}
             onChange={(e) => setFBalance(e.target.value)}
+            disabled={Boolean(editingAccount?.balanceTrackingEnabled && fType === 'debit')}
           />
         </div>
         {fType === 'credit' ? (
@@ -688,6 +722,7 @@ export default function AccountsPage() {
               inputMode="decimal"
               value={fDebt}
               onChange={(e) => setFDebt(e.target.value)}
+              disabled={Boolean(editingAccount?.balanceTrackingEnabled)}
             />
           </div>
         ) : (
@@ -705,16 +740,48 @@ export default function AccountsPage() {
         )}
       </div>
       {fType === 'credit' && (
-        <div className="space-y-1.5">
-          <Label htmlFor="account-last4-credit">Últimos 4</Label>
-          <Input
-            id="account-last4-credit"
-            placeholder="1234"
-            inputMode="numeric"
-            maxLength={4}
-            value={fLast4}
-            onChange={(e) => setFLast4(e.target.value)}
-          />
+        <div className="space-y-3">
+          {editingAccount?.balanceTrackingEnabled && (
+            <p className="rounded-[7px] bg-muted px-2.5 py-2 text-[11px] text-muted-foreground">
+              La deuda se corrige desde el detalle de la tarjeta. Cambiar el límite conserva la
+              deuda actual.
+            </p>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="account-cut-day">Día de corte</Label>
+              <Input
+                id="account-cut-day"
+                type="number"
+                min="1"
+                max="28"
+                value={fCutDay}
+                onChange={(event) => setFCutDay(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="account-due-day">Día límite de pago</Label>
+              <Input
+                id="account-due-day"
+                type="number"
+                min="1"
+                max="28"
+                value={fDueDay}
+                onChange={(event) => setFDueDay(event.target.value)}
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="account-last4-credit">Últimos 4</Label>
+            <Input
+              id="account-last4-credit"
+              placeholder="1234"
+              inputMode="numeric"
+              maxLength={4}
+              value={fLast4}
+              onChange={(e) => setFLast4(e.target.value)}
+            />
+          </div>
         </div>
       )}
       {activeMutation.error && (

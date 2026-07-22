@@ -48,6 +48,28 @@ export async function deleteAccount(id: string): Promise<void> {
   }
 }
 
+export async function enableBalanceTracking(id: string, currentAmount: number): Promise<Account> {
+  return updateCurrentAmount(id, 'balance-tracking', currentAmount)
+}
+
+export async function reconcileBalance(id: string, currentAmount: number): Promise<Account> {
+  return updateCurrentAmount(id, 'reconcile-balance', currentAmount)
+}
+
+async function updateCurrentAmount(
+  id: string,
+  action: 'balance-tracking' | 'reconcile-balance',
+  currentAmount: number,
+): Promise<Account> {
+  const res = await authFetch(`/v1/accounts/${id}/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentAmount }),
+  })
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`)
+  return toFrontend((await res.json()) as BackendAccount)
+}
+
 // ── Wire format ──────────────────────────────────────────────
 // Backend JSON uses the same camelCase contract the frontend already uses,
 // field-for-field (no `order`-style renames like categories has).
@@ -64,6 +86,8 @@ interface BackendAccount {
   availableCredit?: number
   statementCutDay?: number
   paymentDueDay?: number
+  balanceTrackingEnabled?: boolean
+  balanceTrackingStartedAt?: string
   isActive: boolean
 }
 
@@ -80,6 +104,8 @@ function toFrontend(a: BackendAccount): Account {
     availableCredit: a.availableCredit,
     statementCutDay: a.statementCutDay,
     paymentDueDay: a.paymentDueDay,
+    balanceTrackingEnabled: a.balanceTrackingEnabled,
+    balanceTrackingStartedAt: a.balanceTrackingStartedAt,
     isActive: a.isActive,
   }
 }

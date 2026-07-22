@@ -49,7 +49,7 @@ function setupQueryClient() {
 function expectTransactionCachesInvalidated(client: QueryClient) {
   expect(client.getQueryState(queryKeys.transactions)?.isInvalidated).toBe(true)
   expect(client.getQueryState(queryKeys.dashboard)?.isInvalidated).toBe(true)
-  expect(client.getQueryState(queryKeys.accounts)?.isInvalidated).toBe(false)
+  expect(client.getQueryState(queryKeys.accounts)?.isInvalidated).toBe(true)
 }
 
 beforeEach(() => {

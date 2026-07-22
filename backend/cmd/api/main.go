@@ -55,6 +55,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			Categories:            store.NewCategoryRepository(pool),
 			Accounts:              store.NewAccountRepository(pool),
 			Transactions:          store.NewTransactionRepository(pool),
+			CreditCardStatements:  store.NewCreditCardStatementRepository(pool),
 			Budgets:               store.NewBudgetRepository(pool),
 			SavingsGoals:          store.NewSavingsGoalRepository(pool),
 			Rules:                 store.NewRuleRepository(pool),

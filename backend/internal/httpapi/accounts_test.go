@@ -13,17 +13,25 @@ import (
 
 // stubAccountStore is an in-memory AccountStore for handler tests.
 type stubAccountStore struct {
-	listErr      error
-	createErr    error
-	updateErr    error
-	deleteErr    error
-	listResult   []store.Account
-	createInput  store.AccountInput
-	updateID     string
-	updatePatch  store.AccountPatch
-	deleteID     string
-	createResult store.Account
-	updateResult store.Account
+	listErr         error
+	createErr       error
+	updateErr       error
+	enableErr       error
+	reconcileErr    error
+	deleteErr       error
+	listResult      []store.Account
+	createInput     store.AccountInput
+	updateID        string
+	updatePatch     store.AccountPatch
+	enableID        string
+	enableAmount    int64
+	reconcileID     string
+	reconcileAmount int64
+	deleteID        string
+	createResult    store.Account
+	updateResult    store.Account
+	enableResult    store.Account
+	reconcileResult store.Account
 }
 
 func (s *stubAccountStore) List(_ context.Context, _ string) ([]store.Account, error) {
@@ -39,6 +47,18 @@ func (s *stubAccountStore) Update(_ context.Context, _, id string, patch store.A
 	s.updateID = id
 	s.updatePatch = patch
 	return s.updateResult, s.updateErr
+}
+
+func (s *stubAccountStore) EnableBalanceTracking(_ context.Context, _, id string, currentAmount int64) (store.Account, error) {
+	s.enableID = id
+	s.enableAmount = currentAmount
+	return s.enableResult, s.enableErr
+}
+
+func (s *stubAccountStore) ReconcileBalance(_ context.Context, _, id string, currentAmount int64) (store.Account, error) {
+	s.reconcileID = id
+	s.reconcileAmount = currentAmount
+	return s.reconcileResult, s.reconcileErr
 }
 
 func (s *stubAccountStore) Delete(_ context.Context, _, id string) error {
@@ -230,6 +250,68 @@ func TestUpdateAccountReportsNotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestUpdateTrackedAccountBalanceReportsConflict(t *testing.T) {
+	t.Parallel()
+	stub := &stubAccountStore{updateErr: store.ErrDirectBalancePatchForbidden}
+	rec := doRequest(newAccountsRouter(stub), http.MethodPatch, "/v1/accounts/acc-1", `{"balance":100}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAccountBalanceTrackingEndpoints(t *testing.T) {
+	t.Parallel()
+
+	t.Run("enable", func(t *testing.T) {
+		stub := &stubAccountStore{enableResult: store.Account{ID: "acc-1", BalanceTrackingEnabled: true}}
+		rec := doRequest(newAccountsRouter(stub), http.MethodPost, "/v1/accounts/acc-1/balance-tracking", `{"currentAmount":12345}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+		}
+		if stub.enableID != "acc-1" || stub.enableAmount != 12345 {
+			t.Fatalf("captured enable = (%q, %d)", stub.enableID, stub.enableAmount)
+		}
+	})
+
+	t.Run("reconcile", func(t *testing.T) {
+		stub := &stubAccountStore{reconcileResult: store.Account{ID: "acc-2", BalanceTrackingEnabled: true}}
+		rec := doRequest(newAccountsRouter(stub), http.MethodPost, "/v1/accounts/acc-2/reconcile-balance", `{"currentAmount":0}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+		}
+		if stub.reconcileID != "acc-2" || stub.reconcileAmount != 0 {
+			t.Fatalf("captured reconcile = (%q, %d)", stub.reconcileID, stub.reconcileAmount)
+		}
+	})
+}
+
+func TestAccountBalanceTrackingEndpointErrors(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		path       string
+		body       string
+		stub       *stubAccountStore
+		wantStatus int
+	}{
+		{"missing amount", "/v1/accounts/acc-1/balance-tracking", `{}`, &stubAccountStore{}, http.StatusBadRequest},
+		{"not found", "/v1/accounts/acc-1/balance-tracking", `{"currentAmount":1}`, &stubAccountStore{enableErr: store.ErrNotFound}, http.StatusNotFound},
+		{"already enabled", "/v1/accounts/acc-1/balance-tracking", `{"currentAmount":1}`, &stubAccountStore{enableErr: store.ErrBalanceTrackingAlreadyEnabled}, http.StatusConflict},
+		{"reconcile disabled", "/v1/accounts/acc-1/reconcile-balance", `{"currentAmount":1}`, &stubAccountStore{reconcileErr: store.ErrBalanceTrackingNotEnabled}, http.StatusConflict},
+		{"invalid shape", "/v1/accounts/acc-1/balance-tracking", `{"currentAmount":1}`, &stubAccountStore{enableErr: store.ErrInvalidAccountShape}, http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rec := doRequest(newAccountsRouter(tc.stub), http.MethodPost, tc.path, tc.body)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d (body=%s)", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+		})
 	}
 }
 

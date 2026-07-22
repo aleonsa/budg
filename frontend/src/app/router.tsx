@@ -4,6 +4,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { RequireAuth } from '@/app/RequireAuth'
 import {
   AccountsPage,
+  CreditCardDetailPage,
   BudgetsPage,
   CategoriesPage,
   DashboardPage,
@@ -37,6 +38,7 @@ export const router = createBrowserRouter([
       { index: true, element: withSuspense(<DashboardPage />) },
       { path: 'transactions', element: withSuspense(<TransactionsPage />) },
       { path: 'accounts', element: withSuspense(<AccountsPage />) },
+      { path: 'accounts/:accountId', element: withSuspense(<CreditCardDetailPage />) },
       { path: 'budgets', element: withSuspense(<BudgetsPage />) },
       { path: 'goals', element: withSuspense(<GoalsPage />) },
       { path: 'settings', element: withSuspense(<SettingsPage />) },

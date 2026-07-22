@@ -61,8 +61,21 @@ func (h *transactionsHandler) create(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+	if len(idempotencyKey) > 128 {
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Error: apiError{Code: "invalid_request", Message: "Idempotency-Key must be at most 128 characters"},
+		})
+		return
+	}
+	if idempotencyKey != "" {
+		in.IdempotencyKey = &idempotencyKey
+	}
 	created, err := h.store.Create(r.Context(), user.ID, in)
 	if err != nil {
+		if writeTransactionClientError(w, err) {
+			return
+		}
 		writeInternalError(w, r, err, "could not create transaction")
 		return
 	}
@@ -99,10 +112,45 @@ func (h *transactionsHandler) update(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		if writeTransactionClientError(w, err) {
+			return
+		}
 		writeInternalError(w, r, err, "could not update transaction")
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+}
+
+func writeTransactionClientError(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, errorResponse{
+			Error: apiError{Code: "not_found", Message: "transaction account was not found"},
+		})
+	case errors.Is(err, store.ErrInvalidTransactionShape):
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Error: apiError{Code: "invalid_request", Message: "transaction fields do not form a valid transaction"},
+		})
+	case errors.Is(err, store.ErrTransferCurrencyMismatch):
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Error: apiError{Code: "invalid_request", Message: "transfer accounts must use the same currency"},
+		})
+	case errors.Is(err, store.ErrInvalidAccountShape):
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Error: apiError{Code: "invalid_request", Message: "transaction account has an invalid balance shape"},
+		})
+	case errors.Is(err, store.ErrIdempotencyConflict):
+		writeJSON(w, http.StatusConflict, errorResponse{
+			Error: apiError{Code: "idempotency_conflict", Message: "Idempotency-Key was already used with different transaction data"},
+		})
+	case errors.Is(err, store.ErrBalanceTrackingNotEnabled):
+		writeJSON(w, http.StatusConflict, errorResponse{
+			Error: apiError{Code: "balance_tracking_conflict", Message: "statement payments require balance tracking on both accounts"},
+		})
+	default:
+		return false
+	}
+	return true
 }
 
 func (h *transactionsHandler) delete(w http.ResponseWriter, r *http.Request) {
@@ -165,9 +213,15 @@ func validateTransactionInput(in store.TransactionInput) string {
 		if in.CategoryID != nil {
 			return "transfer transactions cannot have a category"
 		}
+		if in.CreditCardStatementID != nil && in.AffectsBalance != nil && !*in.AffectsBalance {
+			return "statement-linked transfers must affect balances"
+		}
 	} else {
 		if in.TransferToAccount != nil {
 			return "non-transfer transactions cannot have transferToAccountId"
+		}
+		if in.CreditCardStatementID != nil {
+			return "non-transfer transactions cannot have creditCardStatementId"
 		}
 	}
 	return ""

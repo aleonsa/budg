@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -152,6 +153,46 @@ func (r *AccountRepository) Create(ctx context.Context, userID string, in Accoun
 func (r *AccountRepository) Update(ctx context.Context, userID, id string, patch AccountPatch) (Account, error) {
 	var a Account
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
+		var accountType string
+		var trackingEnabled bool
+		var creditLimit *int64
+		var availableCredit *int64
+		if err := tx.QueryRow(ctx, `
+			SELECT type, balance_tracking_enabled, credit_limit_cents, available_credit_cents
+			FROM public.accounts
+			WHERE user_id = $1 AND id = $2
+			FOR UPDATE
+		`, userID, id).Scan(&accountType, &trackingEnabled, &creditLimit, &availableCredit); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if trackingEnabled {
+			if accountType == "debit" && patch.BalanceCents.Set {
+				return ErrDirectBalancePatchForbidden
+			}
+			if accountType == "credit" && patch.AvailableCreditCents.Set {
+				return ErrDirectBalancePatchForbidden
+			}
+			if accountType == "credit" && patch.CreditLimitCents.Set && patch.CreditLimitCents.Value == nil {
+				return ErrInvalidAccountShape
+			}
+		}
+
+		availableCreditSet := patch.AvailableCreditCents.Set
+		availableCreditValue := patch.AvailableCreditCents.Value
+		if trackingEnabled && accountType == "credit" && patch.CreditLimitCents.Set {
+			if creditLimit == nil || availableCredit == nil || patch.CreditLimitCents.Value == nil {
+				return ErrInvalidAccountShape
+			}
+			adjusted, err := adjustedAvailableCredit(*creditLimit, *availableCredit, *patch.CreditLimitCents.Value)
+			if err != nil {
+				return err
+			}
+			availableCreditSet = true
+			availableCreditValue = &adjusted
+		}
 		row := tx.QueryRow(ctx, `
 			UPDATE public.accounts SET
 				name                    = COALESCE($3, name),
@@ -170,19 +211,27 @@ func (r *AccountRepository) Update(ctx context.Context, userID, id string, patch
 			userID, id, patch.Name, patch.Institution, patch.Last4, patch.Currency, patch.IsActive,
 			patch.BalanceCents.Set, patch.BalanceCents.Value,
 			patch.CreditLimitCents.Set, patch.CreditLimitCents.Value,
-			patch.AvailableCreditCents.Set, patch.AvailableCreditCents.Value,
+			availableCreditSet, availableCreditValue,
 			patch.StatementCutDay.Set, patch.StatementCutDay.Value,
 			patch.PaymentDueDay.Set, patch.PaymentDueDay.Value,
 		)
 		return scanAccount(row, &a)
 	})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Account{}, ErrNotFound
-		}
 		return Account{}, fmt.Errorf("update account: %w", err)
 	}
 	return a, nil
+}
+
+func adjustedAvailableCredit(oldLimit, oldAvailable, newLimit int64) (int64, error) {
+	if oldLimit < 0 || newLimit < 0 {
+		return 0, ErrInvalidAccountShape
+	}
+	delta := newLimit - oldLimit
+	if delta > 0 && oldAvailable > math.MaxInt64-delta || delta < 0 && oldAvailable < math.MinInt64-delta {
+		return 0, ErrInvalidAccountShape
+	}
+	return oldAvailable + delta, nil
 }
 
 // EnableBalanceTracking activates automatic balance tracking for an account
@@ -192,12 +241,13 @@ func (r *AccountRepository) EnableBalanceTracking(ctx context.Context, userID, i
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
 		var isTracking bool
 		var accType string
+		var creditLimit *int64
 		err := tx.QueryRow(ctx, `
-			SELECT balance_tracking_enabled, type
+			SELECT balance_tracking_enabled, type, credit_limit_cents
 			FROM public.accounts
 			WHERE user_id = $1 AND id = $2
 			FOR UPDATE
-		`, userID, id).Scan(&isTracking, &accType)
+		`, userID, id).Scan(&isTracking, &accType, &creditLimit)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrNotFound
@@ -216,7 +266,10 @@ func (r *AccountRepository) EnableBalanceTracking(ctx context.Context, userID, i
 			`, userID, id, currentAmount); err != nil {
 				return err
 			}
-		} else {
+		} else if accType == "credit" {
+			if creditLimit == nil {
+				return ErrInvalidAccountShape
+			}
 			if _, err := tx.Exec(ctx, `
 				UPDATE public.accounts
 				SET available_credit_cents = $3, balance_tracking_enabled = true, balance_tracking_started_at = now(), updated_at = now()
@@ -224,6 +277,8 @@ func (r *AccountRepository) EnableBalanceTracking(ctx context.Context, userID, i
 			`, userID, id, currentAmount); err != nil {
 				return err
 			}
+		} else {
+			return ErrInvalidAccountShape
 		}
 
 		if _, err := tx.Exec(ctx, `
@@ -233,17 +288,12 @@ func (r *AccountRepository) EnableBalanceTracking(ctx context.Context, userID, i
 			return err
 		}
 
-		return tx.QueryRow(ctx, `
+		return scanAccount(tx.QueryRow(ctx, `
 			SELECT `+accountColumns+` FROM public.accounts WHERE user_id = $1 AND id = $2
-		`, userID, id).Scan(
-			&a.ID, &a.UserID, &a.Name, &a.Type, &a.Institution, &a.Last4, &a.Currency,
-			&a.BalanceCents, &a.CreditLimitCents, &a.AvailableCreditCents,
-			&a.StatementCutDay, &a.PaymentDueDay, &a.BalanceTrackingEnabled,
-			&a.BalanceTrackingStartedAt, &a.IsActive, &a.CreatedAt, &a.UpdatedAt,
-		)
+		`, userID, id), &a)
 	})
 	if err != nil {
-		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrBalanceTrackingAlreadyEnabled) {
+		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrBalanceTrackingAlreadyEnabled) || errors.Is(err, ErrInvalidAccountShape) {
 			return Account{}, err
 		}
 		return Account{}, fmt.Errorf("enable balance tracking: %w", err)
@@ -259,13 +309,14 @@ func (r *AccountRepository) ReconcileBalance(ctx context.Context, userID, id str
 		var isTracking bool
 		var accType string
 		var oldBalance *int64
+		var creditLimit *int64
 		var oldAvailable *int64
 		err := tx.QueryRow(ctx, `
-			SELECT balance_tracking_enabled, type, balance_cents, available_credit_cents
+			SELECT balance_tracking_enabled, type, balance_cents, credit_limit_cents, available_credit_cents
 			FROM public.accounts
 			WHERE user_id = $1 AND id = $2
 			FOR UPDATE
-		`, userID, id).Scan(&isTracking, &accType, &oldBalance, &oldAvailable)
+		`, userID, id).Scan(&isTracking, &accType, &oldBalance, &creditLimit, &oldAvailable)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrNotFound
@@ -278,25 +329,24 @@ func (r *AccountRepository) ReconcileBalance(ctx context.Context, userID, id str
 
 		var oldVal int64
 		if accType == "debit" {
-			if oldBalance != nil {
-				oldVal = *oldBalance
+			if oldBalance == nil {
+				return ErrInvalidAccountShape
 			}
+			oldVal = *oldBalance
+		} else if accType == "credit" {
+			if creditLimit == nil || oldAvailable == nil {
+				return ErrInvalidAccountShape
+			}
+			oldVal = *oldAvailable
 		} else {
-			if oldAvailable != nil {
-				oldVal = *oldAvailable
-			}
+			return ErrInvalidAccountShape
 		}
 
 		delta := currentAmount - oldVal
 		if delta == 0 {
-			return tx.QueryRow(ctx, `
+			return scanAccount(tx.QueryRow(ctx, `
 				SELECT `+accountColumns+` FROM public.accounts WHERE user_id = $1 AND id = $2
-			`, userID, id).Scan(
-				&a.ID, &a.UserID, &a.Name, &a.Type, &a.Institution, &a.Last4, &a.Currency,
-				&a.BalanceCents, &a.CreditLimitCents, &a.AvailableCreditCents,
-				&a.StatementCutDay, &a.PaymentDueDay, &a.BalanceTrackingEnabled,
-				&a.BalanceTrackingStartedAt, &a.IsActive, &a.CreatedAt, &a.UpdatedAt,
-			)
+			`, userID, id), &a)
 		}
 
 		if accType == "debit" {
@@ -324,17 +374,12 @@ func (r *AccountRepository) ReconcileBalance(ctx context.Context, userID, id str
 			return err
 		}
 
-		return tx.QueryRow(ctx, `
+		return scanAccount(tx.QueryRow(ctx, `
 			SELECT `+accountColumns+` FROM public.accounts WHERE user_id = $1 AND id = $2
-		`, userID, id).Scan(
-			&a.ID, &a.UserID, &a.Name, &a.Type, &a.Institution, &a.Last4, &a.Currency,
-			&a.BalanceCents, &a.CreditLimitCents, &a.AvailableCreditCents,
-			&a.StatementCutDay, &a.PaymentDueDay, &a.BalanceTrackingEnabled,
-			&a.BalanceTrackingStartedAt, &a.IsActive, &a.CreatedAt, &a.UpdatedAt,
-		)
+		`, userID, id), &a)
 	})
 	if err != nil {
-		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrBalanceTrackingNotEnabled) {
+		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrBalanceTrackingNotEnabled) || errors.Is(err, ErrInvalidAccountShape) {
 			return Account{}, err
 		}
 		return Account{}, fmt.Errorf("reconcile balance: %w", err)

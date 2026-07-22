@@ -9,6 +9,10 @@ var (
 	ErrBalanceTrackingAlreadyEnabled = errors.New("balance tracking already enabled")
 	ErrBalanceTrackingNotEnabled     = errors.New("balance tracking not enabled")
 	ErrDirectBalancePatchForbidden   = errors.New("direct balance modification forbidden while tracking is enabled; use reconciliation")
+	ErrInvalidAccountShape           = errors.New("invalid account shape")
+	ErrInvalidTransactionShape       = errors.New("invalid transaction shape")
+	ErrTransferCurrencyMismatch      = errors.New("transfer accounts must use the same currency")
+	ErrIdempotencyConflict           = errors.New("idempotency key already used with different transaction data")
 )
 
 // AccountDelta represents the signed change to an account's materialized balance

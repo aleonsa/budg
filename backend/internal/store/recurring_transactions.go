@@ -150,21 +150,33 @@ func (r *RecurringTransactionRepository) Process(ctx context.Context, userID str
 		rows.Close()
 
 		today := time.Now().UTC().Truncate(24 * time.Hour)
+		accountIDs := make([]string, 0, len(dueRows))
+		for _, recurring := range dueRows {
+			accountIDs = append(accountIDs, recurring.accountID)
+		}
+		accounts, err := lockTransactionAccounts(ctx, tx, userID, accountIDs)
+		if err != nil {
+			return err
+		}
+		affectsBalance := true
 		for _, recurring := range dueRows {
 			due, err := time.Parse("2006-01-02", recurring.nextDate)
 			if err != nil {
 				return fmt.Errorf("parse recurring next date %q: %w", recurring.nextDate, err)
 			}
 			for !due.After(today) {
-				if _, err := tx.Exec(ctx, `
-					INSERT INTO public.transactions (
-						user_id, account_id, type, amount, category_id, date, description, merchant
-					)
-					VALUES ($1, $2, 'expense', $3, $4, $5, $6, $7)
-				`, userID, recurring.accountID, recurring.amount, recurring.categoryID, due.Format("2006-01-02"), recurring.description, recurring.merchant); err != nil {
+				_, inserted, err := createTransactionWithLockedAccounts(ctx, tx, userID, TransactionInput{
+					AccountID: recurring.accountID, Type: "expense", Amount: recurring.amount,
+					CategoryID: recurring.categoryID, Date: due.Format("2006-01-02"),
+					Description: recurring.description, Merchant: recurring.merchant,
+					AffectsBalance: &affectsBalance,
+				}, accounts)
+				if err != nil {
 					return err
 				}
-				created++
+				if inserted {
+					created++
+				}
 				recurring.occurrences++
 				var calculated string
 				if err := tx.QueryRow(ctx, `

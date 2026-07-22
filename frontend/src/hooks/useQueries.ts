@@ -22,6 +22,14 @@ export function useAccounts() {
   return useQuery({ queryKey: queryKeys.accounts, queryFn: api.getAccounts })
 }
 
+export function useCreditCardStatements(accountId: string) {
+  return useQuery({
+    queryKey: queryKeys.creditCardStatements(accountId),
+    queryFn: () => api.getCreditCardStatements(accountId),
+    enabled: Boolean(accountId),
+  })
+}
+
 export function useTransactions() {
   return useQuery({ queryKey: queryKeys.transactions, queryFn: api.getTransactions })
 }

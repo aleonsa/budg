@@ -477,6 +477,30 @@ describe('AccountsPage', () => {
     expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
   })
 
+  it('edits a tracked credit limit without directly patching available credit', async () => {
+    state.accounts.data = [credit({ balanceTrackingEnabled: true })]
+    vi.mocked(api.updateAccount).mockResolvedValue()
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: /Editar Tarjeta Oro/ }))
+    const dialog = screen.getByRole('dialog', { name: 'Editar cuenta' })
+    const limit = within(dialog).getByRole('textbox', { name: 'Límite de crédito' })
+    expect(within(dialog).getByRole('textbox', { name: 'Deuda actual' })).toBeDisabled()
+    expect(limit).toBeEnabled()
+    await user.clear(limit)
+    await user.type(limit, '1500')
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar cambios' }))
+    await flushMutation()
+
+    expect(api.updateAccount).toHaveBeenCalledWith('credit-1', {
+      name: 'Tarjeta Oro',
+      institution: 'Banamex',
+      last4: '2222',
+      creditLimit: 150_000,
+    })
+  })
+
   it('confirms and deletes an account through the real API mutation', async () => {
     state.accounts.data = [debit()]
     vi.mocked(api.deleteAccount).mockResolvedValue()

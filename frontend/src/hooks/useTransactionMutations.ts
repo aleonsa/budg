@@ -9,6 +9,7 @@ function useInvalidateTx() {
   return () => {
     qc.invalidateQueries({ queryKey: queryKeys.transactions })
     qc.invalidateQueries({ queryKey: queryKeys.dashboard })
+    qc.invalidateQueries({ queryKey: queryKeys.accounts })
   }
 }
 

@@ -17,6 +17,7 @@ type Options struct {
 	Categories            CategoryStore
 	Accounts              AccountStore
 	Transactions          TransactionStore
+	CreditCardStatements  CreditCardStatementStore
 	Budgets               BudgetStore
 	SavingsGoals          SavingsGoalStore
 	Rules                 RuleStore
@@ -56,14 +57,26 @@ func NewRouter(opts Options) http.Handler {
 			})
 		}
 
-		if opts.Accounts != nil {
-			h := &accountsHandler{store: opts.Accounts}
+		if opts.Accounts != nil || opts.CreditCardStatements != nil {
 			v1.Route("/accounts", func(accts chi.Router) {
-				accts.Get("/", h.list)
-				accts.Post("/", h.create)
+				if opts.Accounts != nil {
+					h := &accountsHandler{store: opts.Accounts}
+					accts.Get("/", h.list)
+					accts.Post("/", h.create)
+				}
 				accts.Route("/{id}", func(item chi.Router) {
-					item.Patch("/", h.update)
-					item.Delete("/", h.delete)
+					if opts.Accounts != nil {
+						h := &accountsHandler{store: opts.Accounts}
+						item.Post("/balance-tracking", h.enableBalanceTracking)
+						item.Post("/reconcile-balance", h.reconcileBalance)
+						item.Patch("/", h.update)
+						item.Delete("/", h.delete)
+					}
+					if opts.CreditCardStatements != nil {
+						h := &creditCardStatementsHandler{store: opts.CreditCardStatements}
+						item.Get("/credit-card-statements", h.list)
+						item.Post("/credit-card-statements", h.confirm)
+					}
 				})
 			})
 		}
