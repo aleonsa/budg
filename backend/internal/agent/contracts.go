@@ -183,12 +183,24 @@ type ModelResponse struct {
 type ModelEventType string
 
 const (
+	// ModelEventTextDelta carries an incremental chunk of streamed text from
+	// the provider itself, emitted only by Provider.Respond.
 	ModelEventTextDelta ModelEventType = "text_delta"
+	// ModelEventToolStarted and ModelEventToolCompleted are emitted by the
+	// Runner (not the provider) around each tool dispatch, so a caller
+	// streaming this to a client can show progress ("checking your
+	// accounts...") while a tool call is in flight.
+	ModelEventToolStarted   ModelEventType = "tool_started"
+	ModelEventToolCompleted ModelEventType = "tool_completed"
 )
 
 type ModelEvent struct {
-	Type  ModelEventType
+	Type ModelEventType
+	// Delta is set only for ModelEventTextDelta.
 	Delta string
+	// ToolName and ToolCallID are set only for the tool_started/tool_completed events.
+	ToolName   string
+	ToolCallID string
 }
 
 type Provider interface {

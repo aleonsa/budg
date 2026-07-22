@@ -231,6 +231,81 @@ func TestRunnerHonorsContextCancellation(t *testing.T) {
 	}
 }
 
+func TestRunnerEmitsToolLifecycleEvents(t *testing.T) {
+	provider := &scriptedProvider{responses: []ModelResponse{
+		{FinishReason: FinishReasonToolCalls, ToolCalls: []ToolCall{toolCall("c1", "search_transactions", `{}`)}},
+		{FinishReason: FinishReasonCompleted, Output: json.RawMessage(`{"status":"completed","message":"ok","summary":"ok","artifacts":[]}`)},
+	}}
+	tool := staticTool("search_transactions", ToolResult{Status: ToolStatusSuccess, Summary: "ok", NextActions: []string{}})
+	runner := newTestRunner(t, provider, defaultLimits(), tool)
+
+	var events []ModelEvent
+	result, err := runner.RunStreaming(context.Background(), userTurn("Hola"), func(event ModelEvent) error {
+		events = append(events, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if result.Outcome != OutcomeCompleted {
+		t.Fatalf("outcome = %q", result.Outcome)
+	}
+
+	var sawStarted, sawCompleted bool
+	for _, event := range events {
+		switch event.Type {
+		case ModelEventToolStarted:
+			if event.ToolName != "search_transactions" || event.ToolCallID != "c1" {
+				t.Fatalf("tool_started event = %+v", event)
+			}
+			sawStarted = true
+		case ModelEventToolCompleted:
+			if sawStarted != true {
+				t.Fatal("tool_completed emitted before tool_started")
+			}
+			if event.ToolName != "search_transactions" || event.ToolCallID != "c1" {
+				t.Fatalf("tool_completed event = %+v", event)
+			}
+			sawCompleted = true
+		}
+	}
+	if !sawStarted || !sawCompleted {
+		t.Fatalf("missing tool lifecycle events: %+v", events)
+	}
+}
+
+func TestRunnerDoesNotEmitToolCompletedOnDuplicateStop(t *testing.T) {
+	duplicate := toolCall("c1", "search_transactions", `{}`)
+	provider := &scriptedProvider{responses: []ModelResponse{
+		{FinishReason: FinishReasonToolCalls, ToolCalls: []ToolCall{duplicate}},
+		{FinishReason: FinishReasonToolCalls, ToolCalls: []ToolCall{duplicate}},
+	}}
+	tool := staticTool("search_transactions", ToolResult{Status: ToolStatusSuccess, Summary: "ok", NextActions: []string{}})
+	runner := newTestRunner(t, provider, defaultLimits(), tool)
+
+	var toolStartedCount, toolCompletedCount int
+	result, err := runner.RunStreaming(context.Background(), userTurn("Repite"), func(event ModelEvent) error {
+		switch event.Type {
+		case ModelEventToolStarted:
+			toolStartedCount++
+		case ModelEventToolCompleted:
+			toolCompletedCount++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if result.Outcome != OutcomeLimitReached {
+		t.Fatalf("outcome = %q, want limit_reached", result.Outcome)
+	}
+	// The first call completes normally; the duplicate is caught before
+	// dispatch even starts, so it must not emit either lifecycle event.
+	if toolStartedCount != 1 || toolCompletedCount != 1 {
+		t.Fatalf("tool_started=%d tool_completed=%d, want 1/1", toolStartedCount, toolCompletedCount)
+	}
+}
+
 func TestRunnerRejectsEmptyConversation(t *testing.T) {
 	provider := &scriptedProvider{}
 	runner := newTestRunner(t, provider, defaultLimits())

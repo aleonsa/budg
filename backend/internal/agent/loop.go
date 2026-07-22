@@ -128,7 +128,7 @@ func (r *Runner) RunStreaming(ctx context.Context, conversation []Message, emit 
 		result.Usage.OutputTokens += response.Usage.OutputTokens
 
 		if response.FinishReason == FinishReasonToolCalls {
-			outcome, appended, err := r.dispatchToolCalls(ctx, response.ToolCalls, seenToolCalls, &result)
+			outcome, appended, err := r.dispatchToolCalls(ctx, response.ToolCalls, seenToolCalls, &result, emit)
 			if err != nil {
 				return Result{}, err
 			}
@@ -163,11 +163,15 @@ func (r *Runner) RunStreaming(ctx context.Context, conversation []Message, emit 
 // dispatchToolCalls executes each requested tool call in order. A non-empty
 // Outcome means the loop must terminate immediately (limit or failure). The
 // returned messages are the tool results to feed back into the conversation.
+// emit, if non-nil, receives a tool_started event before each dispatch and a
+// tool_completed event only after that dispatch finishes successfully, so a
+// streaming client can render progress without waiting for the whole turn.
 func (r *Runner) dispatchToolCalls(
 	ctx context.Context,
 	calls []ToolCall,
 	seen map[string]struct{},
 	result *Result,
+	emit func(ModelEvent) error,
 ) (Outcome, []Message, error) {
 	appended := make([]Message, 0, len(calls))
 
@@ -190,6 +194,12 @@ func (r *Runner) dispatchToolCalls(
 			return OutcomeFailed, nil, nil
 		}
 
+		if emit != nil {
+			if err := emit(ModelEvent{Type: ModelEventToolStarted, ToolName: call.Name, ToolCallID: call.ID}); err != nil {
+				return "", nil, err
+			}
+		}
+
 		toolResult, err := tool.Handler(ctx, call.Arguments)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
@@ -210,6 +220,12 @@ func (r *Runner) dispatchToolCalls(
 			Role:    RoleTool,
 			Content: fmt.Sprintf("%s: %s", call.Name, payload),
 		})
+
+		if emit != nil {
+			if err := emit(ModelEvent{Type: ModelEventToolCompleted, ToolName: call.Name, ToolCallID: call.ID}); err != nil {
+				return "", nil, err
+			}
+		}
 	}
 
 	return "", appended, nil

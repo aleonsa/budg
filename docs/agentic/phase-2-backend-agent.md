@@ -307,8 +307,9 @@ Métricas iniciales:
 6. Crear evals deterministas y pasar quality gates. Hecho para el alcance
    read-only; evals de mutaciones se añaden junto con esas tools en el paso 7.
 7. Añadir propuestas y confirmación de mutaciones.
-8. Exponer endpoint SSE autenticado.
-9. Ejecutar smoke test contra OpenAI con modelo configurado.
+8. Exponer endpoint SSE autenticado. Hecho.
+9. Ejecutar smoke test contra OpenAI con modelo configurado. Pendiente: requiere
+   `OPENAI_API_KEY` real para validar en desarrollo (ver estado abajo).
 
 Cada paso debe mantener `go test ./...` y `go vet ./...` verdes.
 
@@ -348,4 +349,29 @@ Completado en `backend/internal/agent`:
   el smoke test manual contra el modelo real del paso 9: aquí el "modelo" es
   guionado, así que validan el harness, no el juicio del LLM.
 
-Pendiente inmediato: endpoint SSE autenticado con grupo de timeout de 30s.
+- `POST /v1/agent/chat` (`internal/httpapi/agent.go`): endpoint autenticado con
+  streaming SSE. El router (`internal/httpapi/router.go`) ya no aplica un
+  único timeout global: las rutas estándar viven en un subgrupo con
+  `defaultRouteTimeout` (15s, sin cambio de comportamiento previo) y el
+  agente en su propio subgrupo con el timeout configurado
+  (`AGENT_TIMEOUT_SECONDS`, acotado 5-120s). La ruta solo se monta cuando
+  `Options.Agent` no es `nil`, igual que el resto de recursos condicionales.
+  Cada frame es una línea `data:` con un sobre `{type, runId, sequence, data}`;
+  `runId` reutiliza el request ID de chi. Eventos: `response.started`,
+  `response.delta`, `tool.started`, `tool.completed`, `response.completed`,
+  `error`. `confirmation.required` queda reservado para cuando existan tools
+  de mutación. `Runner` ahora emite `tool_started`/`tool_completed` alrededor
+  de cada dispatch (antes solo emitía deltas de texto del proveedor), sin
+  romper la firma pública de `Run`/`RunStreaming` para llamadas existentes.
+  Salida de errores nunca expone detalles internos: mensajes de causa real
+  solo van a logs de servidor (`slog`), nunca al cliente.
+- `cmd/api/main.go`: construye el `OpenAIProvider` real y un adaptador mínimo
+  de solo lectura sobre los tres repositorios existentes cuando
+  `OPENAI_API_KEY` está presente; en caso contrario `agentService` queda `nil`
+  y la ruta no se monta. `WriteTimeout` del servidor HTTP se ajusta para no
+  ser nunca menor que el timeout configurado del agente más margen (solo
+  afloja el techo, nunca lo endurece).
+
+Pendiente inmediato: smoke test manual contra OpenAI real con
+`OPENAI_API_KEY` configurada en development, y evals/tools de mutación
+(paso 7, sin empezar).
