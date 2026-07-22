@@ -15,7 +15,7 @@ export function AppShell() {
 
       {/* Main content area */}
       <div className="sm:pl-[var(--sidebar-width)]">
-        <main className="mx-auto min-h-screen w-full max-w-[1440px] px-3 pb-20 sm:px-5 sm:pb-6 lg:px-6">
+        <main className="mx-auto min-h-screen w-full max-w-[1440px] px-3 pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-6 lg:px-6">
           <Outlet />
         </main>
       </div>

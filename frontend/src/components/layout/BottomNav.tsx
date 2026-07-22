@@ -47,7 +47,7 @@ export function BottomNav() {
 
   return (
     <>
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex h-14 items-stretch border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90 sm:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex min-h-[3.75rem] items-center border-t border-border bg-background/95 pb-safe backdrop-blur supports-[backdrop-filter]:bg-background/90 sm:hidden">
         {BOTTOM_ITEMS.map((item) => {
           const active = isActive(item.to)
           return (
@@ -55,16 +55,21 @@ export function BottomNav() {
               key={item.to}
               to={item.to}
               end={item.to === '/'}
-              className="flex flex-1 items-center justify-center px-1 py-1.5"
+              className="flex flex-1 flex-col items-center justify-center py-1.5 px-0.5 active:scale-95 transition-transform"
             >
               <div
                 className={cn(
-                  'flex h-full w-full flex-col items-center justify-center gap-0.5 rounded-[7px] transition-colors',
-                  active ? 'font-medium text-foreground' : 'text-muted-foreground',
+                  'flex flex-col items-center justify-center gap-0.5 transition-colors',
+                  active ? 'font-semibold text-foreground' : 'text-muted-foreground',
                 )}
               >
-                <item.icon className="h-4 w-4" strokeWidth={active ? 2.2 : 1.8} />
-                <span className={cn('text-[10px] leading-none', active && 'font-medium')}>
+                <item.icon className="h-5 w-5" strokeWidth={active ? 2.2 : 1.7} />
+                <span
+                  className={cn(
+                    'text-[11px] leading-tight tracking-tight',
+                    active ? 'font-semibold' : 'font-normal',
+                  )}
+                >
                   {item.label}
                 </span>
               </div>
@@ -76,17 +81,22 @@ export function BottomNav() {
         <button
           type="button"
           onClick={() => setMoreOpen(true)}
-          className="flex flex-1 items-center justify-center px-1 py-1.5"
+          className="flex flex-1 flex-col items-center justify-center py-1.5 px-0.5 active:scale-95 transition-transform"
           aria-label="Más"
         >
           <div
             className={cn(
-              'flex h-full w-full flex-col items-center justify-center gap-0.5 rounded-[7px] transition-colors',
-              isSecondaryActive ? 'font-medium text-foreground' : 'text-muted-foreground',
+              'flex flex-col items-center justify-center gap-0.5 transition-colors',
+              isSecondaryActive ? 'font-semibold text-foreground' : 'text-muted-foreground',
             )}
           >
-            <Menu className="h-4 w-4" strokeWidth={isSecondaryActive ? 2.2 : 1.8} />
-            <span className={cn('text-[10px] leading-none', isSecondaryActive && 'font-medium')}>
+            <Menu className="h-5 w-5" strokeWidth={isSecondaryActive ? 2.2 : 1.7} />
+            <span
+              className={cn(
+                'text-[11px] leading-tight tracking-tight',
+                isSecondaryActive ? 'font-semibold' : 'font-normal',
+              )}
+            >
               Más
             </span>
           </div>

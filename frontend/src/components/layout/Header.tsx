@@ -13,10 +13,10 @@ interface HeaderProps {
 /** Top header bar — shows on all breakpoints, adapts content. */
 export function Header({ title, subtitle, action, showSettings = true }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border bg-background/95 px-1 backdrop-blur supports-[backdrop-filter]:bg-background/85">
-      <div className="flex flex-1 flex-col">
-        <h1 className="text-[13px] font-semibold tracking-[-0.01em]">{title}</h1>
-        {subtitle && <p className="text-[11px] leading-tight text-muted-foreground">{subtitle}</p>}
+    <header className="sticky top-0 z-30 flex min-h-12 items-center gap-2 border-b border-border bg-background/95 px-2.5 py-1.5 pt-safe backdrop-blur supports-[backdrop-filter]:bg-background/85">
+      <div className="flex flex-1 flex-col justify-center">
+        <h1 className="text-sm font-semibold tracking-[-0.01em]">{title}</h1>
+        {subtitle && <p className="text-xs leading-tight text-muted-foreground">{subtitle}</p>}
       </div>
 
       {action}
