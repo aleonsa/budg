@@ -16,23 +16,23 @@ import (
 // reverse (see the accounts_type_fields CHECK constraint in
 // migrations/00003_create_accounts.sql).
 type Account struct {
-	ID                     string     `json:"id"`
-	UserID                 string     `json:"-"`
-	Name                   string     `json:"name"`
-	Type                   string     `json:"type"`
-	Institution            string     `json:"institution"`
-	Last4                  string     `json:"last4"`
-	Currency               string     `json:"currency"`
-	BalanceCents           *int64     `json:"balance,omitempty"`
-	CreditLimitCents       *int64     `json:"creditLimit,omitempty"`
-	AvailableCreditCents   *int64     `json:"availableCredit,omitempty"`
-	StatementCutDay        *int       `json:"statementCutDay,omitempty"`
-	PaymentDueDay          *int       `json:"paymentDueDay,omitempty"`
-	BalanceTrackingEnabled bool       `json:"balanceTrackingEnabled"`
+	ID                       string     `json:"id"`
+	UserID                   string     `json:"-"`
+	Name                     string     `json:"name"`
+	Type                     string     `json:"type"`
+	Institution              string     `json:"institution"`
+	Last4                    string     `json:"last4"`
+	Currency                 string     `json:"currency"`
+	BalanceCents             *int64     `json:"balance,omitempty"`
+	CreditLimitCents         *int64     `json:"creditLimit,omitempty"`
+	AvailableCreditCents     *int64     `json:"availableCredit,omitempty"`
+	StatementCutDay          *int       `json:"statementCutDay,omitempty"`
+	PaymentDueDay            *int       `json:"paymentDueDay,omitempty"`
+	BalanceTrackingEnabled   bool       `json:"balanceTrackingEnabled"`
 	BalanceTrackingStartedAt *time.Time `json:"balanceTrackingStartedAt,omitempty"`
-	IsActive               bool       `json:"isActive"`
-	CreatedAt              time.Time  `json:"-"`
-	UpdatedAt              time.Time  `json:"-"`
+	IsActive                 bool       `json:"isActive"`
+	CreatedAt                time.Time  `json:"-"`
+	UpdatedAt                time.Time  `json:"-"`
 }
 
 // AccountInput captures user-controlled fields on create. IsActive always

@@ -8,12 +8,26 @@ ALTER TABLE public.accounts
 -- Relax available credit constraint to allow negative values for over-limit debt
 -- or credit card overpayments.
 ALTER TABLE public.accounts
-    DROP CONSTRAINT IF EXISTS accounts_credit_fields;
+    DROP CONSTRAINT accounts_available_credit_cents_check;
 
 ALTER TABLE public.accounts
-    ADD CONSTRAINT accounts_credit_fields CHECK (
-        (type = 'debit' AND balance_cents IS NOT NULL AND credit_limit_cents IS NULL AND available_credit_cents IS NULL AND statement_cut_day IS NULL AND payment_due_day IS NULL) OR
-        (type = 'credit' AND balance_cents IS NULL AND credit_limit_cents IS NOT NULL AND available_credit_cents IS NOT NULL)
+    ADD CONSTRAINT accounts_balance_tracking_shape CHECK (
+        (
+            NOT balance_tracking_enabled
+            AND balance_tracking_started_at IS NULL
+        )
+        OR (
+            balance_tracking_enabled
+            AND balance_tracking_started_at IS NOT NULL
+            AND (
+                (type = 'debit' AND balance_cents IS NOT NULL)
+                OR (
+                    type = 'credit'
+                    AND credit_limit_cents IS NOT NULL
+                    AND available_credit_cents IS NOT NULL
+                )
+            )
+        )
     );
 
 -- Add affects_balance flag to transactions. Default existing history to false.
@@ -25,6 +39,10 @@ UPDATE public.transactions SET affects_balance = false;
 ALTER TABLE public.transactions
     ALTER COLUMN affects_balance SET NOT NULL,
     ALTER COLUMN affects_balance SET DEFAULT true;
+
+-- Required by the same-user composite foreign key from the balance ledger.
+ALTER TABLE public.transactions
+    ADD CONSTRAINT transactions_user_id_id_unique UNIQUE (user_id, id);
 
 -- Append-oriented audit ledger for every automatic balance mutation.
 CREATE TABLE public.account_balance_entries (
@@ -66,16 +84,17 @@ DROP POLICY IF EXISTS account_balance_entries_user_scoped ON public.account_bala
 REVOKE ALL ON TABLE public.account_balance_entries FROM anon, authenticated, service_role;
 DROP TABLE IF EXISTS public.account_balance_entries;
 
+ALTER TABLE public.transactions
+    DROP CONSTRAINT IF EXISTS transactions_user_id_id_unique;
+
 ALTER TABLE public.transactions DROP COLUMN IF EXISTS affects_balance;
 
 ALTER TABLE public.accounts
-    DROP CONSTRAINT IF EXISTS accounts_credit_fields;
+    DROP CONSTRAINT IF EXISTS accounts_balance_tracking_shape;
 
 ALTER TABLE public.accounts
-    ADD CONSTRAINT accounts_credit_fields CHECK (
-        (type = 'debit' AND balance_cents IS NOT NULL AND credit_limit_cents IS NULL AND available_credit_cents IS NULL AND statement_cut_day IS NULL AND payment_due_day IS NULL) OR
-        (type = 'credit' AND balance_cents IS NULL AND credit_limit_cents IS NOT NULL AND available_credit_cents IS NOT NULL AND available_credit_cents >= 0)
-    );
+    ADD CONSTRAINT accounts_available_credit_cents_check
+        CHECK (available_credit_cents IS NULL OR available_credit_cents >= 0);
 
 ALTER TABLE public.accounts
     DROP COLUMN IF EXISTS balance_tracking_started_at,
