@@ -130,6 +130,39 @@ no compitan por el esquema.
 6. Migración contract destructiva solo después de que ningún código viejo use
    la columna/tabla anterior.
 
+## Ejecutar migraciones
+
+Las URLs administrativas viven fuera de Git:
+
+```txt
+local/env/migrations.dev.env
+local/env/migrations.prod.env
+```
+
+Formato de cada archivo:
+
+```dotenv
+BUDG_MIGRATION_ENV=development
+MIGRATIONS_DATABASE_URL='postgresql://...'
+```
+
+Producción usa `BUDG_MIGRATION_ENV=production`. El wrapper valida esta marca
+para reducir el riesgo de ejecutar contra el ambiente equivocado, agrega
+`prefer_simple_protocol=true` para hacer Goose compatible con el transaction
+pooler de Supabase y nunca imprime la URL.
+
+Desde la raíz:
+
+```bash
+make migrate-dev-status
+make migrate-dev-up
+make migrate-prod-status
+make migrate-prod-up CONFIRM_PRODUCTION=1
+```
+
+`migrate-prod-up` requiere confirmación explícita. El comando equivalente sin
+Make es `backend/scripts/migrate.sh prod up --confirm-production`.
+
 Smoke tests mínimos:
 
 ```txt

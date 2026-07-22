@@ -2,7 +2,7 @@ NPM := npm --prefix frontend
 GITLEAKS ?= gitleaks
 GO ?= go
 
-.PHONY: check check-frontend check-backend check-security format format-check lint typecheck test test-coverage build
+.PHONY: check check-frontend check-backend check-security format format-check lint typecheck test test-coverage build migrate-dev-status migrate-dev-up migrate-prod-status migrate-prod-up
 
 check: check-frontend check-backend check-security
 
@@ -44,3 +44,16 @@ test-coverage:
 
 build:
 	@$(NPM) run build
+
+migrate-dev-status:
+	@./backend/scripts/migrate.sh dev status
+
+migrate-dev-up:
+	@./backend/scripts/migrate.sh dev up
+
+migrate-prod-status:
+	@./backend/scripts/migrate.sh prod status
+
+migrate-prod-up:
+	@test "$(CONFIRM_PRODUCTION)" = "1" || (echo "Set CONFIRM_PRODUCTION=1 to migrate production" >&2; exit 2)
+	@./backend/scripts/migrate.sh prod up --confirm-production
