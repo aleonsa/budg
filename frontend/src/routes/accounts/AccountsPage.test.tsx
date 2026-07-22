@@ -423,6 +423,60 @@ describe('AccountsPage', () => {
     expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
   })
 
+  it('creates a credit account with a starting debt as availableCredit', async () => {
+    state.accounts.data = [debit()]
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Agregar cuenta' }))
+    await user.type(screen.getByRole('textbox', { name: 'Nombre' }), 'Tarjeta Nueva')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Tipo' }), 'credit')
+    await user.type(screen.getByRole('textbox', { name: 'Límite de crédito' }), '10000')
+    await user.type(screen.getByRole('textbox', { name: 'Deuda actual' }), '2500')
+    await user.click(screen.getByRole('button', { name: 'Agregar' }))
+    await flushMutation()
+
+    expect(state.payloads[0]).toEqual({
+      name: 'Tarjeta Nueva',
+      type: 'credit',
+      institution: 'Banco',
+      last4: '0000',
+      currency: 'MXN',
+      creditLimit: 1_000_000,
+      availableCredit: 750_000,
+    })
+  })
+
+  it('edits a credit account, seeding and updating its current debt', async () => {
+    state.accounts.data = [credit()]
+    vi.mocked(api.updateAccount).mockResolvedValue()
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: /Editar Tarjeta Oro/ }))
+    const dialog = screen.getByRole('dialog', { name: 'Editar cuenta' })
+    // creditLimit 100_000, availableCredit 20_000 -> current debt is 80_000 ($800.00).
+    expect(within(dialog).getByRole('textbox', { name: 'Límite de crédito' })).toHaveValue(
+      '1000.00',
+    )
+    expect(within(dialog).getByRole('textbox', { name: 'Deuda actual' })).toHaveValue('800.00')
+
+    await user.clear(within(dialog).getByRole('textbox', { name: 'Deuda actual' }))
+    await user.type(within(dialog).getByRole('textbox', { name: 'Deuda actual' }), '350.50')
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar cambios' }))
+    await flushMutation()
+
+    expect(api.updateAccount).toHaveBeenCalledWith('credit-1', {
+      name: 'Tarjeta Oro',
+      institution: 'Banamex',
+      last4: '2222',
+      creditLimit: 100_000,
+      availableCredit: 64_950,
+    })
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['accounts'] })
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
+  })
+
   it('confirms and deletes an account through the real API mutation', async () => {
     state.accounts.data = [debit()]
     vi.mocked(api.deleteAccount).mockResolvedValue()
