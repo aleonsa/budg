@@ -16,21 +16,23 @@ import (
 // reverse (see the accounts_type_fields CHECK constraint in
 // migrations/00003_create_accounts.sql).
 type Account struct {
-	ID                   string    `json:"id"`
-	UserID               string    `json:"-"`
-	Name                 string    `json:"name"`
-	Type                 string    `json:"type"`
-	Institution          string    `json:"institution"`
-	Last4                string    `json:"last4"`
-	Currency             string    `json:"currency"`
-	BalanceCents         *int64    `json:"balance,omitempty"`
-	CreditLimitCents     *int64    `json:"creditLimit,omitempty"`
-	AvailableCreditCents *int64    `json:"availableCredit,omitempty"`
-	StatementCutDay      *int      `json:"statementCutDay,omitempty"`
-	PaymentDueDay        *int      `json:"paymentDueDay,omitempty"`
-	IsActive             bool      `json:"isActive"`
-	CreatedAt            time.Time `json:"-"`
-	UpdatedAt            time.Time `json:"-"`
+	ID                       string     `json:"id"`
+	UserID                   string     `json:"-"`
+	Name                     string     `json:"name"`
+	Type                     string     `json:"type"`
+	Institution              string     `json:"institution"`
+	Last4                    string     `json:"last4"`
+	Currency                 string     `json:"currency"`
+	BalanceCents             *int64     `json:"balance,omitempty"`
+	CreditLimitCents         *int64     `json:"creditLimit,omitempty"`
+	AvailableCreditCents     *int64     `json:"availableCredit,omitempty"`
+	StatementCutDay          *int       `json:"statementCutDay,omitempty"`
+	PaymentDueDay            *int       `json:"paymentDueDay,omitempty"`
+	BalanceTrackingEnabled   bool       `json:"balanceTrackingEnabled"`
+	BalanceTrackingStartedAt *time.Time `json:"balanceTrackingStartedAt,omitempty"`
+	IsActive                 bool       `json:"isActive"`
+	CreatedAt                time.Time  `json:"-"`
+	UpdatedAt                time.Time  `json:"-"`
 }
 
 // AccountInput captures user-controlled fields on create. IsActive always
@@ -70,13 +72,15 @@ type AccountPatch struct {
 
 const accountColumns = `id, user_id, name, type, institution, last4, currency,
 	balance_cents, credit_limit_cents, available_credit_cents,
-	statement_cut_day, payment_due_day, is_active, created_at, updated_at`
+	statement_cut_day, payment_due_day, balance_tracking_enabled,
+	balance_tracking_started_at, is_active, created_at, updated_at`
 
 func scanAccount(row pgx.Row, a *Account) error {
 	return row.Scan(
 		&a.ID, &a.UserID, &a.Name, &a.Type, &a.Institution, &a.Last4, &a.Currency,
 		&a.BalanceCents, &a.CreditLimitCents, &a.AvailableCreditCents,
-		&a.StatementCutDay, &a.PaymentDueDay, &a.IsActive, &a.CreatedAt, &a.UpdatedAt,
+		&a.StatementCutDay, &a.PaymentDueDay, &a.BalanceTrackingEnabled,
+		&a.BalanceTrackingStartedAt, &a.IsActive, &a.CreatedAt, &a.UpdatedAt,
 	)
 }
 
@@ -183,6 +187,163 @@ func (r *AccountRepository) Update(ctx context.Context, userID, id string, patch
 			return Account{}, ErrNotFound
 		}
 		return Account{}, fmt.Errorf("update account: %w", err)
+	}
+	return a, nil
+}
+
+// EnableBalanceTracking activates automatic balance tracking for an account
+// with an opening confirmed amount, recording an opening ledger entry.
+func (r *AccountRepository) EnableBalanceTracking(ctx context.Context, userID, id string, currentAmount int64) (Account, error) {
+	var a Account
+	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
+		var isTracking bool
+		var accType string
+		err := tx.QueryRow(ctx, `
+			SELECT balance_tracking_enabled, type
+			FROM public.accounts
+			WHERE user_id = $1 AND id = $2
+			FOR UPDATE
+		`, userID, id).Scan(&isTracking, &accType)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if isTracking {
+			return ErrBalanceTrackingAlreadyEnabled
+		}
+
+		if accType == "debit" {
+			if _, err := tx.Exec(ctx, `
+				UPDATE public.accounts
+				SET balance_cents = $3, balance_tracking_enabled = true, balance_tracking_started_at = now(), updated_at = now()
+				WHERE user_id = $1 AND id = $2
+			`, userID, id, currentAmount); err != nil {
+				return err
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `
+				UPDATE public.accounts
+				SET available_credit_cents = $3, balance_tracking_enabled = true, balance_tracking_started_at = now(), updated_at = now()
+				WHERE user_id = $1 AND id = $2
+			`, userID, id, currentAmount); err != nil {
+				return err
+			}
+		}
+
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO public.account_balance_entries (user_id, account_id, kind, delta_cents)
+			VALUES ($1, $2, 'opening', $3)
+		`, userID, id, currentAmount); err != nil {
+			return err
+		}
+
+		return tx.QueryRow(ctx, `
+			SELECT `+accountColumns+` FROM public.accounts WHERE user_id = $1 AND id = $2
+		`, userID, id).Scan(
+			&a.ID, &a.UserID, &a.Name, &a.Type, &a.Institution, &a.Last4, &a.Currency,
+			&a.BalanceCents, &a.CreditLimitCents, &a.AvailableCreditCents,
+			&a.StatementCutDay, &a.PaymentDueDay, &a.BalanceTrackingEnabled,
+			&a.BalanceTrackingStartedAt, &a.IsActive, &a.CreatedAt, &a.UpdatedAt,
+		)
+	})
+	if err != nil {
+		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrBalanceTrackingAlreadyEnabled) {
+			return Account{}, err
+		}
+		return Account{}, fmt.Errorf("enable balance tracking: %w", err)
+	}
+	return a, nil
+}
+
+// ReconcileBalance adjusts a tracked account's balance to match a physical
+// count or bank statement, inserting a reconciliation audit entry.
+func (r *AccountRepository) ReconcileBalance(ctx context.Context, userID, id string, currentAmount int64) (Account, error) {
+	var a Account
+	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
+		var isTracking bool
+		var accType string
+		var oldBalance *int64
+		var oldAvailable *int64
+		err := tx.QueryRow(ctx, `
+			SELECT balance_tracking_enabled, type, balance_cents, available_credit_cents
+			FROM public.accounts
+			WHERE user_id = $1 AND id = $2
+			FOR UPDATE
+		`, userID, id).Scan(&isTracking, &accType, &oldBalance, &oldAvailable)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if !isTracking {
+			return ErrBalanceTrackingNotEnabled
+		}
+
+		var oldVal int64
+		if accType == "debit" {
+			if oldBalance != nil {
+				oldVal = *oldBalance
+			}
+		} else {
+			if oldAvailable != nil {
+				oldVal = *oldAvailable
+			}
+		}
+
+		delta := currentAmount - oldVal
+		if delta == 0 {
+			return tx.QueryRow(ctx, `
+				SELECT `+accountColumns+` FROM public.accounts WHERE user_id = $1 AND id = $2
+			`, userID, id).Scan(
+				&a.ID, &a.UserID, &a.Name, &a.Type, &a.Institution, &a.Last4, &a.Currency,
+				&a.BalanceCents, &a.CreditLimitCents, &a.AvailableCreditCents,
+				&a.StatementCutDay, &a.PaymentDueDay, &a.BalanceTrackingEnabled,
+				&a.BalanceTrackingStartedAt, &a.IsActive, &a.CreatedAt, &a.UpdatedAt,
+			)
+		}
+
+		if accType == "debit" {
+			if _, err := tx.Exec(ctx, `
+				UPDATE public.accounts
+				SET balance_cents = $3, updated_at = now()
+				WHERE user_id = $1 AND id = $2
+			`, userID, id, currentAmount); err != nil {
+				return err
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `
+				UPDATE public.accounts
+				SET available_credit_cents = $3, updated_at = now()
+				WHERE user_id = $1 AND id = $2
+			`, userID, id, currentAmount); err != nil {
+				return err
+			}
+		}
+
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO public.account_balance_entries (user_id, account_id, kind, delta_cents)
+			VALUES ($1, $2, 'reconciliation', $3)
+		`, userID, id, delta); err != nil {
+			return err
+		}
+
+		return tx.QueryRow(ctx, `
+			SELECT `+accountColumns+` FROM public.accounts WHERE user_id = $1 AND id = $2
+		`, userID, id).Scan(
+			&a.ID, &a.UserID, &a.Name, &a.Type, &a.Institution, &a.Last4, &a.Currency,
+			&a.BalanceCents, &a.CreditLimitCents, &a.AvailableCreditCents,
+			&a.StatementCutDay, &a.PaymentDueDay, &a.BalanceTrackingEnabled,
+			&a.BalanceTrackingStartedAt, &a.IsActive, &a.CreatedAt, &a.UpdatedAt,
+		)
+	})
+	if err != nil {
+		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrBalanceTrackingNotEnabled) {
+			return Account{}, err
+		}
+		return Account{}, fmt.Errorf("reconcile balance: %w", err)
 	}
 	return a, nil
 }
