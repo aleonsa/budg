@@ -23,6 +23,7 @@ import { useCreateTransaction } from '@/hooks/useTransactionMutations'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { TransactionForm, type TransactionFormValue } from '@/features/transactions/TransactionForm'
 import { formatMoney, toCents } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { deriveBudgetProgressForDate, selectApplicableBudgets } from '@/lib/budget-period'
 import { today } from '@/lib/date'
 import { api } from '@/lib/api'
@@ -402,39 +403,38 @@ function MonthlyOverview({ income, expenses }: { income: Cents; expenses: Cents 
 
   return (
     <Card className="p-3.5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">Overview mensual</p>
-          <p className="text-xs text-muted-foreground">Ingresos, gastos y ahorro neto.</p>
+          <p className="text-xs text-muted-foreground truncate">Ingresos, gastos y ahorro neto.</p>
         </div>
         <Badge
           variant={netSavings >= 0 ? 'muted' : 'outline'}
-          className={netSavings < 0 ? 'border-destructive text-destructive' : undefined}
+          className={cn('shrink-0', netSavings < 0 && 'border-destructive text-destructive')}
         >
           {formatPercent(savingsRate)} ahorro
         </Badge>
       </div>
       <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-        <div className="rounded-md bg-muted/40 p-2">
-          <p className="text-muted-foreground">Ingresos</p>
-          <p className="mt-1 font-semibold tabular-nums text-[hsl(var(--color-green))]">
+        <div className="min-w-0 rounded-md bg-muted/40 p-2">
+          <p className="text-muted-foreground truncate">Ingresos</p>
+          <p className="mt-1 font-semibold tabular-nums truncate text-[hsl(var(--color-green))]">
             {formatMoney(income)}
           </p>
         </div>
-        <div className="rounded-md bg-muted/40 p-2">
-          <p className="text-muted-foreground">Gastos</p>
-          <p className="mt-1 font-semibold tabular-nums text-[hsl(var(--color-red))]">
+        <div className="min-w-0 rounded-md bg-muted/40 p-2">
+          <p className="text-muted-foreground truncate">Gastos</p>
+          <p className="mt-1 font-semibold tabular-nums truncate text-[hsl(var(--color-red))]">
             {formatMoney(expenses)}
           </p>
         </div>
-        <div className="rounded-md bg-muted/40 p-2">
-          <p className="text-muted-foreground">Ahorro</p>
+        <div className="min-w-0 rounded-md bg-muted/40 p-2">
+          <p className="text-muted-foreground truncate">Ahorro</p>
           <p
-            className={
-              netSavings < 0
-                ? 'mt-1 font-semibold tabular-nums text-destructive'
-                : 'mt-1 font-semibold tabular-nums'
-            }
+            className={cn(
+              'mt-1 font-semibold tabular-nums truncate',
+              netSavings < 0 && 'text-destructive',
+            )}
           >
             {formatMoney(netSavings)}
           </p>
@@ -760,26 +760,28 @@ export default function DashboardPage() {
         />
         <QuickActions onAction={setAction} />
 
-        <div className="flex gap-2.5 overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-1 -mx-3 px-3 sm:mx-0 sm:px-0 sm:grid sm:grid-cols-4 sm:overflow-visible sm:snap-none">
-          <MetricCard
-            label="Disponible"
-            value={availableFunds}
-            tone="green"
-            detail="Fondos operativos"
-          />
-          <MetricCard
-            label="Gasto mes"
-            value={monthExpenses}
-            tone="red"
-            detail="Periodo seleccionado"
-          />
-          <MetricCard label="Deuda" value={debt} tone="red" detail="Tarjetas y crédito" />
-          <MetricCard
-            label="Patrimonio"
-            value={netWorth}
-            tone={netWorth >= 0 ? 'green' : 'red'}
-            detail="Disponible menos deuda"
-          />
+        <div className="w-full max-w-full overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-1">
+          <div className="flex w-max min-w-full gap-2.5 sm:w-auto sm:grid sm:grid-cols-4">
+            <MetricCard
+              label="Disponible"
+              value={availableFunds}
+              tone="green"
+              detail="Fondos operativos"
+            />
+            <MetricCard
+              label="Gasto mes"
+              value={monthExpenses}
+              tone="red"
+              detail="Periodo seleccionado"
+            />
+            <MetricCard label="Deuda" value={debt} tone="red" detail="Tarjetas y crédito" />
+            <MetricCard
+              label="Patrimonio"
+              value={netWorth}
+              tone={netWorth >= 0 ? 'green' : 'red'}
+              detail="Disponible menos deuda"
+            />
+          </div>
         </div>
 
         <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
