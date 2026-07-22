@@ -82,8 +82,8 @@ function ChatPanel() {
       <div
         className={cn(
           'fixed z-50 flex flex-col bg-background border border-border shadow-2xl overflow-hidden',
-          // Mobile modal card: inset with margins, rounded corners
-          'inset-x-3 top-20 bottom-[calc(5rem+env(safe-area-inset-bottom))] rounded-2xl',
+          // Mobile modal card: inset with margins, lifted well above the bottom nav
+          'inset-x-3 top-16 bottom-[calc(6rem+env(safe-area-inset-bottom))] rounded-2xl',
           // Desktop card: bottom-right fixed size
           'sm:inset-auto sm:bottom-3 sm:right-3 sm:top-auto sm:h-[32rem] sm:w-96 sm:rounded-2xl',
         )}
@@ -189,7 +189,7 @@ function ChatPanel() {
         {/* Input */}
         <form
           onSubmit={handleSubmit}
-          className="flex items-center gap-2 border-t border-border px-3.5 pt-3 pb-4 pb-safe sm:pb-3"
+          className="flex items-center gap-2 border-t border-border px-3.5 py-3.5"
         >
           <input
             type="text"
