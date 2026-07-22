@@ -120,6 +120,7 @@ func NewRouter(opts Options) http.Handler {
 			h := &msiPurchasesHandler{store: opts.MSIPurchases}
 			v1.Route("/msi-purchases", func(msi chi.Router) {
 				msi.Get("/", h.list)
+				msi.Post("/", h.create)
 			})
 		}
 	})

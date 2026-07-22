@@ -3,13 +3,14 @@ import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Account, MSIPurchase } from '@/types'
+import type { Account, Category, MSIPurchase } from '@/types'
 import { api } from '@/lib/api'
 import AccountsPage from './AccountsPage'
 
 const state = vi.hoisted(() => ({
   accounts: { data: [] as Account[], isLoading: false, isError: false },
   msi: { data: [] as MSIPurchase[], isLoading: false, isError: false },
+  categories: { data: [] as Category[], isLoading: false, isError: false },
   invalidate: vi.fn(),
   reset: vi.fn(),
   payloads: [] as unknown[],
@@ -21,6 +22,7 @@ vi.mock('@/hooks/useQueries', async () => {
     ...actual,
     useAccounts: () => state.accounts,
     useMSIPurchases: () => state.msi,
+    useCategories: () => state.categories,
   }
 })
 
@@ -59,7 +61,12 @@ vi.mock('@tanstack/react-query', () => ({
 }))
 
 vi.mock('@/lib/api', () => ({
-  api: { createAccount: vi.fn(), updateAccount: vi.fn(), deleteAccount: vi.fn() },
+  api: {
+    createAccount: vi.fn(),
+    updateAccount: vi.fn(),
+    deleteAccount: vi.fn(),
+    createMSIPurchase: vi.fn(),
+  },
 }))
 
 const debit = (overrides: Partial<Account> = {}): Account => ({
@@ -105,6 +112,18 @@ const msi = (overrides: Partial<MSIPurchase> = {}): MSIPurchase => ({
   ...overrides,
 })
 
+const expenseCategory = (overrides: Partial<Category> = {}): Category => ({
+  id: 'cat-tech',
+  name: 'Tecnología',
+  kind: 'expense',
+  color: 'blue',
+  icon: 'Laptop',
+  isSystem: false,
+  order: 1,
+  ...overrides,
+  parentId: overrides.parentId ?? null,
+})
+
 function renderPage() {
   return render(
     <MemoryRouter>
@@ -124,12 +143,14 @@ describe('AccountsPage', () => {
   beforeEach(() => {
     state.accounts = { data: [], isLoading: false, isError: false }
     state.msi = { data: [], isLoading: false, isError: false }
+    state.categories = { data: [], isLoading: false, isError: false }
     state.invalidate.mockReset()
     state.reset.mockReset()
     state.payloads.length = 0
     vi.mocked(api.createAccount).mockReset()
     vi.mocked(api.updateAccount).mockReset()
     vi.mocked(api.deleteAccount).mockReset()
+    vi.mocked(api.createMSIPurchase).mockReset()
   })
 
   it('shows loading until both account and MSI queries settle', () => {
@@ -180,6 +201,40 @@ describe('AccountsPage', () => {
       currency: 'MXN',
       balance: 7_550,
     })
+  })
+
+  it('registers an MSI purchase on a credit card and invalidates affected summaries', async () => {
+    state.accounts.data = [credit()]
+    state.categories.data = [expenseCategory()]
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Registrar MSI' }))
+    const dialog = screen.getByRole('dialog', { name: 'Registrar compra a MSI' })
+    await user.type(within(dialog).getByRole('textbox', { name: 'Descripción' }), 'Laptop')
+    await user.type(within(dialog).getByRole('textbox', { name: 'Comercio' }), 'Apple Store')
+    await user.type(within(dialog).getByRole('textbox', { name: 'Monto total' }), '12000')
+    await user.clear(within(dialog).getByRole('spinbutton', { name: 'Meses' }))
+    await user.type(within(dialog).getByRole('spinbutton', { name: 'Meses' }), '12')
+    await user.selectOptions(
+      within(dialog).getByRole('combobox', { name: 'Categoría' }),
+      'cat-tech',
+    )
+    await user.click(within(dialog).getByRole('button', { name: 'Programar 12 mensualidades' }))
+    await flushMutation()
+
+    expect(api.createMSIPurchase).toHaveBeenCalledWith({
+      accountId: 'credit-1',
+      categoryId: 'cat-tech',
+      description: 'Laptop',
+      merchant: 'Apple Store',
+      totalAmount: 1_200_000,
+      installmentCount: 12,
+      startDate: expect.any(String),
+    })
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['msi'] })
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['transactions'] })
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
   })
 
   it('renders negative net worth, debit share, credit health, and active MSI details', () => {

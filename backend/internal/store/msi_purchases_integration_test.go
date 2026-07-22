@@ -8,10 +8,6 @@ import (
 	"github.com/aleonsa/budg/backend/internal/store"
 )
 
-// msi_purchases has no repository Create method -- it is read-only end to
-// end (see migrations/00008_create_msi_purchases.sql) -- so rows are seeded
-// directly via the admin pool, mirroring how other integration tests seed
-// FK dependencies (e.g. transactions_integration_test.go seeding accounts).
 func TestMSIPurchaseRepositoryList(t *testing.T) {
 	pool, userID := setupPool(t, "public.msi_purchases")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -77,6 +73,87 @@ func TestMSIPurchaseRepositoryList(t *testing.T) {
 	}
 	if got[0].CategoryID != nil {
 		t.Fatalf("categoryId = %+v, want nil", got[0].CategoryID)
+	}
+}
+
+func TestMSIPurchaseRepositoryCreateSchedulesExactInstallments(t *testing.T) {
+	pool, userID := setupPool(t, "public.msi_purchases")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	accounts := store.NewAccountRepository(pool)
+	account, err := accounts.Create(ctx, userID, store.AccountInput{
+		Name:        "MSI Card",
+		Type:        "credit",
+		Institution: "BBVA",
+		Last4:       "7890",
+		Currency:    "MXN",
+	})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	categories := store.NewCategoryRepository(pool)
+	category, err := categories.Create(ctx, userID, store.CategoryInput{
+		Name:  "Technology",
+		Kind:  "expense",
+		Color: "blue",
+		Icon:  "Laptop",
+	})
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+
+	repo := store.NewMSIPurchaseRepository(pool)
+	created, err := repo.Create(ctx, userID, store.MSIPurchaseInput{
+		AccountID:        account.ID,
+		CategoryID:       &category.ID,
+		Description:      "Laptop",
+		TotalAmount:      100000,
+		InstallmentCount: 3,
+		StartDate:        "2026-01-31",
+	})
+	if err != nil {
+		t.Fatalf("create msi purchase: %v", err)
+	}
+	if created.TotalAmount != 100000 || created.InstallmentAmount != 33333 || created.InstallmentCount != 3 {
+		t.Fatalf("created purchase = %+v", created)
+	}
+	if created.NextInstallmentDate == nil || *created.NextInstallmentDate != "2026-01-31" {
+		t.Fatalf("next installment date = %+v, want 2026-01-31", created.NextInstallmentDate)
+	}
+
+	var amounts []int64
+	var dates []string
+	rows, err := pool.Query(ctx, `
+		SELECT amount, date::text
+		FROM public.transactions
+		WHERE user_id = $1 AND msi_purchase_id = $2
+		ORDER BY date ASC
+	`, userID, created.ID)
+	if err != nil {
+		t.Fatalf("query installments: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var amount int64
+		var date string
+		if err := rows.Scan(&amount, &date); err != nil {
+			t.Fatalf("scan installment: %v", err)
+		}
+		amounts = append(amounts, amount)
+		dates = append(dates, date)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate installments: %v", err)
+	}
+	if got, want := len(amounts), 3; got != want {
+		t.Fatalf("installment count = %d, want %d", got, want)
+	}
+	if amounts[0]+amounts[1]+amounts[2] != 100000 || amounts[0] != 33333 || amounts[1] != 33333 || amounts[2] != 33334 {
+		t.Fatalf("amounts = %v, want [33333 33333 33334]", amounts)
+	}
+	if got, want := dates, []string{"2026-01-31", "2026-02-28", "2026-03-31"}; got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("dates = %v, want %v", got, want)
 	}
 }
 

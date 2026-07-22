@@ -5,8 +5,6 @@ import type { MSIPurchase } from '@/types'
  * MSI Purchase API client.
  *
  * Talks to the Go backend via `authFetch` (Bearer-token authenticated). This
- * resource is read-only end to end -- there is no create/update/delete
- * mutation anywhere in the app -- so only `getMSIPurchases` exists here.
  * Mirrors ./budgets.ts's structure.
  */
 
@@ -17,6 +15,28 @@ export async function getMSIPurchases(): Promise<MSIPurchase[]> {
   }
   const body = (await res.json()) as { data: BackendMSIPurchase[] }
   return body.data.map(toFrontend)
+}
+
+export interface CreateMSIPurchaseInput {
+  accountId: string
+  categoryId: string | null
+  description: string
+  merchant?: string
+  totalAmount: number
+  installmentCount: number
+  startDate: string
+}
+
+export async function createMSIPurchase(input: CreateMSIPurchaseInput): Promise<MSIPurchase> {
+  const res = await authFetch('/v1/msi-purchases', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) {
+    throw new Error(`Request failed: ${res.status}`)
+  }
+  return toFrontend((await res.json()) as BackendMSIPurchase)
 }
 
 // ── Wire format ──────────────────────────────────────────────

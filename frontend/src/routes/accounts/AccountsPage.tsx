@@ -10,6 +10,7 @@ import { queryKeys } from '@/lib/query-keys'
 import { cn } from '@/lib/utils'
 import {
   useAccounts,
+  useCategories,
   useMSIPurchases,
   deriveAccountSummary,
   deriveTotalBalance,
@@ -64,6 +65,12 @@ function creditHealth(usedRate: number): { label: string; accent: AccentColor } 
 
 function centsToInput(cents: number | undefined): string {
   return ((cents ?? 0) / 100).toFixed(2)
+}
+
+function todayISO(): string {
+  const now = new Date()
+  const offset = now.getTimezoneOffset() * 60_000
+  return new Date(now.getTime() - offset).toISOString().slice(0, 10)
 }
 
 // ── Hero ─────────────────────────────────────────────────────
@@ -367,9 +374,11 @@ function SectionHeader({
 
 export default function AccountsPage() {
   const [isAccountPanelOpen, setIsAccountPanelOpen] = useState(false)
+  const [isMSIPanelOpen, setIsMSIPanelOpen] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [deletingAccount, setDeletingAccount] = useState<Account | null>(null)
   const accountsQ = useAccounts()
+  const categoriesQ = useCategories()
   const msiQ = useMSIPurchases()
   const queryClient = useQueryClient()
 
@@ -380,6 +389,14 @@ export default function AccountsPage() {
   const [fBalance, setFBalance] = useState('')
   const [fLast4, setFLast4] = useState('')
   const [showNameError, setShowNameError] = useState(false)
+  const [fMSIAccount, setFMSIAccount] = useState('')
+  const [fMSICategory, setFMSICategory] = useState('')
+  const [fMSIDescription, setFMSIDescription] = useState('')
+  const [fMSIMerchant, setFMSIMerchant] = useState('')
+  const [fMSITotal, setFMSITotal] = useState('')
+  const [fMSIMonths, setFMSIMonths] = useState('12')
+  const [fMSIStartDate, setFMSIStartDate] = useState(todayISO)
+  const [showMSIFormError, setShowMSIFormError] = useState(false)
 
   const createMut = useMutation({
     mutationFn: api.createAccount,
@@ -397,9 +414,38 @@ export default function AccountsPage() {
     onSuccess: invalidateAccountQueries,
   })
 
+  const createMSIMut = useMutation({
+    mutationFn: api.createMSIPurchase,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.msiPurchases })
+      queryClient.invalidateQueries({ queryKey: queryKeys.transactions })
+      queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+    },
+  })
+
   function invalidateAccountQueries() {
     queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+  }
+
+  const openMSIPanel = (creditAccountID: string) => {
+    createMSIMut.reset()
+    setFMSIAccount(creditAccountID)
+    setFMSICategory('')
+    setFMSIDescription('')
+    setFMSIMerchant('')
+    setFMSITotal('')
+    setFMSIMonths('12')
+    setFMSIStartDate(todayISO())
+    setShowMSIFormError(false)
+    setIsMSIPanelOpen(true)
+  }
+
+  const closeMSIPanel = () => {
+    createMSIMut.reset()
+    setShowMSIFormError(false)
+    setIsMSIPanelOpen(false)
   }
 
   const openCreatePanel = () => {
@@ -481,7 +527,37 @@ export default function AccountsPage() {
     )
   }
 
-  const isLoading = accountsQ.isLoading || msiQ.isLoading
+  const handleMSISubmit = () => {
+    const totalAmount = toCents(fMSITotal)
+    const installmentCount = Number(fMSIMonths)
+    if (
+      !fMSIAccount ||
+      !fMSIDescription.trim() ||
+      totalAmount <= 0 ||
+      !Number.isInteger(installmentCount) ||
+      installmentCount < 2 ||
+      installmentCount > 60 ||
+      !fMSIStartDate
+    ) {
+      setShowMSIFormError(true)
+      return
+    }
+    createMSIMut.reset()
+    createMSIMut.mutate(
+      {
+        accountId: fMSIAccount,
+        categoryId: fMSICategory || null,
+        description: fMSIDescription.trim(),
+        merchant: fMSIMerchant.trim() || undefined,
+        totalAmount,
+        installmentCount,
+        startDate: fMSIStartDate,
+      },
+      { onSuccess: closeMSIPanel },
+    )
+  }
+
+  const isLoading = accountsQ.isLoading || categoriesQ.isLoading || msiQ.isLoading
 
   if (isLoading) {
     return (
@@ -502,7 +578,7 @@ export default function AccountsPage() {
     )
   }
 
-  if (accountsQ.isError || msiQ.isError) {
+  if (accountsQ.isError || categoriesQ.isError || msiQ.isError) {
     return (
       <>
         <Header title="Cuentas" subtitle="Centro de control financiero" />
@@ -514,6 +590,8 @@ export default function AccountsPage() {
   }
 
   const accounts = accountsQ.data ?? []
+  const categories = (categoriesQ.data ?? []).filter((category) => category.kind === 'expense')
+  const creditAccountOptions = accounts.filter((account) => account.type === 'credit')
   const msiPurchases = msiQ.data ?? []
   const activeMutation = editingAccount ? updateMut : createMut
   const accountPanel = (
@@ -611,6 +689,132 @@ export default function AccountsPage() {
     </MockActionPanel>
   )
 
+  const msiPanel = (
+    <MockActionPanel
+      open={isMSIPanelOpen}
+      title="Registrar compra a MSI"
+      description="Genera una mensualidad por cada mes y las enlaza a esta compra."
+      submitLabel={`Programar ${fMSIMonths || '0'} mensualidades`}
+      submitting={createMSIMut.isPending}
+      onClose={closeMSIPanel}
+      onSubmit={handleMSISubmit}
+    >
+      <div className="space-y-1.5">
+        <Label htmlFor="msi-account">Tarjeta de crédito</Label>
+        <select
+          id="msi-account"
+          className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+          value={fMSIAccount}
+          onChange={(event) => setFMSIAccount(event.target.value)}
+        >
+          {creditAccountOptions.map((account) => (
+            <option key={account.id} value={account.id}>
+              {account.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="msi-description">Descripción</Label>
+        <Input
+          id="msi-description"
+          placeholder="Ej. MacBook Air"
+          value={fMSIDescription}
+          onChange={(event) => setFMSIDescription(event.target.value)}
+          aria-invalid={showMSIFormError || Boolean(createMSIMut.error) || undefined}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="msi-merchant">Comercio</Label>
+        <Input
+          id="msi-merchant"
+          placeholder="Ej. Apple Store"
+          value={fMSIMerchant}
+          onChange={(event) => setFMSIMerchant(event.target.value)}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="msi-total">Monto total</Label>
+          <Input
+            id="msi-total"
+            placeholder="$0.00"
+            inputMode="decimal"
+            value={fMSITotal}
+            onChange={(event) => setFMSITotal(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="msi-months">Meses</Label>
+          <Input
+            id="msi-months"
+            type="number"
+            min="2"
+            max="60"
+            inputMode="numeric"
+            value={fMSIMonths}
+            onChange={(event) => setFMSIMonths(event.target.value)}
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="msi-category">Categoría</Label>
+          <select
+            id="msi-category"
+            className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+            value={fMSICategory}
+            onChange={(event) => setFMSICategory(event.target.value)}
+          >
+            <option value="">Sin categoría</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="msi-start-date">Primera mensualidad</Label>
+          <Input
+            id="msi-start-date"
+            type="date"
+            value={fMSIStartDate}
+            onChange={(event) => setFMSIStartDate(event.target.value)}
+          />
+        </div>
+      </div>
+      <p className="rounded-[7px] bg-muted px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
+        Se crearán {fMSIMonths || '0'} gastos futuros. La última mensualidad absorbe cualquier
+        centavo restante para que el total cuadre exactamente.
+      </p>
+      {(showMSIFormError || createMSIMut.error) && (
+        <p role="alert" className="text-xs text-destructive">
+          {createMSIMut.error
+            ? 'No se pudo registrar la compra a MSI. Intenta de nuevo.'
+            : 'Completa descripción, monto, meses (2–60) y primera mensualidad.'}
+        </p>
+      )}
+    </MockActionPanel>
+  )
+
+  const headerAction = (
+    <div className="flex items-center gap-1.5">
+      {creditAccountOptions.length > 0 && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => openMSIPanel(creditAccountOptions[0].id)}
+        >
+          Registrar MSI
+        </Button>
+      )}
+      <Button size="sm" onClick={openCreatePanel}>
+        Agregar cuenta
+      </Button>
+    </div>
+  )
+
   const deletePanel = (
     <MockActionPanel
       open={deletingAccount !== null}
@@ -655,6 +859,7 @@ export default function AccountsPage() {
           />
         </div>
         {accountPanel}
+        {msiPanel}
       </>
     )
   }
@@ -674,15 +879,7 @@ export default function AccountsPage() {
 
   return (
     <>
-      <Header
-        title="Cuentas"
-        subtitle="Centro de control financiero"
-        action={
-          <Button size="sm" onClick={openCreatePanel}>
-            Agregar cuenta
-          </Button>
-        }
-      />
+      <Header title="Cuentas" subtitle="Centro de control financiero" action={headerAction} />
       <div className="space-y-3.5 py-3">
         {/* Hero summary */}
         <NetWorthHero
@@ -786,6 +983,7 @@ export default function AccountsPage() {
       </div>
 
       {accountPanel}
+      {msiPanel}
       {deletePanel}
     </>
   )

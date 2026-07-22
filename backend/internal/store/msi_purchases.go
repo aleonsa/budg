@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,10 +10,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// ErrMSIRequiresCreditAccount prevents callers outside the frontend from
+// scheduling an MSI purchase on a debit account.
+var ErrMSIRequiresCreditAccount = errors.New("msi purchase requires a credit account")
+
 // MSIPurchase mirrors the public.msi_purchases table. JSON tags use the
-// camelCase contract the frontend already depends on. There is currently no
-// create/update/delete API for this resource (see
-// migrations/00008_create_msi_purchases.sql) -- it is read-only end to end.
+// camelCase contract the frontend already depends on.
 type MSIPurchase struct {
 	ID                  string    `json:"id"`
 	UserID              string    `json:"-"`
@@ -29,6 +32,18 @@ type MSIPurchase struct {
 	Status              string    `json:"status"`
 	CreatedAt           time.Time `json:"-"`
 	UpdatedAt           time.Time `json:"-"`
+}
+
+// MSIPurchaseInput captures user-controlled fields when scheduling a new
+// MSI purchase. Create expands it into one expense transaction per month.
+type MSIPurchaseInput struct {
+	AccountID        string  `json:"accountId"`
+	CategoryID       *string `json:"categoryId"`
+	Description      string  `json:"description"`
+	Merchant         *string `json:"merchant"`
+	TotalAmount      int64   `json:"totalAmount"`
+	InstallmentCount int     `json:"installmentCount"`
+	StartDate        string  `json:"startDate"`
 }
 
 const msiPurchaseColumns = `id, user_id, account_id, category_id, description, merchant,
@@ -92,4 +107,81 @@ func (r *MSIPurchaseRepository) List(ctx context.Context, userID string) ([]MSIP
 		return nil, err
 	}
 	return out, nil
+}
+
+// Create schedules an MSI purchase and all of its monthly expense
+// transactions atomically. The final installment absorbs any remainder so
+// the generated transaction amounts always sum to TotalAmount exactly.
+func (r *MSIPurchaseRepository) Create(ctx context.Context, userID string, in MSIPurchaseInput) (MSIPurchase, error) {
+	var m MSIPurchase
+	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
+		var accountType string
+		if err := tx.QueryRow(ctx, `
+			SELECT type
+			FROM public.accounts
+			WHERE user_id = $1 AND id = $2
+		`, userID, in.AccountID).Scan(&accountType); err != nil {
+			return err
+		}
+		if accountType != "credit" {
+			return ErrMSIRequiresCreditAccount
+		}
+
+		installmentAmount := in.TotalAmount / int64(in.InstallmentCount)
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO public.msi_purchases (
+				user_id, account_id, category_id, description, merchant,
+				total_amount, installment_amount, installment_count,
+				start_date, next_installment_date
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+			RETURNING `+msiPurchaseColumns,
+			userID, in.AccountID, in.CategoryID, in.Description, in.Merchant,
+			in.TotalAmount, installmentAmount, in.InstallmentCount, in.StartDate,
+		).Scan(
+			&m.ID, &m.UserID, &m.AccountID, &m.CategoryID, &m.Description, &m.Merchant,
+			&m.TotalAmount, &m.InstallmentAmount, &m.InstallmentCount, &m.InstallmentsPaid,
+			&m.StartDate, &m.NextInstallmentDate, &m.Status, &m.CreatedAt, &m.UpdatedAt,
+		); err != nil {
+			return err
+		}
+
+		// Start-date-based interval math preserves month-end schedules: Jan 31
+		// becomes Feb 28 then Mar 31, rather than drifting after February.
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO public.transactions (
+				user_id, account_id, type, amount, category_id, date,
+				description, merchant, msi_purchase_id
+			)
+			SELECT
+				$1,
+				$2,
+				'expense',
+				CASE
+					WHEN installment.number = $5
+						THEN $4 - (($4 / $5) * ($5 - 1))
+					ELSE $4 / $5
+				END,
+				$3,
+				($6::date + ((installment.number - 1) * interval '1 month'))::date,
+				$7 || ' (' || installment.number || '/' || $5 || ')',
+				$8,
+				$9
+			FROM generate_series(1, $5) AS installment(number)
+		`,
+			userID, in.AccountID, in.CategoryID, in.TotalAmount, in.InstallmentCount,
+			in.StartDate, in.Description, in.Merchant, m.ID,
+		)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != int64(in.InstallmentCount) {
+			return fmt.Errorf("create msi installments: inserted %d rows, want %d", tag.RowsAffected(), in.InstallmentCount)
+		}
+		return nil
+	})
+	if err != nil {
+		return MSIPurchase{}, fmt.Errorf("create msi purchase: %w", err)
+	}
+	return m, nil
 }
