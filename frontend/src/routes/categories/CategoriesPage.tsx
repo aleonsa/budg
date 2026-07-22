@@ -291,7 +291,6 @@ export default function CategoriesPage() {
       }
       submitLabel={editingCategory ? 'Guardar cambios' : 'Crear'}
       submitting={activeMutation.isPending}
-      showDemoNotice={false}
       onClose={closeCategoryPanel}
       onSubmit={handleSubmit}
     >
@@ -373,7 +372,6 @@ export default function CategoriesPage() {
       submitLabel="Eliminar categoría"
       submitVariant="destructive"
       submitting={deleteMut.isPending}
-      showDemoNotice={false}
       onClose={closeDeletePanel}
       onSubmit={() => {
         if (!deletingCategory) return

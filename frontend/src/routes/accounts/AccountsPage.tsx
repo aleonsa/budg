@@ -527,7 +527,6 @@ export default function AccountsPage() {
       }
       submitLabel={editingAccount ? 'Guardar cambios' : 'Agregar'}
       submitting={activeMutation.isPending}
-      showDemoNotice={false}
       onClose={closePanel}
       onSubmit={handleSubmit}
     >
@@ -620,7 +619,6 @@ export default function AccountsPage() {
       submitLabel="Eliminar cuenta"
       submitVariant="destructive"
       submitting={deleteMut.isPending}
-      showDemoNotice={false}
       onClose={closeDeletePanel}
       onSubmit={() => {
         if (!deletingAccount) return
