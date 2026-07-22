@@ -10,7 +10,7 @@ import { BottomNav } from './BottomNav'
  */
 export function AppShell() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen max-w-full overflow-x-hidden bg-background text-foreground">
       <Sidebar />
 
       {/* Main content area */}
