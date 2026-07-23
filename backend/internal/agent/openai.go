@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
@@ -120,14 +121,43 @@ func (p *OpenAIProvider) buildParams(request ModelRequest) (responses.ResponseNe
 func buildInputItems(messages []Message) responses.ResponseInputParam {
 	items := make(responses.ResponseInputParam, 0, len(messages))
 	for _, message := range messages {
-		switch message.Role {
-		case RoleAssistant:
-			items = append(items, responses.ResponseInputItemParamOfMessage(message.Content, responses.EasyInputMessageRoleAssistant))
-		default:
-			items = append(items, responses.ResponseInputItemParamOfMessage(message.Content, responses.EasyInputMessageRoleUser))
+		role := responses.EasyInputMessageRoleUser
+		if message.Role == RoleAssistant {
+			role = responses.EasyInputMessageRoleAssistant
 		}
+		// A turn without images maps to a plain text message; a turn with
+		// images maps to a multimodal content list (text part first, then one
+		// input_image per attachment) so the vision model receives both.
+		if len(message.Images) == 0 {
+			items = append(items, responses.ResponseInputItemParamOfMessage(message.Content, role))
+			continue
+		}
+		items = append(items, responses.ResponseInputItemParamOfMessage(buildContentList(message), role))
 	}
 	return items
+}
+
+func buildContentList(message Message) responses.ResponseInputMessageContentListParam {
+	content := make(responses.ResponseInputMessageContentListParam, 0, len(message.Images)+1)
+	if strings.TrimSpace(message.Content) != "" {
+		content = append(content, responses.ResponseInputContentParamOfInputText(message.Content))
+	}
+	for _, image := range message.Images {
+		part := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
+		part.OfInputImage.ImageURL = openai.String(imageDataURL(image))
+		content = append(content, part)
+	}
+	return content
+}
+
+// imageDataURL returns a base64 data URL the Responses API accepts. If the
+// caller already supplied a full data URL it is used unchanged; otherwise the
+// raw base64 payload is wrapped with the declared MIME type.
+func imageDataURL(image ContentImage) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(image.Data)), "data:") {
+		return image.Data
+	}
+	return fmt.Sprintf("data:%s;base64,%s", image.MimeType, image.Data)
 }
 
 func normalizeResponse(response responses.Response) (ModelResponse, error) {

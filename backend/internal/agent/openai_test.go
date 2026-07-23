@@ -247,6 +247,66 @@ func TestOpenAIProviderStreamsTextDeltas(t *testing.T) {
 	}
 }
 
+// TestOpenAIProviderSendsImageContent verifies the Phase 4 multimodal mapping:
+// a user message carrying an image is sent as a content list with both an
+// input_text and an input_image part, and the image is wired as a base64 data
+// URL. Raw base64 (no data: prefix) is normalized into a data URL using the
+// declared MIME type.
+func TestOpenAIProviderSendsImageContent(t *testing.T) {
+	var body map[string]any
+	provider := newTestProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		sseResponse(t, w, []string{completedEvent(`{"status":"completed"}`)})
+	})
+
+	request := baseRequest()
+	request.Messages = []Message{{
+		Role:    RoleUser,
+		Content: "Registra este ticket",
+		Images: []ContentImage{
+			{MimeType: "image/jpeg", Data: "iVBORw0KGgoAAAA="},
+			{MimeType: "image/png", Data: "data:image/png;base64,ALREADYURL="},
+		},
+	}}
+
+	if _, err := provider.Respond(context.Background(), request, func(ModelEvent) error { return nil }); err != nil {
+		t.Fatalf("respond: %v", err)
+	}
+
+	input, ok := body["input"].([]any)
+	if !ok || len(input) != 1 {
+		t.Fatalf("input payload = %v", body["input"])
+	}
+	msg := input[0].(map[string]any)
+	content, ok := msg["content"].([]any)
+	if !ok {
+		t.Fatalf("expected content list, got %v", msg["content"])
+	}
+	if len(content) != 3 {
+		t.Fatalf("want 1 text + 2 image parts, got %d: %v", len(content), content)
+	}
+
+	text := content[0].(map[string]any)
+	if text["type"] != "input_text" || text["text"] != "Registra este ticket" {
+		t.Fatalf("text part = %v", text)
+	}
+
+	img1 := content[1].(map[string]any)
+	if img1["type"] != "input_image" {
+		t.Fatalf("image part 1 type = %v", img1["type"])
+	}
+	if img1["image_url"] != "data:image/jpeg;base64,iVBORw0KGgoAAAA=" {
+		t.Fatalf("raw base64 not normalized to data URL: %v", img1["image_url"])
+	}
+
+	img2 := content[2].(map[string]any)
+	if img2["image_url"] != "data:image/png;base64,ALREADYURL=" {
+		t.Fatalf("existing data URL should pass through unchanged: %v", img2["image_url"])
+	}
+}
+
 func TestOpenAIProviderValidatesRequest(t *testing.T) {
 	provider := NewOpenAIProvider(nil, "small-tool-model")
 	invalid := baseRequest()
