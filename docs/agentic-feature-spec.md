@@ -58,11 +58,12 @@ Estado: completada (PR #39 desplegado en Vercel).
 
 ### Fase 4: Capacidades Multimodales (Comprobantes y OCR)
 
-Estado: diseñada, en inicio de implementación.
+Estado: completada (rama `feat/agentic-phase-4-multimodal`).
 
-- Soporte de adjuntos de imágenes (comprobantes SPEI, tickets, vouchers) en el chat.
-- Envío multimodal vía base64 al backend.
-- Procesamiento visual con el modelo OpenAI y propuesta de registro automático.
+- Soporte de adjuntos de imágenes (comprobantes SPEI, tickets, vouchers) en el chat, con selector de archivos y pegado desde el portapapeles.
+- Contrato ampliado (`ContentImage` / `Message.Images`) con validación estricta: allow-list de MIME (jpeg/png/webp/heic), tope de 5 MiB y máximo 4 imágenes por mensaje; se permite turno solo-imagen.
+- Envío multimodal como data URL base64 al Responses API (`input_text` + `input_image`).
+- System prompt de OCR (v2026-07-23.1): extrae monto/fecha/comercio/tipo, infiere la cuenta con `list_accounts` y propone `create_transaction` vía el flujo de confirmación existente.
 - Especificación detallada en
   [`agentic/phase-4-multimodal-ocr.md`](agentic/phase-4-multimodal-ocr.md).
 
