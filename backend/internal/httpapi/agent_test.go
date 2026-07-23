@@ -166,6 +166,61 @@ func TestAgentChatRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestAgentChatAcceptsImageOnlyUserTurn(t *testing.T) {
+	t.Parallel()
+	stub := &stubAgentService{result: agent.Result{
+		Outcome:  agent.OutcomeCompleted,
+		Response: agent.FinalResponse{Status: agent.StatusCompleted, Message: "Listo", Summary: "ok", Artifacts: []agent.Artifact{}},
+	}}
+	router := newAgentRouter(stub)
+
+	body := `{"messages":[{"role":"user","content":"","images":[{"mimeType":"image/jpeg","data":"iVBORw0KGgo="}]}]}`
+	rec := doRequest(router, http.MethodPost, "/v1/agent/chat", body)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (image-only turn must be accepted): %s", rec.Code, rec.Body.String())
+	}
+	if len(stub.gotMessages) != 1 || len(stub.gotMessages[0].Images) != 1 {
+		t.Fatalf("service did not receive the attached image: %+v", stub.gotMessages)
+	}
+}
+
+func TestAgentChatRejectsTurnWithNeitherContentNorImage(t *testing.T) {
+	t.Parallel()
+	router := newAgentRouter(&stubAgentService{})
+
+	rec := doRequest(router, http.MethodPost, "/v1/agent/chat",
+		`{"messages":[{"role":"user","content":"   "}]}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestAgentChatRejectsTooManyImagesOnAMessage(t *testing.T) {
+	t.Parallel()
+	// The per-message image cap is small (a few receipts per turn); 20 is well
+	// past any reasonable bound so this stays correct if the exact cap changes.
+	const clearlyTooMany = 20
+	images := make([]map[string]string, 0, clearlyTooMany)
+	for range clearlyTooMany {
+		images = append(images, map[string]string{"mimeType": "image/png", "data": "iVBORw0KGgo="})
+	}
+	body, err := json.Marshal(map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "revisa", "images": images}},
+	})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	router := newAgentRouter(&stubAgentService{})
+
+	rec := doRequest(router, http.MethodPost, "/v1/agent/chat", string(body))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
 func TestAgentChatStreamsCompletedResponse(t *testing.T) {
 	t.Parallel()
 	stub := &stubAgentService{

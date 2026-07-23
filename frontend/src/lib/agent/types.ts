@@ -15,9 +15,18 @@ export interface AgentFinalResponse {
   artifacts: AgentArtifact[]
 }
 
+// AgentImage is an image attached to a user turn (e.g. a receipt photo) for
+// OCR/vision extraction. `data` is a base64 payload or a full data URL; the
+// backend normalizes it to a data URL before sending it to the model.
+export interface AgentImage {
+  mimeType: string
+  data: string
+}
+
 export interface AgentMessage {
   role: 'user' | 'assistant' | 'tool'
   content: string
+  images?: AgentImage[]
 }
 
 export interface ViewContext {
