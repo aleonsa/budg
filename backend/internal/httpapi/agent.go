@@ -38,7 +38,23 @@ type Agent interface {
 const (
 	maxAgentMessages     = 40
 	maxAgentMessageChars = 4000
+	// maxAgentImagesPerMessage caps how many image attachments a single turn
+	// may carry. A user might photograph a couple of receipts at once, but
+	// there is no legitimate reason to attach many; this bounds both the model
+	// context cost and the request size before it reaches the harness.
+	maxAgentImagesPerMessage = 4
 )
+
+// allowedAgentImageMimeTypes mirrors the agent contract's allow-list so the
+// HTTP layer rejects an unsupported format with a clear 400 instead of
+// surfacing it later as an opaque model error. agent.ContentImage.Validate
+// enforces the same set defensively downstream.
+var allowedAgentImageMimeTypes = map[string]bool{
+	"image/jpeg": true,
+	"image/png":  true,
+	"image/webp": true,
+	"image/heic": true,
+}
 
 // agentChatRequest is the wire shape of POST /v1/agent/chat. ConfirmationToken
 // is the value the client received in a prior turn's response.completed frame
@@ -71,11 +87,25 @@ func validateAgentChatRequest(req agentChatRequest) string {
 		default:
 			return fmt.Sprintf("messages[%d].role must be user, assistant, or tool", i)
 		}
-		if strings.TrimSpace(message.Content) == "" {
-			return fmt.Sprintf("messages[%d].content is required", i)
+		// A turn is valid when it carries text, at least one image, or both.
+		// An image-only turn ("here is my receipt") is a first-class Phase 4
+		// use case, so empty content is allowed when images are present.
+		if strings.TrimSpace(message.Content) == "" && len(message.Images) == 0 {
+			return fmt.Sprintf("messages[%d] must include content or an image", i)
 		}
 		if len(message.Content) > maxAgentMessageChars {
 			return fmt.Sprintf("messages[%d].content must not exceed %d characters", i, maxAgentMessageChars)
+		}
+		if len(message.Images) > maxAgentImagesPerMessage {
+			return fmt.Sprintf("messages[%d].images must not exceed %d attachments", i, maxAgentImagesPerMessage)
+		}
+		for j, image := range message.Images {
+			if !allowedAgentImageMimeTypes[strings.ToLower(strings.TrimSpace(image.MimeType))] {
+				return fmt.Sprintf("messages[%d].images[%d].mimeType is not a supported image type", i, j)
+			}
+			if strings.TrimSpace(image.Data) == "" {
+				return fmt.Sprintf("messages[%d].images[%d].data is required", i, j)
+			}
 		}
 	}
 	if req.Messages[len(req.Messages)-1].Role != agent.RoleUser {

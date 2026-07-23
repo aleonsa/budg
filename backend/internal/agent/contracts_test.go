@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -123,6 +124,58 @@ func TestStrictSchemaRequiresEveryPropertyListed(t *testing.T) {
 	noProperties := json.RawMessage(`{"type": "object", "additionalProperties": false}`)
 	if err := validateStrictObjectSchema(noProperties); err != nil {
 		t.Fatalf("schema with no properties should not need required: %v", err)
+	}
+}
+
+// TestModelRequestValidatesImages guards the Phase 4 multimodal contract:
+// a user message may carry attached images, but each attachment must declare
+// an allow-listed MIME type and stay within the size bound so we never blow up
+// the model context with an oversized payload. A message that only carries an
+// image (no text) is valid, since an OCR-only "here is my receipt" turn is a
+// legitimate use case.
+func TestModelRequestValidatesImages(t *testing.T) {
+	base := func() ModelRequest {
+		return ModelRequest{
+			Instructions:    "Extract receipt data.",
+			Messages:        []Message{{Role: RoleUser, Content: "Registra este ticket", Images: []ContentImage{{MimeType: "image/jpeg", Data: "iVBORw0KGgo="}}}},
+			OutputSchema:    json.RawMessage(`{"type":"object","additionalProperties":false}`),
+			MaxOutputTokens: 1200,
+		}
+	}
+
+	if err := base().Validate(); err != nil {
+		t.Fatalf("valid request with image attachment rejected: %v", err)
+	}
+
+	imageOnly := base()
+	imageOnly.Messages[0].Content = ""
+	if err := imageOnly.Validate(); err != nil {
+		t.Fatalf("image-only user message rejected: %v", err)
+	}
+
+	badMime := base()
+	badMime.Messages[0].Images[0].MimeType = "application/pdf"
+	if err := badMime.Validate(); err == nil {
+		t.Fatal("image with disallowed MIME type accepted")
+	}
+
+	emptyData := base()
+	emptyData.Messages[0].Images[0].Data = "   "
+	if err := emptyData.Validate(); err == nil {
+		t.Fatal("image with blank data accepted")
+	}
+
+	oversized := base()
+	oversized.Messages[0].Images[0].Data = strings.Repeat("A", maxImageBytes+1)
+	if err := oversized.Validate(); err == nil {
+		t.Fatal("image exceeding size bound accepted")
+	}
+
+	emptyTurn := base()
+	emptyTurn.Messages[0].Content = ""
+	emptyTurn.Messages[0].Images = nil
+	if err := emptyTurn.Validate(); err == nil {
+		t.Fatal("message with neither content nor images accepted")
 	}
 }
 
