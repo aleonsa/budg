@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   AgentCompletedData,
+  AgentImage,
   AgentMessage,
   PendingConfirmation,
   ViewContext,
@@ -12,6 +13,10 @@ export interface ChatTurn {
   content: string
   status?: 'sending' | 'done' | 'error'
   toolActivity?: string[]
+  // Image attachments the user sent with this turn, kept for redisplay and to
+  // rebuild the messages array on subsequent turns. UI-only preview URLs are
+  // not stored here; only the wire payload is.
+  images?: AgentImage[]
 }
 
 interface AgentState {
@@ -23,7 +28,12 @@ interface AgentState {
 
   setOpen: (open: boolean) => void
   toggle: () => void
-  send: (text: string, viewContext: ViewContext | null, confirmationToken?: string) => Promise<void>
+  send: (
+    text: string,
+    viewContext: ViewContext | null,
+    confirmationToken?: string,
+    images?: AgentImage[],
+  ) => Promise<void>
   reset: () => void
 }
 
@@ -48,15 +58,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   toggle: () => set((s) => ({ open: !s.open })),
   reset: () => set({ turns: [], loading: false, pendingConfirmation: null, error: null }),
 
-  send: async (text, viewContext, confirmationToken) => {
+  send: async (text, viewContext, confirmationToken, images) => {
     const trimmed = text.trim()
-    if (!trimmed || get().loading) return
+    const attachments = images ?? []
+    // A turn is valid with text, at least one image, or both — an image-only
+    // "here is my receipt" turn is allowed (matches the backend contract).
+    if ((!trimmed && attachments.length === 0) || get().loading) return
 
     const userTurn: ChatTurn = {
       id: cryptoTurnId(),
       role: 'user',
       content: trimmed,
       status: 'done',
+      images: attachments.length > 0 ? attachments : undefined,
     }
     const assistantTurn: ChatTurn = {
       id: cryptoTurnId(),
@@ -82,7 +96,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     // harness and never appear in the client conversation.
     const messages: AgentMessage[] = get()
       .turns.filter((t) => t.status === 'done')
-      .map((t) => ({ role: t.role, content: t.content }))
+      .map((t) => ({
+        role: t.role,
+        content: t.content,
+        ...(t.images && t.images.length > 0 ? { images: t.images } : {}),
+      }))
 
     // The last message in the array must be the new user message; remove the
     // placeholder assistant turn that was just appended.

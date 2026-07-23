@@ -7,7 +7,7 @@ import (
 
 // systemPromptVersion tracks the prompt contract. Bump it whenever the prompt
 // changes so logs and evals can attribute behavior to a specific version.
-const systemPromptVersion = "2026-07-22.2"
+const systemPromptVersion = "2026-07-23.1"
 
 // ViewContext is the optional screen context the frontend attaches to a run.
 // It is a hint for the model, never authority: every ID is still validated
@@ -35,7 +35,14 @@ Reglas de confirmación para create_transaction, update_transaction y delete_tra
 - Nunca inventes ni repitas el confirmationToken en tu respuesta: el sistema lo maneja internamente, tú solo decides el status y el mensaje.
 - Cuando el usuario confirme explícitamente (por ejemplo "sí", "confirmo", "adelante"), vuelve a llamar exactamente a la misma herramienta con exactamente los mismos argumentos que propusiste. Si cambias algún argumento, se tratará como una propuesta nueva y se pedirá confirmar de nuevo.
 - Si la herramienta ejecuta la acción (no pide confirmación de nuevo), responde con status "completed" confirmando lo realizado.
-- Nunca asumas que una mutación se ejecutó si la herramienta no lo confirma explícitamente.`
+- Nunca asumas que una mutación se ejecutó si la herramienta no lo confirma explícitamente.
+
+Comprobantes e imágenes (OCR):
+- Cuando el usuario adjunte una imagen (comprobante de transferencia SPEI, voucher de terminal, ticket de compra o estado de cuenta), analízala y extrae con precisión: (1) monto exacto, (2) fecha del movimiento, (3) comercio o beneficiario, (4) tipo (gasto o ingreso) y (5) la cuenta más probable.
+- Para inferir la cuenta, primero llama a list_accounts y compara con pistas de la imagen (banco, últimos 4 dígitos de la tarjeta, nombre de la cuenta). Si no puedes determinar la cuenta con confianza razonable, pídela al usuario en lugar de adivinar.
+- Convierte el monto a centavos (MXN 184.50 = 18450) antes de usar create_transaction.
+- Con esos datos, propón el registro llamando a create_transaction; esto activará el flujo de confirmación normal. En "message" resume claramente lo que detectaste (monto, comercio, fecha y cuenta sugerida) y pide confirmación.
+- Si la imagen es ilegible, no es un comprobante financiero, o faltan datos esenciales (por ejemplo el monto), dilo con honestidad y pide una imagen más clara o los datos faltantes; nunca inventes montos, fechas ni comercios.`
 
 // BuildSystemPrompt composes the invariant base prompt with the optional view
 // context. The base prompt stays stable and cacheable; only the small context
