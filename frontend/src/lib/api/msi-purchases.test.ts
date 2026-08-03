@@ -132,19 +132,23 @@ describe('msi purchases api client', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await msiPurchases.createMSIPurchase({
-      accountId: 'acct-1',
-      categoryId: 'cat-1',
-      description: 'Laptop',
-      merchant: 'Apple Store',
-      totalAmount: 120000,
-      installmentCount: 12,
-      startDate: '2026-08-15',
-    })
+    const result = await msiPurchases.createMSIPurchase(
+      {
+        accountId: 'acct-1',
+        categoryId: 'cat-1',
+        description: 'Laptop',
+        merchant: 'Apple Store',
+        totalAmount: 120000,
+        installmentCount: 12,
+        startDate: '2026-08-15',
+      },
+      { idempotencyKey: 'msi-attempt-1' },
+    )
 
     const [url, init] = fetchMock.mock.calls[0]
     expect(String(url)).toMatch(/\/v1\/msi-purchases$/)
     expect((init as RequestInit).method).toBe('POST')
+    expect(((init as RequestInit).headers as Headers).get('Idempotency-Key')).toBe('msi-attempt-1')
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
       accountId: 'acct-1',
       categoryId: 'cat-1',
@@ -156,5 +160,50 @@ describe('msi purchases api client', () => {
     })
     expect(result.id).toBe('msi-new')
     expect(result.installmentAmount).toBe(10000)
+  })
+
+  it('updateMSIPurchase patches the purchase and maps the replacement schedule', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        id: 'msi-1',
+        accountId: 'acct-1',
+        categoryId: null,
+        description: 'Laptop Pro',
+        totalAmount: 180000,
+        installmentAmount: 10000,
+        installmentCount: 18,
+        installmentsPaid: 0,
+        startDate: '2026-09-15',
+        nextInstallmentDate: '2026-09-15',
+        status: 'active',
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await msiPurchases.updateMSIPurchase('msi-1', {
+      accountId: 'acct-1',
+      categoryId: null,
+      description: 'Laptop Pro',
+      totalAmount: 180000,
+      installmentCount: 18,
+      startDate: '2026-09-15',
+    })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toMatch(/\/v1\/msi-purchases\/msi-1$/)
+    expect((init as RequestInit).method).toBe('PUT')
+    expect(result.description).toBe('Laptop Pro')
+    expect(result.installmentCount).toBe(18)
+  })
+
+  it('deleteMSIPurchase deletes the master purchase and schedule', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await msiPurchases.deleteMSIPurchase('msi-1')
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toMatch(/\/v1\/msi-purchases\/msi-1$/)
+    expect((init as RequestInit).method).toBe('DELETE')
   })
 })

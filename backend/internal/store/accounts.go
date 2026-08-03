@@ -391,6 +391,15 @@ func (r *AccountRepository) ReconcileBalance(ctx context.Context, userID, id str
 func (r *AccountRepository) Delete(ctx context.Context, userID, id string) error {
 	var rowsAffected int64
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
+		// MSI schedules reference their card with ON DELETE RESTRICT. Remove the
+		// master first so its same-user cascade clears generated installments
+		// before the account delete checks transaction references.
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM public.msi_purchases
+			WHERE user_id = $1 AND account_id = $2
+		`, userID, id); err != nil {
+			return err
+		}
 		tag, err := tx.Exec(ctx, `
 			DELETE FROM public.accounts
 			WHERE user_id = $1 AND id = $2

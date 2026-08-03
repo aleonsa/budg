@@ -209,11 +209,15 @@ function CreditCardItem({
   msiPurchases,
   onEdit,
   onDelete,
+  onEditMSI,
+  onDeleteMSI,
 }: {
   account: AccountWithSummary
   msiPurchases: MSIPurchase[]
   onEdit: () => void
   onDelete: () => void
+  onEditMSI: (purchase: MSIPurchase) => void
+  onDeleteMSI: (purchase: MSIPurchase) => void
 }) {
   const limit = account.creditLimit ?? 0
   const available = account.availableCredit ?? 0
@@ -302,7 +306,12 @@ function CreditCardItem({
           <Separator />
           <div className="space-y-2.5 bg-muted/30 p-3">
             {msiPurchases.map((msi) => (
-              <MSIRow key={msi.id} msi={msi} />
+              <MSIRow
+                key={msi.id}
+                msi={msi}
+                onEdit={() => onEditMSI(msi)}
+                onDelete={() => onDeleteMSI(msi)}
+              />
             ))}
           </div>
         </>
@@ -311,7 +320,15 @@ function CreditCardItem({
   )
 }
 
-function MSIRow({ msi }: { msi: MSIPurchase }) {
+function MSIRow({
+  msi,
+  onEdit,
+  onDelete,
+}: {
+  msi: MSIPurchase
+  onEdit: () => void
+  onDelete: () => void
+}) {
   const pct = msi.installmentsPaid / msi.installmentCount
   const remaining = msi.installmentCount - msi.installmentsPaid
 
@@ -351,6 +368,26 @@ function MSIRow({ msi }: { msi: MSIPurchase }) {
           </span>
         )}
       </div>
+      <div className="mt-1.5 flex justify-end gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-[11px]"
+          aria-label={`Editar MSI ${msi.description}`}
+          onClick={onEdit}
+        >
+          Editar
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-[11px] text-destructive hover:bg-destructive/10 hover:text-destructive"
+          aria-label={`Eliminar MSI ${msi.description}`}
+          onClick={onDelete}
+        >
+          Eliminar
+        </Button>
+      </div>
     </div>
   )
 }
@@ -384,6 +421,8 @@ export default function AccountsPage() {
   const [isMSIPanelOpen, setIsMSIPanelOpen] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [deletingAccount, setDeletingAccount] = useState<Account | null>(null)
+  const [editingMSI, setEditingMSI] = useState<MSIPurchase | null>(null)
+  const [deletingMSI, setDeletingMSI] = useState<MSIPurchase | null>(null)
   const accountsQ = useAccounts()
   const categoriesQ = useCategories()
   const msiQ = useMSIPurchases()
@@ -424,14 +463,20 @@ export default function AccountsPage() {
     onSuccess: invalidateAccountQueries,
   })
 
-  const createMSIMut = useMutation({
-    mutationFn: api.createMSIPurchase,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.msiPurchases })
-      queryClient.invalidateQueries({ queryKey: queryKeys.transactions })
-      queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
-    },
+  const updateMSIMut = useMutation({
+    mutationFn: ({
+      id,
+      input,
+    }: {
+      id: string
+      input: Parameters<typeof api.updateMSIPurchase>[1]
+    }) => api.updateMSIPurchase(id, input),
+    onSuccess: invalidateMSIQueries,
+  })
+
+  const deleteMSIMut = useMutation({
+    mutationFn: api.deleteMSIPurchase,
+    onSuccess: invalidateMSIQueries,
   })
 
   function invalidateAccountQueries() {
@@ -439,21 +484,30 @@ export default function AccountsPage() {
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
   }
 
-  const openMSIPanel = (creditAccountID: string) => {
-    createMSIMut.reset()
-    setFMSIAccount(creditAccountID)
-    setFMSICategory('')
-    setFMSIDescription('')
-    setFMSIMerchant('')
-    setFMSITotal('')
-    setFMSIMonths('12')
-    setFMSIStartDate(todayISO())
+  function invalidateMSIQueries() {
+    queryClient.invalidateQueries({ queryKey: queryKeys.msiPurchases })
+    queryClient.invalidateQueries({ queryKey: queryKeys.transactions })
+    queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+  }
+
+  const openMSIPanel = (purchase: MSIPurchase) => {
+    updateMSIMut.reset()
+    setEditingMSI(purchase)
+    setFMSIAccount(purchase.accountId)
+    setFMSICategory(purchase.categoryId ?? '')
+    setFMSIDescription(purchase.description)
+    setFMSIMerchant(purchase.merchant ?? '')
+    setFMSITotal(centsToInput(purchase.totalAmount))
+    setFMSIMonths(String(purchase.installmentCount))
+    setFMSIStartDate(purchase.startDate)
     setShowMSIFormError(false)
     setIsMSIPanelOpen(true)
   }
 
   const closeMSIPanel = () => {
-    createMSIMut.reset()
+    updateMSIMut.reset()
+    setEditingMSI(null)
     setShowMSIFormError(false)
     setIsMSIPanelOpen(false)
   }
@@ -576,6 +630,7 @@ export default function AccountsPage() {
     const totalAmount = toCents(fMSITotal)
     const installmentCount = Number(fMSIMonths)
     if (
+      !editingMSI ||
       !fMSIAccount ||
       !fMSIDescription.trim() ||
       totalAmount <= 0 ||
@@ -587,16 +642,19 @@ export default function AccountsPage() {
       setShowMSIFormError(true)
       return
     }
-    createMSIMut.reset()
-    createMSIMut.mutate(
+    updateMSIMut.reset()
+    updateMSIMut.mutate(
       {
-        accountId: fMSIAccount,
-        categoryId: fMSICategory || null,
-        description: fMSIDescription.trim(),
-        merchant: fMSIMerchant.trim() || undefined,
-        totalAmount,
-        installmentCount,
-        startDate: fMSIStartDate,
+        id: editingMSI.id,
+        input: {
+          accountId: fMSIAccount,
+          categoryId: fMSICategory || null,
+          description: fMSIDescription.trim(),
+          merchant: fMSIMerchant.trim() || undefined,
+          totalAmount,
+          installmentCount,
+          startDate: fMSIStartDate,
+        },
       },
       { onSuccess: closeMSIPanel },
     )
@@ -636,7 +694,10 @@ export default function AccountsPage() {
 
   const accounts = accountsQ.data ?? []
   const categories = (categoriesQ.data ?? []).filter((category) => category.kind === 'expense')
-  const creditAccountOptions = accounts.filter((account) => account.type === 'credit')
+  const creditAccountCandidates = accounts.filter((account) => account.type === 'credit')
+  const creditAccountOptions = creditAccountCandidates.filter(
+    (account) => account.balanceTrackingEnabled || account.id === editingMSI?.accountId,
+  )
   const msiPurchases = msiQ.data ?? []
   const activeMutation = editingAccount ? updateMut : createMut
   const accountPanel = (
@@ -797,10 +858,10 @@ export default function AccountsPage() {
   const msiPanel = (
     <MockActionPanel
       open={isMSIPanelOpen}
-      title="Registrar compra a MSI"
-      description="Genera una mensualidad por cada mes y las enlaza a esta compra."
-      submitLabel={`Programar ${fMSIMonths || '0'} mensualidades`}
-      submitting={createMSIMut.isPending}
+      title="Editar compra a MSI"
+      description="Actualiza la compra y regenera su calendario de mensualidades."
+      submitLabel="Guardar cambios"
+      submitting={updateMSIMut.isPending}
       onClose={closeMSIPanel}
       onSubmit={handleMSISubmit}
     >
@@ -818,6 +879,13 @@ export default function AccountsPage() {
             </option>
           ))}
         </select>
+        {creditAccountCandidates.some(
+          (account) => !account.balanceTrackingEnabled && account.id !== editingMSI?.accountId,
+        ) && (
+          <p className="text-[11px] text-muted-foreground">
+            Sólo aparecen como destino tarjetas con saldo automático activo.
+          </p>
+        )}
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="msi-description">Descripción</Label>
@@ -826,7 +894,7 @@ export default function AccountsPage() {
           placeholder="Ej. MacBook Air"
           value={fMSIDescription}
           onChange={(event) => setFMSIDescription(event.target.value)}
-          aria-invalid={showMSIFormError || Boolean(createMSIMut.error) || undefined}
+          aria-invalid={showMSIFormError || Boolean(updateMSIMut.error) || undefined}
         />
       </div>
       <div className="space-y-1.5">
@@ -893,10 +961,10 @@ export default function AccountsPage() {
         Se crearán {fMSIMonths || '0'} gastos futuros. La última mensualidad absorbe cualquier
         centavo restante para que el total cuadre exactamente.
       </p>
-      {(showMSIFormError || createMSIMut.error) && (
+      {(showMSIFormError || updateMSIMut.error) && (
         <p role="alert" className="text-xs text-destructive">
-          {createMSIMut.error
-            ? 'No se pudo registrar la compra a MSI. Intenta de nuevo.'
+          {updateMSIMut.error
+            ? 'No se pudo actualizar la compra a MSI. Intenta de nuevo.'
             : 'Completa descripción, monto, meses (2–60) y primera mensualidad.'}
         </p>
       )}
@@ -904,20 +972,9 @@ export default function AccountsPage() {
   )
 
   const headerAction = (
-    <div className="flex items-center gap-1.5">
-      {creditAccountOptions.length > 0 && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => openMSIPanel(creditAccountOptions[0].id)}
-        >
-          Registrar MSI
-        </Button>
-      )}
-      <Button size="sm" onClick={openCreatePanel}>
-        Agregar cuenta
-      </Button>
-    </div>
+    <Button size="sm" onClick={openCreatePanel}>
+      Agregar cuenta
+    </Button>
   )
 
   const deletePanel = (
@@ -940,6 +997,32 @@ export default function AccountsPage() {
           {deleteMut.error instanceof Error
             ? deleteMut.error.message
             : 'No se pudo eliminar la cuenta.'}
+        </p>
+      )}
+    </MockActionPanel>
+  )
+
+  const deleteMSIPanel = (
+    <MockActionPanel
+      open={deletingMSI !== null}
+      title="Eliminar compra a MSI"
+      description={`¿Eliminar “${deletingMSI?.description ?? ''}” y todas sus mensualidades? El crédito reservado se restaurará.`}
+      submitLabel="Eliminar compra"
+      submitVariant="destructive"
+      submitting={deleteMSIMut.isPending}
+      onClose={() => {
+        deleteMSIMut.reset()
+        setDeletingMSI(null)
+      }}
+      onSubmit={() => {
+        if (!deletingMSI) return
+        deleteMSIMut.reset()
+        deleteMSIMut.mutate(deletingMSI.id, { onSuccess: () => setDeletingMSI(null) })
+      }}
+    >
+      {deleteMSIMut.error && (
+        <p role="alert" className="text-xs text-destructive">
+          No se pudo eliminar la compra a MSI.
         </p>
       )}
     </MockActionPanel>
@@ -1059,6 +1142,11 @@ export default function AccountsPage() {
                   )}
                   onEdit={() => openEditPanel(acc)}
                   onDelete={() => openDeletePanel(acc)}
+                  onEditMSI={openMSIPanel}
+                  onDeleteMSI={(purchase) => {
+                    deleteMSIMut.reset()
+                    setDeletingMSI(purchase)
+                  }}
                 />
               ))}
             </div>
@@ -1090,6 +1178,7 @@ export default function AccountsPage() {
       {accountPanel}
       {msiPanel}
       {deletePanel}
+      {deleteMSIPanel}
     </>
   )
 }

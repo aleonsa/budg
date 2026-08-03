@@ -148,6 +148,9 @@ func (r *TransactionRepository) List(ctx context.Context, userID string) ([]Tran
 // Create inserts a transaction and applies its tracked account effects in one
 // database transaction.
 func (r *TransactionRepository) Create(ctx context.Context, userID string, in TransactionInput) (Transaction, error) {
+	if in.MSIPurchaseID != nil {
+		return Transaction{}, ErrMSIInstallmentManaged
+	}
 	transaction := transactionFromInput(in)
 	if err := validateTransactionShape(transaction); err != nil {
 		return Transaction{}, err
@@ -170,6 +173,9 @@ func (r *TransactionRepository) Create(ctx context.Context, userID string, in Tr
 // Update reverses recorded ledger effects, applies the patch, and writes new
 // effects atomically.
 func (r *TransactionRepository) Update(ctx context.Context, userID, id string, patch TransactionPatch) (Transaction, error) {
+	if patch.MSIPurchaseID.Set {
+		return Transaction{}, ErrMSIInstallmentManaged
+	}
 	var updated Transaction
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
 		var existing Transaction
@@ -183,6 +189,9 @@ func (r *TransactionRepository) Update(ctx context.Context, userID, id string, p
 				return ErrNotFound
 			}
 			return err
+		}
+		if existing.MSIPurchaseID != nil {
+			return ErrMSIInstallmentManaged
 		}
 
 		updated = applyTransactionPatch(existing, patch)
@@ -378,6 +387,9 @@ func (r *TransactionRepository) Delete(ctx context.Context, userID, id string) e
 				return ErrNotFound
 			}
 			return err
+		}
+		if existing.MSIPurchaseID != nil {
+			return ErrMSIInstallmentManaged
 		}
 		entries, err := loadTransactionBalanceEntries(ctx, tx, userID, id)
 		if err != nil {

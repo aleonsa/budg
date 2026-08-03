@@ -87,12 +87,12 @@ export function TransactionDetail({
 
       {/* Actions */}
       <div className="flex gap-2">
-        {onEdit && (
+        {!tx.msiPurchaseId && onEdit && (
           <Button variant="outline" size="sm" className="flex-1" onClick={() => onEdit(tx)}>
             Editar
           </Button>
         )}
-        {onDelete && (
+        {!tx.msiPurchaseId && onDelete && (
           <Button
             variant="outline"
             size="sm"
@@ -103,6 +103,12 @@ export function TransactionDetail({
           </Button>
         )}
       </div>
+
+      {tx.msiPurchaseId && (
+        <p className="text-center text-xs text-muted-foreground">
+          Edita o elimina la compra completa desde Cuentas.
+        </p>
+      )}
 
       <p className="mt-3 text-center text-[11px] text-muted-foreground">
         Creado el {formatDate(tx.createdAt)}

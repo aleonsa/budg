@@ -6,13 +6,16 @@ import (
 )
 
 var (
-	ErrBalanceTrackingAlreadyEnabled = errors.New("balance tracking already enabled")
-	ErrBalanceTrackingNotEnabled     = errors.New("balance tracking not enabled")
-	ErrDirectBalancePatchForbidden   = errors.New("direct balance modification forbidden while tracking is enabled; use reconciliation")
-	ErrInvalidAccountShape           = errors.New("invalid account shape")
-	ErrInvalidTransactionShape       = errors.New("invalid transaction shape")
-	ErrTransferCurrencyMismatch      = errors.New("transfer accounts must use the same currency")
-	ErrIdempotencyConflict           = errors.New("idempotency key already used with different transaction data")
+	ErrBalanceTrackingAlreadyEnabled  = errors.New("balance tracking already enabled")
+	ErrBalanceTrackingNotEnabled      = errors.New("balance tracking not enabled")
+	ErrDirectBalancePatchForbidden    = errors.New("direct balance modification forbidden while tracking is enabled; use reconciliation")
+	ErrInvalidAccountShape            = errors.New("invalid account shape")
+	ErrInvalidTransactionShape        = errors.New("invalid transaction shape")
+	ErrTransferCurrencyMismatch       = errors.New("transfer accounts must use the same currency")
+	ErrIdempotencyConflict            = errors.New("idempotency key already used with different transaction data")
+	ErrMSIInstallmentManaged          = errors.New("msi installments must be managed through the msi purchase")
+	ErrMSIPurchaseHasPaidInstallments = errors.New("msi purchase with paid installments cannot be replaced")
+	ErrMSILegacyBalanceChange         = errors.New("legacy msi purchase balance fields cannot be changed")
 )
 
 // AccountDelta represents the signed change to an account's materialized balance

@@ -57,7 +57,7 @@ describe('TransactionDetail', () => {
   })
 
   it('shows expense semantics and forwards edit, delete, and close actions', async () => {
-    const tx = transaction()
+    const tx = transaction({ msiPurchaseId: undefined })
     const onClose = vi.fn()
     const onEdit = vi.fn()
     const onDelete = vi.fn()
@@ -76,7 +76,7 @@ describe('TransactionDetail', () => {
     expect(screen.getByText('Supermercado')).toBeInTheDocument()
     expect(screen.getByText('−$123.45')).toBeInTheDocument()
     expect(screen.getByText('Gasto')).toBeInTheDocument()
-    expect(screen.getByText('MSI')).toBeInTheDocument()
+    expect(screen.queryByText('MSI')).not.toBeInTheDocument()
     expect(screen.getByText('Pendiente')).toBeInTheDocument()
     expect(screen.getByText('Cuenta Nómina')).toBeInTheDocument()
     expect(screen.getByText('Alimentos')).toBeInTheDocument()
@@ -89,6 +89,25 @@ describe('TransactionDetail', () => {
     expect(onEdit).toHaveBeenCalledWith(tx)
     expect(onDelete).toHaveBeenCalledWith(tx)
     expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('makes generated MSI installments read-only', () => {
+    render(
+      <TransactionDetail
+        transaction={transaction()}
+        account={account}
+        onClose={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('MSI')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Eliminar' })).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Edita o elimina la compra completa desde Cuentas.'),
+    ).toBeInTheDocument()
   })
 
   it('shows transfer destination and transfer status', () => {

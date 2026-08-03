@@ -97,7 +97,9 @@ vi.mock('@tanstack/react-query', () => ({
   },
 }))
 
-vi.mock('@/lib/api', () => ({ api: { createAccount: vi.fn(), createTransaction: vi.fn() } }))
+vi.mock('@/lib/api', () => ({
+  api: { createAccount: vi.fn(), createTransaction: vi.fn(), createMSIPurchase: vi.fn() },
+}))
 
 const category = (id: string, name: string, kind: Category['kind']): Category => ({
   id,
@@ -412,6 +414,49 @@ describe('DashboardPage', () => {
       },
     ])
     expect(screen.queryByText('Captura rápida desde el dashboard.')).not.toBeInTheDocument()
+  })
+
+  it('creates MSI as an expense payment option', async () => {
+    state.accounts.data = [
+      {
+        id: 'credit-1',
+        name: 'Tarjeta Oro',
+        type: 'credit',
+        institution: 'Banamex',
+        last4: '2222',
+        currency: 'MXN',
+        creditLimit: 100_000,
+        availableCredit: 100_000,
+        balanceTrackingEnabled: true,
+        isActive: true,
+      },
+    ]
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar gasto' }))
+    fireEvent.click(screen.getByRole('button', { name: 'A MSI' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Monto total' }), {
+      target: { value: '1200' },
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Descripción' }), {
+      target: { value: 'Laptop' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar' }))
+    await flushMutation()
+
+    expect(api.createMSIPurchase).toHaveBeenCalledWith(
+      {
+        accountId: 'credit-1',
+        categoryId: null,
+        description: 'Laptop',
+        merchant: undefined,
+        totalAmount: 120_000,
+        installmentCount: 12,
+        startDate: '2026-07-20',
+      },
+      { idempotencyKey: expect.any(String) },
+    )
+    expect(api.createTransaction).not.toHaveBeenCalled()
   })
 
   it('submits quick income with income categories and optional fields omitted', async () => {

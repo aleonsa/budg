@@ -27,9 +27,29 @@ export interface CreateMSIPurchaseInput {
   startDate: string
 }
 
-export async function createMSIPurchase(input: CreateMSIPurchaseInput): Promise<MSIPurchase> {
+export async function createMSIPurchase(
+  input: CreateMSIPurchaseInput,
+  options?: { idempotencyKey?: string },
+): Promise<MSIPurchase> {
+  const headers = new Headers({ 'Content-Type': 'application/json' })
+  if (options?.idempotencyKey) headers.set('Idempotency-Key', options.idempotencyKey)
   const res = await authFetch('/v1/msi-purchases', {
     method: 'POST',
+    headers,
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) {
+    throw new Error(`Request failed: ${res.status}`)
+  }
+  return toFrontend((await res.json()) as BackendMSIPurchase)
+}
+
+export async function updateMSIPurchase(
+  id: string,
+  input: CreateMSIPurchaseInput,
+): Promise<MSIPurchase> {
+  const res = await authFetch(`/v1/msi-purchases/${id}`, {
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   })
@@ -37,6 +57,13 @@ export async function createMSIPurchase(input: CreateMSIPurchaseInput): Promise<
     throw new Error(`Request failed: ${res.status}`)
   }
   return toFrontend((await res.json()) as BackendMSIPurchase)
+}
+
+export async function deleteMSIPurchase(id: string): Promise<void> {
+  const res = await authFetch(`/v1/msi-purchases/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    throw new Error(`Request failed: ${res.status}`)
+  }
 }
 
 // ── Wire format ──────────────────────────────────────────────

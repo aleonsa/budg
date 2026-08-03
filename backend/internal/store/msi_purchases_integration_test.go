@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -84,15 +85,21 @@ func TestMSIPurchaseRepositoryCreateSchedulesExactInstallments(t *testing.T) {
 	defer admin.Close()
 
 	accounts := store.NewAccountRepository(pool)
+	creditLimit, availableCredit := int64(200000), int64(200000)
 	account, err := accounts.Create(ctx, userID, store.AccountInput{
-		Name:        "MSI Card",
-		Type:        "credit",
-		Institution: "BBVA",
-		Last4:       "7890",
-		Currency:    "MXN",
+		Name:                 "MSI Card",
+		Type:                 "credit",
+		Institution:          "BBVA",
+		Last4:                "7890",
+		Currency:             "MXN",
+		CreditLimitCents:     &creditLimit,
+		AvailableCreditCents: &availableCredit,
 	})
 	if err != nil {
 		t.Fatalf("create account: %v", err)
+	}
+	if _, err := accounts.EnableBalanceTracking(ctx, userID, account.ID, availableCredit); err != nil {
+		t.Fatalf("enable balance tracking: %v", err)
 	}
 	categories := store.NewCategoryRepository(pool)
 	category, err := categories.Create(ctx, userID, store.CategoryInput{
@@ -106,14 +113,17 @@ func TestMSIPurchaseRepositoryCreateSchedulesExactInstallments(t *testing.T) {
 	}
 
 	repo := store.NewMSIPurchaseRepository(pool)
-	created, err := repo.Create(ctx, userID, store.MSIPurchaseInput{
+	idempotencyKey := "msi-create-1"
+	createInput := store.MSIPurchaseInput{
 		AccountID:        account.ID,
 		CategoryID:       &category.ID,
 		Description:      "Laptop",
 		TotalAmount:      100000,
 		InstallmentCount: 3,
 		StartDate:        "2026-01-31",
-	})
+		IdempotencyKey:   &idempotencyKey,
+	}
+	created, err := repo.Create(ctx, userID, createInput)
 	if err != nil {
 		t.Fatalf("create msi purchase: %v", err)
 	}
@@ -160,6 +170,96 @@ func TestMSIPurchaseRepositoryCreateSchedulesExactInstallments(t *testing.T) {
 	}
 	if got, want := dates, []string{"2026-01-31", "2026-02-28", "2026-03-31"}; got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
 		t.Fatalf("dates = %v, want %v", got, want)
+	}
+
+	assertAccountAmount(t, ctx, admin, account.ID, "available_credit_cents", 100000)
+	replayed, err := repo.Create(ctx, userID, createInput)
+	if err != nil {
+		t.Fatalf("replay msi purchase: %v", err)
+	}
+	if replayed.ID != created.ID {
+		t.Fatalf("replayed id = %q, want %q", replayed.ID, created.ID)
+	}
+	assertAccountAmount(t, ctx, admin, account.ID, "available_credit_cents", 100000)
+	conflictingInput := createInput
+	conflictingInput.TotalAmount = 110000
+	if _, err := repo.Create(ctx, userID, conflictingInput); !errors.Is(err, store.ErrIdempotencyConflict) {
+		t.Fatalf("idempotency conflict error = %v", err)
+	}
+
+	var entryKind string
+	var entryDelta int64
+	if err := admin.QueryRow(ctx, `
+		SELECT kind, delta_cents
+		FROM public.account_balance_entries
+		WHERE user_id = $1 AND msi_purchase_id = $2
+	`, userID, created.ID).Scan(&entryKind, &entryDelta); err != nil {
+		t.Fatalf("query MSI balance entry: %v", err)
+	}
+	if entryKind != "msi_purchase" || entryDelta != -100000 {
+		t.Fatalf("MSI balance entry = (%q, %d), want (msi_purchase, -100000)", entryKind, entryDelta)
+	}
+
+	var installmentID string
+	if err := admin.QueryRow(ctx, `
+		SELECT id
+		FROM public.transactions
+		WHERE user_id = $1 AND msi_purchase_id = $2
+		ORDER BY date
+		LIMIT 1
+	`, userID, created.ID).Scan(&installmentID); err != nil {
+		t.Fatalf("query installment id: %v", err)
+	}
+	transactions := store.NewTransactionRepository(pool)
+	changedDescription := "Direct edit"
+	if _, err := transactions.Update(ctx, userID, installmentID, store.TransactionPatch{Description: &changedDescription}); !errors.Is(err, store.ErrMSIInstallmentManaged) {
+		t.Fatalf("direct installment update error = %v", err)
+	}
+	if err := transactions.Delete(ctx, userID, installmentID); !errors.Is(err, store.ErrMSIInstallmentManaged) {
+		t.Fatalf("direct installment delete error = %v", err)
+	}
+
+	updated, err := repo.Update(ctx, userID, created.ID, store.MSIPurchaseInput{
+		AccountID:        account.ID,
+		CategoryID:       &category.ID,
+		Description:      "Laptop Pro",
+		TotalAmount:      120000,
+		InstallmentCount: 4,
+		StartDate:        "2026-02-28",
+	})
+	if err != nil {
+		t.Fatalf("update msi purchase: %v", err)
+	}
+	if updated.Description != "Laptop Pro" || updated.InstallmentAmount != 30000 || updated.InstallmentCount != 4 {
+		t.Fatalf("updated purchase = %+v", updated)
+	}
+	assertAccountAmount(t, ctx, admin, account.ID, "available_credit_cents", 80000)
+	var installmentCount int
+	var installmentTotal int64
+	if err := admin.QueryRow(ctx, `
+		SELECT count(*), COALESCE(sum(amount), 0)
+		FROM public.transactions
+		WHERE user_id = $1 AND msi_purchase_id = $2
+	`, userID, created.ID).Scan(&installmentCount, &installmentTotal); err != nil {
+		t.Fatalf("query updated installments: %v", err)
+	}
+	if installmentCount != 4 || installmentTotal != 120000 {
+		t.Fatalf("updated installments = (%d, %d), want (4, 120000)", installmentCount, installmentTotal)
+	}
+
+	if err := repo.Delete(ctx, userID, created.ID); err != nil {
+		t.Fatalf("delete msi purchase: %v", err)
+	}
+	assertAccountAmount(t, ctx, admin, account.ID, "available_credit_cents", 200000)
+	if err := admin.QueryRow(ctx, `
+		SELECT count(*)
+		FROM public.transactions
+		WHERE user_id = $1 AND msi_purchase_id = $2
+	`, userID, created.ID).Scan(&installmentCount); err != nil {
+		t.Fatalf("query deleted installments: %v", err)
+	}
+	if installmentCount != 0 {
+		t.Fatalf("installments after delete = %d, want 0", installmentCount)
 	}
 }
 

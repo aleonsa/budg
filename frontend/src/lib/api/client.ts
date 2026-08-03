@@ -35,7 +35,12 @@ export {
   deleteSavingsGoal,
 } from './savings-goals'
 export { getRules, createRule, toggleRule, deleteRule } from './rules'
-export { getMSIPurchases, createMSIPurchase } from './msi-purchases'
+export {
+  getMSIPurchases,
+  createMSIPurchase,
+  updateMSIPurchase,
+  deleteMSIPurchase,
+} from './msi-purchases'
 export {
   getRecurringTransactions,
   createRecurringTransaction,

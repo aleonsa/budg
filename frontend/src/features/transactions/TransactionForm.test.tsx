@@ -15,6 +15,18 @@ const accounts: Account[] = [
     isActive: true,
   },
   {
+    id: 'credit',
+    name: 'Tarjeta Oro',
+    type: 'credit',
+    institution: 'Banco Uno',
+    last4: '5555',
+    currency: 'MXN',
+    creditLimit: 100000,
+    availableCredit: 100000,
+    balanceTrackingEnabled: true,
+    isActive: true,
+  },
+  {
     id: 'savings',
     name: 'Cuenta Ahorro',
     type: 'debit',
@@ -114,6 +126,41 @@ describe('TransactionForm', () => {
         description: 'Pago mensual',
         categoryId: 'salary',
         merchant: undefined,
+      }),
+    )
+  })
+
+  it('offers MSI as an expense sub-option and submits a credit-card schedule', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    render(
+      <TransactionForm
+        accounts={accounts}
+        categories={categories}
+        lockedType="expense"
+        allowMSI
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'A MSI' }))
+    expect(screen.getByRole('combobox', { name: 'Tarjeta de crédito' })).toHaveValue('credit')
+    expect(screen.queryByRole('option', { name: 'Cuenta Nómina' })).not.toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: 'Meses' })).toHaveValue(12)
+    expect(screen.getByLabelText('Primera mensualidad')).toBeInTheDocument()
+
+    await user.type(screen.getByRole('textbox', { name: 'Monto total' }), '1200')
+    await user.type(screen.getByRole('textbox', { name: 'Descripción' }), 'Laptop')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'expense',
+        amount: 120000,
+        description: 'Laptop',
+        accountId: 'credit',
+        msiInstallmentCount: 12,
       }),
     )
   })

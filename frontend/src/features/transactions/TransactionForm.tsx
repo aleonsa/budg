@@ -13,6 +13,7 @@ export interface TransactionFormValue {
   categoryId: string | null
   merchant?: string
   transferToAccountId?: string | null
+  msiInstallmentCount?: number
 }
 
 interface TransactionFormProps {
@@ -22,6 +23,8 @@ interface TransactionFormProps {
   initial?: Transaction | null
   /** Locked type (e.g. user clicked "Agregar gasto"); when set the type toggle is hidden. */
   lockedType?: TransactionType
+  /** Offers MSI as a nested expense payment mode when credit cards exist. */
+  allowMSI?: boolean
   onSubmit: (value: TransactionFormValue) => void
   onCancel: () => void
   submitting?: boolean
@@ -34,6 +37,7 @@ interface FormErrors {
   description?: string
   accountId?: string
   transferToAccountId?: string
+  installmentCount?: string
 }
 
 /**
@@ -45,15 +49,20 @@ export function TransactionForm({
   categories,
   initial,
   lockedType,
+  allowMSI = false,
   onSubmit,
   onCancel,
   submitting = false,
   submitLabel = 'Guardar',
 }: TransactionFormProps) {
   const [type, setType] = useState<TransactionType>(initial?.type ?? lockedType ?? 'expense')
+  const [isMSI, setIsMSI] = useState(false)
   const [errors, setErrors] = useState<FormErrors>({})
   const id = useId()
   const isTransfer = type === 'transfer'
+  const creditAccounts = accounts.filter((account) => account.type === 'credit')
+  const trackedCreditAccounts = creditAccounts.filter((account) => account.balanceTrackingEnabled)
+  const selectableAccounts = isMSI ? trackedCreditAccounts : accounts
 
   const expenseCategories = categories.filter((c) => c.kind === 'expense')
   const incomeCategories = categories.filter((c) => c.kind === 'income')
@@ -65,7 +74,7 @@ export function TransactionForm({
     const amount = toCents(amountInput)
     const date = String(fd.get('date') ?? today())
     const description = String(fd.get('description') ?? '')
-    const accountId = String(fd.get('accountId') ?? accounts[0]?.id ?? '')
+    const accountId = String(fd.get('accountId') ?? selectableAccounts[0]?.id ?? '')
     const categoryIdRaw = fd.get('categoryId')
     const categoryId =
       categoryIdRaw && String(categoryIdRaw) !== 'none' ? String(categoryIdRaw) : null
@@ -77,11 +86,19 @@ export function TransactionForm({
       transferToAccountId = raw && String(raw) !== 'none' ? String(raw) : null
     }
 
+    const installmentCount = isMSI ? Number(fd.get('installmentCount')) : undefined
+
     const nextErrors: FormErrors = {}
     if (amount <= 0) nextErrors.amount = 'Ingresa un monto mayor a cero.'
     if (!date) nextErrors.date = 'Selecciona una fecha.'
     if (!description.trim()) nextErrors.description = 'Ingresa una descripción.'
     if (!accountId) nextErrors.accountId = 'Selecciona una cuenta.'
+    if (
+      isMSI &&
+      (!Number.isInteger(installmentCount) || installmentCount! < 2 || installmentCount! > 60)
+    ) {
+      nextErrors.installmentCount = 'Elige entre 2 y 60 meses.'
+    }
     if (isTransfer && !transferToAccountId) {
       nextErrors.transferToAccountId = 'Selecciona una cuenta de destino.'
     } else if (isTransfer && transferToAccountId === accountId) {
@@ -100,6 +117,7 @@ export function TransactionForm({
       categoryId,
       merchant,
       transferToAccountId,
+      ...(isMSI ? { msiInstallmentCount: installmentCount } : {}),
     })
   }
 
@@ -116,6 +134,7 @@ export function TransactionForm({
               aria-pressed={type === t}
               onClick={() => {
                 setType(t)
+                setIsMSI(false)
                 setErrors({})
               }}
             >
@@ -125,9 +144,47 @@ export function TransactionForm({
         </div>
       )}
 
+      {allowMSI && type === 'expense' && creditAccounts.length > 0 && (
+        <div className="space-y-1.5">
+          <Label>Forma de pago</Label>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={!isMSI ? 'default' : 'outline'}
+              aria-pressed={!isMSI}
+              onClick={() => {
+                setIsMSI(false)
+                setErrors({})
+              }}
+            >
+              Una exhibición
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={isMSI ? 'default' : 'outline'}
+              aria-pressed={isMSI}
+              disabled={trackedCreditAccounts.length === 0}
+              onClick={() => {
+                setIsMSI(true)
+                setErrors({})
+              }}
+            >
+              A MSI
+            </Button>
+          </div>
+          {trackedCreditAccounts.length === 0 && (
+            <p className="text-[11px] text-muted-foreground">
+              Activa el saldo automático de una tarjeta para registrar MSI.
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1.5">
-          <Label htmlFor={`${id}-amount`}>Monto</Label>
+          <Label htmlFor={`${id}-amount`}>{isMSI ? 'Monto total' : 'Monto'}</Label>
           <Input
             id={`${id}-amount`}
             name="amount"
@@ -145,7 +202,7 @@ export function TransactionForm({
           )}
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor={`${id}-date`}>Fecha</Label>
+          <Label htmlFor={`${id}-date`}>{isMSI ? 'Primera mensualidad' : 'Fecha'}</Label>
           <Input
             id={`${id}-date`}
             name="date"
@@ -162,6 +219,32 @@ export function TransactionForm({
           )}
         </div>
       </div>
+
+      {isMSI && (
+        <div className="space-y-1.5">
+          <Label htmlFor={`${id}-installment-count`}>Meses</Label>
+          <Input
+            id={`${id}-installment-count`}
+            name="installmentCount"
+            type="number"
+            min="2"
+            max="60"
+            inputMode="numeric"
+            defaultValue="12"
+            aria-invalid={!!errors.installmentCount}
+            aria-describedby={errors.installmentCount ? `${id}-installment-count-error` : undefined}
+          />
+          {errors.installmentCount && (
+            <p
+              id={`${id}-installment-count-error`}
+              role="alert"
+              className="text-xs text-destructive"
+            >
+              {errors.installmentCount}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="space-y-1.5">
         <Label htmlFor={`${id}-description`}>Descripción</Label>
@@ -183,17 +266,20 @@ export function TransactionForm({
 
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1.5">
-          <Label htmlFor={`${id}-account`}>Cuenta</Label>
+          <Label htmlFor={`${id}-account`}>{isMSI ? 'Tarjeta de crédito' : 'Cuenta'}</Label>
           <select
+            key={isMSI ? 'msi-account' : 'account'}
             id={`${id}-account`}
             name="accountId"
-            defaultValue={initial?.accountId ?? accounts[0]?.id}
+            defaultValue={
+              isMSI ? trackedCreditAccounts[0]?.id : (initial?.accountId ?? accounts[0]?.id)
+            }
             aria-invalid={!!errors.accountId}
             aria-describedby={errors.accountId ? `${id}-account-error` : undefined}
             className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
             required
           >
-            {accounts.map((a) => (
+            {selectableAccounts.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
               </option>
