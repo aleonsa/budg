@@ -160,17 +160,17 @@ func (r *MSIPurchaseRepository) Create(ctx context.Context, userID string, in MS
 				$2,
 				'expense',
 				CASE
-					WHEN installment.number = $5
-						THEN $4 - (($4 / $5) * ($5 - 1))
-					ELSE $4 / $5
+					WHEN installment.number = $5::int
+						THEN $4::bigint - (($4::bigint / $5::int) * ($5::int - 1))
+					ELSE $4::bigint / $5::int
 				END,
 				$3,
 				($6::date + ((installment.number - 1) * interval '1 month'))::date,
-				$7 || ' (' || installment.number || '/' || $5 || ')',
+				$7 || ' (' || installment.number || '/' || $5::text || ')',
 				$8,
 				$9,
 				false
-			FROM generate_series(1, $5) AS installment(number)
+			FROM generate_series(1, $5::int) AS installment(number)
 		`,
 			userID, in.AccountID, in.CategoryID, in.TotalAmount, in.InstallmentCount,
 			in.StartDate, in.Description, in.Merchant, m.ID,
