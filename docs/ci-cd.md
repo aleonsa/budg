@@ -304,6 +304,29 @@ Registry.
 Secretos (`DATABASE_URL`, etc.) viven como variables de entorno "Sensitive" en
 el dashboard de Vercel, con valores distintos entre Preview y Production.
 
+### Deploy siempre por git, nunca `vercel deploy` desde local
+
+Producción se despliega **solo** por push a `main`. No correr `vercel --prod`
+desde una máquina de desarrollo, por dos razones aprendidas el 2026-08-03:
+
+1. El CLI sube el árbol local completo y **no lee `.gitignore`** — lee
+   `/.vercelignore`. Sin ese archivo subió `frontend/.env`, `backend/.env` y
+   `local/env/migrations.prod.env` al storage de source del deployment. Vite
+   leyó `frontend/.env` durante el build en la nube e inlineó
+   `VITE_API_BASE_URL=http://localhost:8080` en el bundle de producción: todas
+   las llamadas a `/v1/*` fallaron con `ERR_CONNECTION_REFUSED`.
+2. Un deploy desde local se marca `gitDirty: 1` y no queda atado a un commit
+   verificable, así que el rollback del punto 8 pierde su referencia.
+
+Defensas ya en el repo: `/.vercelignore` excluye todo `.env` y `local/`, y
+`src/lib/api/backend.ts` descarta un `VITE_API_BASE_URL` de loopback cuando el
+build no es de desarrollo. Ninguna reemplaza usar git para desplegar.
+
+Si un push a `main` no dispara producción, verificar que el commit esté en
+`main` y no en una rama de feature: una rama solo genera Preview. Comprobar el
+origen real de un deployment con
+`vercel inspect <url>` o el campo `source` de la API (`"git"` vs `"cli"`).
+
 ## Estado de setup de Fase 0
 
 1. Completado: baseline frontend y fallos previos resueltos.
