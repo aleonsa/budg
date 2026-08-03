@@ -147,6 +147,10 @@ func writeTransactionClientError(w http.ResponseWriter, err error) bool {
 		writeJSON(w, http.StatusConflict, errorResponse{
 			Error: apiError{Code: "balance_tracking_conflict", Message: "statement payments require balance tracking on both accounts"},
 		})
+	case errors.Is(err, store.ErrMSIInstallmentManaged):
+		writeJSON(w, http.StatusConflict, errorResponse{
+			Error: apiError{Code: "msi_installment_managed", Message: "manage this installment through its msi purchase"},
+		})
 	default:
 		return false
 	}
@@ -173,6 +177,9 @@ func (h *transactionsHandler) delete(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, errorResponse{
 				Error: apiError{Code: "not_found", Message: "transaction was not found"},
 			})
+			return
+		}
+		if writeTransactionClientError(w, err) {
 			return
 		}
 		writeInternalError(w, r, err, "could not delete transaction")

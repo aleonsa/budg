@@ -305,6 +305,27 @@ Returns `SavingsGoal[]`, sorted by `order ASC`, then `id ASC`.
 Returns `MSIPurchase[]`, sorted with active purchases first, then by
 `nextInstallmentDate ASC NULLS LAST`, then `id ASC`.
 
+### `POST /v1/msi-purchases`
+
+Creates an MSI master purchase and its full monthly expense schedule. If
+balance tracking is enabled on the selected credit card, the full principal is
+deducted from available credit once at creation; generated installments use
+`affectsBalance: false` so they do not charge the card again.
+The credit card must have balance tracking enabled. Clients send a stable
+`Idempotency-Key` for retries; reusing it with different purchase data returns
+`409`.
+
+### `PUT /v1/msi-purchases/:id`
+
+Replaces editable purchase fields and regenerates the installment schedule. A
+tracked principal charge is reversed and reapplied atomically for the updated
+account and amount. Purchases created before tracking remain historical.
+
+### `DELETE /v1/msi-purchases/:id`
+
+Deletes the master purchase and generated installments. Any tracked principal
+charge is reversed atomically. Returns `204`.
+
 ### `GET /v1/rules`
 
 Returns `Rule[]`, sorted by `priority ASC`, then `id ASC`.

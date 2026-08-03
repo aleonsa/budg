@@ -15,9 +15,20 @@ const mocks = vi.hoisted(() => ({
   createReset: vi.fn(),
   updateReset: vi.fn(),
   deleteReset: vi.fn(),
+  createMSIMutate: vi.fn(),
+  createMSIReset: vi.fn(),
   createState: { isPending: false, error: null as Error | null },
   updateState: { isPending: false, error: null as Error | null },
   deleteState: { isPending: false, error: null as Error | null },
+  createMSIState: { isPending: false, error: null as Error | null },
+}))
+
+vi.mock('@/hooks/useMSIPurchaseMutations', () => ({
+  useCreateMSIPurchase: () => ({
+    ...mocks.createMSIState,
+    mutate: mocks.createMSIMutate,
+    reset: mocks.createMSIReset,
+  }),
 }))
 
 vi.mock('@/hooks/useQueries', () => ({
@@ -54,6 +65,18 @@ const accounts: Account[] = [
     institution: 'Banco Uno',
     last4: '1234',
     currency: 'MXN',
+    isActive: true,
+  },
+  {
+    id: 'credit',
+    name: 'Tarjeta Oro',
+    type: 'credit',
+    institution: 'Banco Uno',
+    last4: '5555',
+    currency: 'MXN',
+    creditLimit: 100000,
+    availableCredit: 100000,
+    balanceTrackingEnabled: true,
     isActive: true,
   },
   {
@@ -139,6 +162,7 @@ beforeEach(() => {
   Object.assign(mocks.createState, { isPending: false, error: null })
   Object.assign(mocks.updateState, { isPending: false, error: null })
   Object.assign(mocks.deleteState, { isPending: false, error: null })
+  Object.assign(mocks.createMSIState, { isPending: false, error: null })
   mocks.createReset.mockImplementation(() => {
     mocks.createState.error = null
   })
@@ -317,6 +341,36 @@ describe('TransactionsPage', () => {
       mocks.createMutate.mock.invocationCallOrder[0],
     )
     expect(screen.queryByText('Agregar movimiento')).not.toBeInTheDocument()
+  })
+
+  it('creates MSI through the expense form instead of a normal transaction', async () => {
+    mocks.createMSIMutate.mockImplementation(
+      (_value: unknown, options?: { onSuccess?: () => void }) => options?.onSuccess?.(),
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Agregar' }))
+    const dialog = screen.getByRole('dialog', { name: 'Agregar movimiento' })
+    await user.click(within(dialog).getByRole('button', { name: 'A MSI' }))
+    await user.type(within(dialog).getByRole('textbox', { name: 'Monto total' }), '1200')
+    await user.type(within(dialog).getByRole('textbox', { name: 'Descripción' }), 'Laptop')
+    await user.click(within(dialog).getByRole('button', { name: 'Agregar' }))
+
+    expect(mocks.createMSIMutate).toHaveBeenCalledWith(
+      {
+        accountId: 'credit',
+        categoryId: null,
+        description: 'Laptop',
+        merchant: undefined,
+        totalAmount: 120000,
+        installmentCount: 12,
+        startDate: expect.any(String),
+        idempotencyKey: expect.any(String),
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    )
+    expect(mocks.createMutate).not.toHaveBeenCalled()
   })
 
   it('opens detail, edits seeded data, and closes after update success', async () => {

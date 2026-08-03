@@ -160,6 +160,10 @@ func NewRouter(opts Options) http.Handler {
 				std.Route("/msi-purchases", func(msi chi.Router) {
 					msi.Get("/", h.list)
 					msi.Post("/", h.create)
+					msi.Route("/{id}", func(item chi.Router) {
+						item.Put("/", h.update)
+						item.Delete("/", h.delete)
+					})
 				})
 			}
 

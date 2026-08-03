@@ -66,6 +66,8 @@ vi.mock('@/lib/api', () => ({
     updateAccount: vi.fn(),
     deleteAccount: vi.fn(),
     createMSIPurchase: vi.fn(),
+    updateMSIPurchase: vi.fn(),
+    deleteMSIPurchase: vi.fn(),
   },
 }))
 
@@ -151,6 +153,8 @@ describe('AccountsPage', () => {
     vi.mocked(api.updateAccount).mockReset()
     vi.mocked(api.deleteAccount).mockReset()
     vi.mocked(api.createMSIPurchase).mockReset()
+    vi.mocked(api.updateMSIPurchase).mockReset()
+    vi.mocked(api.deleteMSIPurchase).mockReset()
   })
 
   it('shows loading until both account and MSI queries settle', () => {
@@ -203,35 +207,40 @@ describe('AccountsPage', () => {
     })
   })
 
-  it('registers an MSI purchase on a credit card and invalidates affected summaries', async () => {
+  it('edits and deletes an MSI purchase from its credit card', async () => {
     state.accounts.data = [credit()]
     state.categories.data = [expenseCategory()]
+    state.msi.data = [msi()]
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(screen.getByRole('button', { name: 'Registrar MSI' }))
-    const dialog = screen.getByRole('dialog', { name: 'Registrar compra a MSI' })
-    await user.type(within(dialog).getByRole('textbox', { name: 'Descripción' }), 'Laptop')
-    await user.type(within(dialog).getByRole('textbox', { name: 'Comercio' }), 'Apple Store')
-    await user.type(within(dialog).getByRole('textbox', { name: 'Monto total' }), '12000')
-    await user.clear(within(dialog).getByRole('spinbutton', { name: 'Meses' }))
-    await user.type(within(dialog).getByRole('spinbutton', { name: 'Meses' }), '12')
-    await user.selectOptions(
-      within(dialog).getByRole('combobox', { name: 'Categoría' }),
-      'cat-tech',
-    )
-    await user.click(within(dialog).getByRole('button', { name: 'Programar 12 mensualidades' }))
+    expect(screen.queryByRole('button', { name: 'Registrar MSI' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Editar MSI Laptop' }))
+    const dialog = screen.getByRole('dialog', { name: 'Editar compra a MSI' })
+    const description = within(dialog).getByRole('textbox', { name: 'Descripción' })
+    expect(description).toHaveValue('Laptop')
+    await user.clear(description)
+    await user.type(description, 'Laptop Pro')
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar cambios' }))
     await flushMutation()
 
-    expect(api.createMSIPurchase).toHaveBeenCalledWith({
+    expect(api.updateMSIPurchase).toHaveBeenCalledWith('msi-1', {
       accountId: 'credit-1',
-      categoryId: 'cat-tech',
-      description: 'Laptop',
-      merchant: 'Apple Store',
-      totalAmount: 1_200_000,
+      categoryId: null,
+      description: 'Laptop Pro',
+      merchant: 'Tienda Tech',
+      totalAmount: 24_000,
       installmentCount: 12,
-      startDate: expect.any(String),
+      startDate: '2026-04-01',
     })
+
+    await user.click(screen.getByRole('button', { name: 'Eliminar MSI Laptop' }))
+    const confirmation = screen.getByRole('dialog', { name: 'Eliminar compra a MSI' })
+    expect(confirmation).toHaveTextContent('Laptop')
+    await user.click(within(confirmation).getByRole('button', { name: 'Eliminar compra' }))
+    await flushMutation()
+
+    expect(api.deleteMSIPurchase).toHaveBeenCalledWith('msi-1')
     expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['msi'] })
     expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['transactions'] })
     expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })

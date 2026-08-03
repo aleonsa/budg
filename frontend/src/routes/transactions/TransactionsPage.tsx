@@ -17,6 +17,7 @@ import {
   useUpdateTransaction,
   useDeleteTransaction,
 } from '@/hooks/useTransactionMutations'
+import { useCreateMSIPurchase } from '@/hooks/useMSIPurchaseMutations'
 import type { Transaction } from '@/types'
 
 function TransactionModal({
@@ -40,6 +41,8 @@ function TransactionModal({
 }) {
   const createMut = useCreateTransaction()
   const updateMut = useUpdateTransaction()
+  const createMSIMut = useCreateMSIPurchase()
+  const msiIdempotencyKey = useRef(crypto.randomUUID())
   const isEditing = !!initial
   const activeReset = isEditing ? updateMut.reset : createMut.reset
 
@@ -49,17 +52,20 @@ function TransactionModal({
 
   if (!open) return null
 
-  const submitting = createMut.isPending || updateMut.isPending
-  const mutationError = isEditing ? updateMut.error : createMut.error
+  const submitting = createMut.isPending || updateMut.isPending || createMSIMut.isPending
+  const mutationError = isEditing ? updateMut.error : (createMut.error ?? createMSIMut.error)
 
   const handleClose = () => {
     if (submitting) return
     activeReset()
+    createMSIMut.reset()
+    msiIdempotencyKey.current = crypto.randomUUID()
     onClose()
   }
 
   const handleSubmit = (value: TransactionFormValue) => {
     activeReset()
+    createMSIMut.reset()
     if (isEditing && initial) {
       updateMut.mutate(
         {
@@ -74,6 +80,20 @@ function TransactionModal({
             merchant: value.merchant,
             transferToAccountId: value.transferToAccountId || undefined,
           },
+        },
+        { onSuccess: handleClose },
+      )
+    } else if (value.msiInstallmentCount) {
+      createMSIMut.mutate(
+        {
+          accountId: value.accountId,
+          categoryId: value.categoryId,
+          description: value.description,
+          merchant: value.merchant,
+          totalAmount: value.amount,
+          installmentCount: value.msiInstallmentCount,
+          startDate: value.date,
+          idempotencyKey: msiIdempotencyKey.current,
         },
         { onSuccess: handleClose },
       )
@@ -107,6 +127,7 @@ function TransactionModal({
         categories={categories}
         initial={initial}
         lockedType={lockedType}
+        allowMSI={!isEditing}
         onSubmit={handleSubmit}
         onCancel={handleClose}
         submitting={submitting}

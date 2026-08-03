@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
@@ -20,6 +20,7 @@ import {
   useTransactions,
 } from '@/hooks/useQueries'
 import { useCreateTransaction } from '@/hooks/useTransactionMutations'
+import { useCreateMSIPurchase } from '@/hooks/useMSIPurchaseMutations'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { TransactionForm, type TransactionFormValue } from '@/features/transactions/TransactionForm'
 import { formatMoney, toCents } from '@/lib/format'
@@ -238,6 +239,8 @@ function DashboardMockPanel({
   onClose: () => void
 }) {
   const createTx = useCreateTransaction()
+  const createMSI = useCreateMSIPurchase()
+  const msiIdempotencyKey = useRef(crypto.randomUUID())
   const queryClient = useQueryClient()
   const createAcc = useMutation({
     mutationFn: api.createAccount,
@@ -254,6 +257,8 @@ function DashboardMockPanel({
 
   const closePanel = () => {
     createTx.reset()
+    createMSI.reset()
+    msiIdempotencyKey.current = crypto.randomUUID()
     createAcc.reset()
     setAccName('')
     setAccType('debit')
@@ -273,6 +278,23 @@ function DashboardMockPanel({
 
   const handleTx = (value: TransactionFormValue) => {
     createTx.reset()
+    createMSI.reset()
+    if (value.msiInstallmentCount) {
+      createMSI.mutate(
+        {
+          accountId: value.accountId,
+          categoryId: value.categoryId,
+          description: value.description,
+          merchant: value.merchant,
+          totalAmount: value.amount,
+          installmentCount: value.msiInstallmentCount,
+          startDate: value.date,
+          idempotencyKey: msiIdempotencyKey.current,
+        },
+        { onSuccess: closePanel },
+      )
+      return
+    }
     createTx.mutate(
       {
         type: value.type,
@@ -325,7 +347,7 @@ function DashboardMockPanel({
       submitLabel="Guardar"
       onClose={closePanel}
       onSubmit={action === 'account' ? handleAccount : undefined}
-      submitting={createTx.isPending || createAcc.isPending}
+      submitting={createTx.isPending || createMSI.isPending || createAcc.isPending}
     >
       {action === 'account' ? (
         <>
@@ -381,12 +403,13 @@ function DashboardMockPanel({
             lockedType={
               action === 'transfer' ? 'transfer' : action === 'income' ? 'income' : 'expense'
             }
+            allowMSI={action === 'expense'}
             onSubmit={handleTx}
             onCancel={closePanel}
-            submitting={createTx.isPending}
+            submitting={createTx.isPending || createMSI.isPending}
             submitLabel="Agregar"
           />
-          {createTx.error && (
+          {(createTx.error || createMSI.error) && (
             <p role="alert" className="text-xs text-destructive">
               No se pudo crear el movimiento. Intenta de nuevo.
             </p>

@@ -23,6 +23,19 @@ func TestValidateTransactionShapeRequiresStatementPaymentsToAffectBalance(t *tes
 	}
 }
 
+func TestTransactionRepositoryRejectsClientManagedMSILinks(t *testing.T) {
+	t.Parallel()
+	purchaseID := "msi-1"
+	repo := NewTransactionRepository(nil)
+
+	if _, err := repo.Create(t.Context(), "user-1", TransactionInput{MSIPurchaseID: &purchaseID}); !errors.Is(err, ErrMSIInstallmentManaged) {
+		t.Fatalf("Create() error = %v, want ErrMSIInstallmentManaged", err)
+	}
+	if _, err := repo.Update(t.Context(), "user-1", "tx-1", TransactionPatch{MSIPurchaseID: Field[string]{Set: true, Value: &purchaseID}}); !errors.Is(err, ErrMSIInstallmentManaged) {
+		t.Fatalf("Update() error = %v, want ErrMSIInstallmentManaged", err)
+	}
+}
+
 func TestValidateStatementBalanceTrackingRequiresBothAccounts(t *testing.T) {
 	t.Parallel()
 	destinationID := "card-1"
