@@ -22,7 +22,7 @@ check-backend:
 check-security:
 	@$(GITLEAKS) git --redact --no-banner .
 	@$(GITLEAKS) dir --redact --no-banner .
-	@$(NPM) audit --audit-level=high
+	@bash frontend/scripts/audit.sh
 
 format:
 	@$(NPM) run format
