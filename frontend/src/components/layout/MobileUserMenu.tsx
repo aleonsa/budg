@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { LogOut, Settings } from 'lucide-react'
 import { Sheet } from '@/components/ui/sheet'
+import { apiBaseUrl } from '@/lib/api/backend'
 import { useAuth } from '@/stores/auth'
 
 /**
@@ -50,7 +51,7 @@ export function MobileUserMenu() {
           </div>
 
           <div className="rounded-md bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
-            Producción · {import.meta.env.VITE_API_BASE_URL || 'mismo origen'}
+            Producción · {apiBaseUrl || 'mismo origen'}
           </div>
 
           <div className="space-y-1">

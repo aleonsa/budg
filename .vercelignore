@@ -1,0 +1,34 @@
+# Files never uploaded to a Vercel deployment.
+#
+# WHY THIS FILE EXISTS: `vercel deploy` from a developer machine does NOT read
+# .gitignore -- it reads this file. Without it, the CLI uploaded every ignored
+# path in the tree, including local .env files. Vite then read frontend/.env
+# during the cloud build and baked VITE_API_BASE_URL=http://localhost:8080 into
+# a production bundle (2026-08-03), and backend/.env plus local/env/*.prod.env
+# landed in Vercel's deployment source storage.
+#
+# Production config lives in the Vercel dashboard (see docs/ci-cd.md), never in
+# an uploaded file. Keep this list in sync with .gitignore's secret patterns.
+
+# Local secrets and environment files. Examples stay: the build never reads them,
+# but keeping them uploaded makes the source tab self-documenting.
+.env
+.env.*
+!.env.example
+
+# Personal local data: import spreadsheets, statements, migration env files.
+/local/
+
+# Local tool output and editor/agent state.
+/graphify-out/
+/.claude/
+.vercel
+coverage
+coverage.out
+*.log
+
+# Build artifacts: Vercel builds these itself from source.
+node_modules
+dist
+dist-ssr
+/backend/api
