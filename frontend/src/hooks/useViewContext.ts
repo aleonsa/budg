@@ -1,4 +1,4 @@
-import { useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router'
 import { useMemo } from 'react'
 import type { ViewContext } from '@/lib/agent/types'
 

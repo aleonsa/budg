@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter } from 'react-router'
 import { AppShell } from '@/components/layout/AppShell'
 import { RequireAuth } from '@/app/RequireAuth'
 import {

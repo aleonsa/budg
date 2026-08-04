@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useAuth } from '@/stores/auth'
 import { Sidebar } from './Sidebar'

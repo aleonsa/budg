@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 import { LogOut, Settings } from 'lucide-react'
 import { Sheet } from '@/components/ui/sheet'
 import { apiBaseUrl } from '@/lib/api/backend'

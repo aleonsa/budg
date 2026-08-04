@@ -4,7 +4,7 @@ import {
   useMutation,
   useQueryClient,
 } from '@tanstack/react-query'
-import { RouterProvider } from 'react-router-dom'
+import { RouterProvider } from 'react-router'
 import { useEffect, useState } from 'react'
 import { router } from './router'
 import { useAuth } from '@/stores/auth'

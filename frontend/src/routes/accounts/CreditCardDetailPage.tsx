@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, CalendarDays, CreditCard, Landmark, ReceiptText } from 'lucide-react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router'
 import { Header, PageSection, SectionTitle } from '@/components/layout/Header'
 import { MockActionPanel } from '@/components/common/MockActionPanel'
 import { Badge, Button, Card, Input, Label, Progress, Separator } from '@/components/ui'

@@ -1,5 +1,5 @@
 import { render, screen, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAccounts, useBudgets, useCategories, useTransactions } from '@/hooks/useQueries'
 import type { Account, Budget, Category, Transaction } from '@/types'
