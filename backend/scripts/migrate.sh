@@ -55,6 +55,7 @@ esac
 
 export GOOSE_DRIVER=postgres
 export GOOSE_DBSTRING="$goose_dbstring"
+export GOOSE_MIGRATION_DIR="$repo_root/backend/migrations"
 
 echo "Running Goose '$action' against $expected_environment"
 (cd "$repo_root/backend" && goose -env=none "$action")

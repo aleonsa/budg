@@ -286,20 +286,42 @@ workflow GitHub Actions custom de deploy, no hay GCP, no hay WIF ni Artifact
 Registry.
 
 1. CI verde en `main` (`ci` agregador).
-2. Vercel construye ambos servicios nativamente desde el mismo commit (git
-   integration, sin workflow propio).
-3. Backend se construye desde `backend/Dockerfile` (`runtime: container` en
+2. `migrate-prod.yml` dispara con `workflow_run` al terminar CI en `main`,
+   aplica Goose contra producción y solo entonces hace `POST` al Deploy Hook de
+   Vercel. Si Goose falla, no hay deploy: producción sigue sirviendo el
+   deployment anterior en vez de código que el esquema no soporta.
+3. Vercel construye ambos servicios nativamente desde el mismo commit. El
+   auto-deploy por git de `main` está **apagado** (`git.deploymentEnabled` en
+   `vercel.json`) precisamente para que el orden migración → deploy esté
+   garantizado; el Deploy Hook sigue produciendo un deployment git-sourced.
+4. Backend se construye desde `backend/Dockerfile` (`runtime: container` en
    `vercel.json`); mismo binario/imagen serviría igual en Cloud Run u otro
    runtime de contenedores si Vercel Services deja de convenir.
-4. Preview deployment automático por PR con ambos servicios juntos
+5. Preview deployment automático por PR con ambos servicios juntos
    (full-stack), sin exponer secretos de producción (env vars de preview
-   separadas de producción en el dashboard).
-5. Deploy a producción automático en cada push a `main` — proyecto de uso
-   personal, sin aprobación manual por ahora.
-6. Smoke test post-deploy: `/healthz`, `/readyz`, `/v1/me` sin y con token.
-7. Migraciones Goose corren como paso manual/separado, nunca desde el
-   entrypoint del contenedor; nunca automáticas dentro del deploy de Vercel.
-8. Rollback: re-promover el deployment anterior desde el dashboard de Vercel.
+   separadas de producción en el dashboard). Las ramas no están afectadas por
+   `deploymentEnabled`: solo `main` lo tiene en `false`.
+6. Deploy a producción sin aprobación manual — proyecto de uso personal — pero
+   siempre detrás del paso de migración.
+7. Smoke test post-deploy: `/healthz`, `/readyz`, `/v1/me` sin y con token.
+8. Migraciones Goose nunca corren desde el entrypoint del contenedor: corren en
+   `migrate-prod.yml` (o a mano con `make migrate-prod-up CONFIRM_PRODUCTION=1`
+   para un hotfix), nunca dentro del build de Vercel.
+9. Rollback: re-promover el deployment anterior desde el dashboard de Vercel.
+   Ojo: eso revierte código, no esquema — una migración ya aplicada sigue
+   aplicada. Por eso las migraciones deben ser expand backward-compatible.
+
+Secretos que `migrate-prod.yml` necesita, en el GitHub Environment
+`production`:
+
+| Secret | Valor |
+| --- | --- |
+| `MIGRATIONS_DATABASE_URL` | URI del Session pooler de Supabase (puerto 5432) |
+| `VERCEL_DEPLOY_HOOK_URL` | Deploy Hook del proyecto para la rama `main` |
+
+El host directo `db.<project-ref>.supabase.co` es IPv6-only: falla con
+`no route to host` tanto en los runners de GitHub como en redes domésticas sin
+IPv6. Usar siempre el pooler.
 
 Secretos (`DATABASE_URL`, etc.) viven como variables de entorno "Sensitive" en
 el dashboard de Vercel, con valores distintos entre Preview y Production.

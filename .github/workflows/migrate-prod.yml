@@ -1,0 +1,78 @@
+name: Migrate production
+
+# Production deploys are gated on migrations, not parallel to them: Vercel's git
+# auto-deploy is disabled for `main` (see vercel.json `git.deploymentEnabled`),
+# so this workflow is the only thing that promotes a commit to production. It
+# runs Goose first and triggers the deploy hook only when Goose succeeds.
+#
+# WHY: on 2026-08-03 PR #52 merged code that read
+# account_balance_entries.msi_purchase_id while production sat at migration
+# 00013. Vercel deployed in parallel with CI, nobody ran Goose, and every MSI
+# endpoint returned 500 (SQLSTATE 42703). Failing migrations now leave the old
+# deployment serving traffic instead of shipping code the schema cannot support.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never cancel a run mid-migration, and never let two runs apply Goose at once.
+concurrency:
+  group: migrate-prod
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Apply migrations and deploy
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production
+    env:
+      BUDG_MIGRATION_ENV: production
+      MIGRATIONS_DATABASE_URL: ${{ secrets.MIGRATIONS_DATABASE_URL }}
+    steps:
+      - name: Checkout the commit that passed CI
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Install pinned Goose
+        env:
+          GOOSE_VERSION: v3.27.2
+        run: |
+          go install "github.com/pressly/goose/v3/cmd/goose@${GOOSE_VERSION}"
+          goose -version
+
+      - name: Show pending migrations
+        run: make migrate-prod-status
+
+      - name: Apply migrations
+        run: make migrate-prod-up CONFIRM_PRODUCTION=1
+
+      - name: Confirm final schema version
+        run: make migrate-prod-status
+
+      # Deploy hooks build the branch tip from git, so the deployment keeps its
+      # commit metadata and stays rollback-able from the Vercel dashboard. The
+      # Vercel CLI is deliberately not used here: it uploads a working tree and
+      # marks the deployment as CLI-sourced (see docs/ci-cd.md).
+      - name: Trigger Vercel production deploy
+        env:
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          curl --fail --silent --show-error --request POST \
+            "$VERCEL_DEPLOY_HOOK_URL" --output /dev/null
+          echo "Deploy hook accepted; Vercel is building main"

@@ -120,14 +120,14 @@ no compitan por el esquema.
 
 1. CI verde en `main` (`make check-frontend`, `make check-backend`,
    `make check-security`, migraciones).
-2. Push a `main` dispara build nativo de Vercel para ambos servicios desde el
-   mismo commit.
-3. Migración Goose expand backward-compatible se aplica manualmente (o vía
-   paso separado) antes de que el nuevo código dependa de ella.
-4. Vercel construye y despliega ambos servicios; capa de contenedor del
-   backend se reconstruye desde `backend/Dockerfile`.
-5. Smoke test post-deploy (ver abajo).
-6. Migración contract destructiva solo después de que ningún código viejo use
+2. `.github/workflows/migrate-prod.yml` aplica la migración Goose expand
+   backward-compatible contra producción. Push a `main` **no** dispara deploy por
+   sí solo: el auto-deploy por git de `main` está apagado en `vercel.json`.
+3. Solo si Goose termina bien, el workflow hace `POST` al Deploy Hook y Vercel
+   construye y despliega ambos servicios; capa de contenedor del backend se
+   reconstruye desde `backend/Dockerfile`.
+4. Smoke test post-deploy (ver abajo).
+5. Migración contract destructiva solo después de que ningún código viejo use
    la columna/tabla anterior.
 
 ## Ejecutar migraciones
@@ -147,9 +147,21 @@ MIGRATIONS_DATABASE_URL='postgresql://...'
 ```
 
 Producción usa `BUDG_MIGRATION_ENV=production`. El wrapper valida esta marca
-para reducir el riesgo de ejecutar contra el ambiente equivocado, agrega
-`prefer_simple_protocol=true` para hacer Goose compatible con el transaction
-pooler de Supabase y nunca imprime la URL.
+para reducir el riesgo de ejecutar contra el ambiente equivocado, exporta
+`GOOSE_MIGRATION_DIR` (sin eso Goose busca en `backend/` y muere con
+`no migration files found`), agrega `prefer_simple_protocol=true` para hacer
+Goose compatible con el transaction pooler de Supabase y nunca imprime la URL.
+
+`MIGRATIONS_DATABASE_URL` debe apuntar al **Session pooler** de Supabase
+(`postgres.<project-ref>@...pooler.supabase.com:5432`). El host directo
+`db.<project-ref>.supabase.co:5432` es IPv6-only y falla con
+`dial error: no route to host` desde redes sin IPv6 y desde los runners de
+GitHub. Session mode (5432), no Transaction mode (6543): las migraciones son DDL
+dentro de transacciones.
+
+Si no hay archivo `.env`, el wrapper toma `BUDG_MIGRATION_ENV` y
+`MIGRATIONS_DATABASE_URL` del entorno — así los usa `migrate-prod.yml` en CI con
+los secrets del GitHub Environment `production`.
 
 Desde la raíz:
 
