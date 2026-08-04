@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 import { Header } from '@/components/layout/Header'
 import { Card, Badge, Button, Separator, Input, Label } from '@/components/ui'
 import { MockActionPanel } from '@/components/common/MockActionPanel'

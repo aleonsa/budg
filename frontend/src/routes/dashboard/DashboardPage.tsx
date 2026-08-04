@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Amount } from '@/components/common/Amount'

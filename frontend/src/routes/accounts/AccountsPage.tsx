@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { Header } from '@/components/layout/Header'
 import { Card, Badge, Progress, Separator, Button, Input, Label } from '@/components/ui'
 import { EmptyState } from '@/components/common/EmptyState'
