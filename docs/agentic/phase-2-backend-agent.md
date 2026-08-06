@@ -38,16 +38,16 @@ Variables:
 
 ```dotenv
 OPENAI_API_KEY=
-AGENT_MODEL=gpt-5.4-nano
-AGENT_MAX_STEPS=6
-AGENT_MAX_TOOL_CALLS=8
-AGENT_TIMEOUT_SECONDS=30
-AGENT_MAX_OUTPUT_TOKENS=1200
+AGENT_MODEL=gpt-5.6-luna
+AGENT_MAX_STEPS=12
+AGENT_MAX_TOOL_CALLS=20
+AGENT_TIMEOUT_SECONDS=60
+AGENT_MAX_OUTPUT_TOKENS=4000
 ```
 
 `AGENT_MODEL` es configuración, no constante. Antes de habilitar un modelo se
 verifica que soporte Responses API, strict tool schemas y structured output.
-Si `gpt-5.4-nano` no cumple una capacidad requerida en la cuenta disponible, se
+Si `gpt-5.6-luna` no cumple una capacidad requerida en la cuenta disponible, se
 elige el modelo pequeño más nuevo que sí la cumpla, sin cambiar código.
 
 ## Paquetes previstos

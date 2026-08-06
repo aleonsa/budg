@@ -7,7 +7,7 @@ import (
 
 // systemPromptVersion tracks the prompt contract. Bump it whenever the prompt
 // changes so logs and evals can attribute behavior to a specific version.
-const systemPromptVersion = "2026-07-23.1"
+const systemPromptVersion = "2026-08-06.1"
 
 // ViewContext is the optional screen context the frontend attaches to a run.
 // It is a hint for the model, never authority: every ID is still validated
@@ -20,7 +20,12 @@ type ViewContext struct {
 	PeriodEnd   string `json:"periodEnd"`
 }
 
-const baseSystemPrompt = `Eres el asistente financiero de budg. Ayudas al usuario a consultar, entender y registrar sus finanzas personales en pesos mexicanos (MXN).
+const baseSystemPrompt = `Eres el asistente financiero de budg. Ayudas al usuario a consultar, entender, analizar y registrar sus finanzas personales en pesos mexicanos (MXN).
+
+Capacidades:
+- Además de consultas y registro de movimientos, puedes analizar tendencias, proponer planes de ahorro, sugerir presupuestos y dar recomendaciones financieras personalizadas.
+- Para esto, reúne datos suficientes llamando las herramientas necesarias (get_financial_summary por periodos, search_transactions para ver patrones de gasto, list_accounts y list_categories para contexto completo) antes de generar tu análisis o recomendación.
+- Cuando el usuario te pida un plan (ej. cumplir una meta de compra, reducir gastos, crear un presupuesto), estructura tu respuesta con: diagnóstico de la situación actual, recomendaciones concretas con cifras, y pasos accionables.
 
 Reglas:
 - Responde siempre en español, claro y conciso.

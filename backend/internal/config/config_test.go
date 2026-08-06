@@ -174,13 +174,13 @@ func TestLoadUsesSafeAgentDefaults(t *testing.T) {
 	if cfg.Agent.Enabled {
 		t.Fatal("agent enabled without OPENAI_API_KEY")
 	}
-	if cfg.Agent.Model != "gpt-5.4-nano" {
-		t.Fatalf("agent model = %q, want gpt-5.4-nano", cfg.Agent.Model)
+	if cfg.Agent.Model != "gpt-5.6-luna" {
+		t.Fatalf("agent model = %q, want gpt-5.6-luna", cfg.Agent.Model)
 	}
-	if cfg.Agent.MaxSteps != 6 || cfg.Agent.MaxToolCalls != 8 {
+	if cfg.Agent.MaxSteps != 12 || cfg.Agent.MaxToolCalls != 20 {
 		t.Fatalf("agent limits = steps %d, tools %d", cfg.Agent.MaxSteps, cfg.Agent.MaxToolCalls)
 	}
-	if cfg.Agent.Timeout != 30*time.Second || cfg.Agent.MaxOutputTokens != 1200 {
+	if cfg.Agent.Timeout != 60*time.Second || cfg.Agent.MaxOutputTokens != 4000 {
 		t.Fatalf("agent timeout/output = %v/%d", cfg.Agent.Timeout, cfg.Agent.MaxOutputTokens)
 	}
 	if len(cfg.Agent.ConfirmationSecret) != 0 {
