@@ -57,6 +57,40 @@ npm ci
 npm run dev
 ```
 
+### Docker Compose
+
+For the complete local app with frontend and backend hot reload, keep
+`frontend/.env` and `backend/.env` configured, then run from the repository root:
+
+```bash
+docker compose up --build
+```
+
+Open `http://localhost:5173`. The API is available at
+`http://localhost:8080`, with readiness reported through `/readyz`. Supabase
+Postgres and Auth remain external and use the development credentials from the
+existing env files.
+
+Subsequent starts can omit `--build`:
+
+```bash
+docker compose up
+```
+
+Stop and remove the development containers:
+
+```bash
+docker compose down
+```
+
+Equivalent Make targets are `make dev-up`, `make dev-down`, and
+`make dev-logs`. Compose uses `Dockerfile.dev` files only; production continues
+to use `backend/Dockerfile` and `vercel.json` unchanged.
+
+To validate Compose safely, use `docker compose config --quiet`. Running
+`docker compose config` without `--quiet` expands values from `backend/.env`
+into terminal output.
+
 Build:
 
 ```bash

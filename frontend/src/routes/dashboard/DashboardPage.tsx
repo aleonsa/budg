@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, LayoutGrid, Calendar as CalendarIcon } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
+import { CalendarView } from './CalendarView'
+import { useQuickActionStore } from '@/stores/quickAction'
 import { Amount } from '@/components/common/Amount'
 import { CategoryIcon } from '@/components/common/CategoryIcon'
 import { MockActionPanel } from '@/components/common/MockActionPanel'
@@ -700,8 +702,13 @@ function RecentMovements({
   )
 }
 
-export default function DashboardPage() {
+interface DashboardPageProps {
+  initialTab?: 'calendar' | 'overview'
+}
+
+export default function DashboardPage({ initialTab = 'calendar' }: DashboardPageProps = {}) {
   const [action, setAction] = useState<DashboardAction>(null)
+  const [dashboardTab, setDashboardTab] = useState<'calendar' | 'overview'>(initialTab)
   const [periodOffset, setPeriodOffset] = useState(0)
   const accountsQ = useAccounts()
   const transactionsQ = useTransactions()
@@ -776,61 +783,113 @@ export default function DashboardPage() {
       <Header title="Inicio financiero" subtitle="Centro de control" />
 
       <div className="space-y-3 py-3">
-        <PeriodSelector
-          label={period.label}
-          onPrev={() => setPeriodOffset((o) => o - 1)}
-          onNext={() => setPeriodOffset((o) => o + 1)}
-        />
-        <QuickActions onAction={setAction} />
+        {/* Top Sub-tabs Switcher */}
+        <div className="flex items-center justify-between border-b border-border/60 pb-2">
+          <div
+            className="flex items-center gap-1 rounded-lg bg-muted/60 p-1 text-xs"
+            role="tablist"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={dashboardTab === 'calendar'}
+              onClick={() => setDashboardTab('calendar')}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+                dashboardTab === 'calendar'
+                  ? 'bg-background text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <CalendarIcon className="h-3.5 w-3.5" />
+              <span>Calendario</span>
+            </button>
 
-        <div className="w-full max-w-full overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-1">
-          <div className="flex w-max min-w-full gap-2.5 sm:w-auto sm:grid sm:grid-cols-4">
-            <MetricCard
-              label="Disponible"
-              value={availableFunds}
-              tone="green"
-              detail="Fondos operativos"
-            />
-            <MetricCard
-              label="Gasto mes"
-              value={monthExpenses}
-              tone="red"
-              detail="Periodo seleccionado"
-            />
-            <MetricCard label="Deuda" value={debt} tone="red" detail="Tarjetas y crédito" />
-            <MetricCard
-              label="Patrimonio"
-              value={netWorth}
-              tone={netWorth >= 0 ? 'green' : 'red'}
-              detail="Disponible menos deuda"
-            />
+            <button
+              type="button"
+              role="tab"
+              aria-selected={dashboardTab === 'overview'}
+              onClick={() => setDashboardTab('overview')}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+                dashboardTab === 'overview'
+                  ? 'bg-background text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              <span>Resumen</span>
+            </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="space-y-3">
-            <MonthlyOverview income={monthIncome} expenses={monthExpenses} />
-            <BudgetAlerts budgets={budgetProgress} categories={categoryMap} />
-            <DistributionCard
-              title="Distribución de gastos"
-              description="Top categorías del periodo."
-              items={expenseDistribution}
-              empty="No hay gastos registrados en este periodo."
+        {dashboardTab === 'overview' ? (
+          <>
+            <PeriodSelector
+              label={period.label}
+              onPrev={() => setPeriodOffset((o) => o - 1)}
+              onNext={() => setPeriodOffset((o) => o + 1)}
             />
-            <RecentMovements transactions={transactions} categories={categoryMap} />
-          </div>
+            <QuickActions onAction={setAction} />
 
-          <div className="space-y-3">
-            <DistributionCard
-              title="Distribución de ingresos"
-              description="Fuentes de ingreso del periodo."
-              items={incomeDistribution}
-              empty="No hay ingresos registrados en este periodo."
-            />
-            <DebtAndMSI purchases={msiPurchases} />
-            <GoalsOverview goals={goalProgress} />
-          </div>
-        </div>
+            <div className="w-full max-w-full overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-1">
+              <div className="flex w-max min-w-full gap-2.5 sm:w-auto sm:grid sm:grid-cols-4">
+                <MetricCard
+                  label="Disponible"
+                  value={availableFunds}
+                  tone="green"
+                  detail="Fondos operativos"
+                />
+                <MetricCard
+                  label="Gasto mes"
+                  value={monthExpenses}
+                  tone="red"
+                  detail="Periodo seleccionado"
+                />
+                <MetricCard label="Deuda" value={debt} tone="red" detail="Tarjetas y crédito" />
+                <MetricCard
+                  label="Patrimonio"
+                  value={netWorth}
+                  tone={netWorth >= 0 ? 'green' : 'red'}
+                  detail="Disponible menos deuda"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+              <div className="space-y-3">
+                <MonthlyOverview income={monthIncome} expenses={monthExpenses} />
+                <BudgetAlerts budgets={budgetProgress} categories={categoryMap} />
+                <DistributionCard
+                  title="Distribución de gastos"
+                  description="Top categorías del periodo."
+                  items={expenseDistribution}
+                  empty="No hay gastos registrados en este periodo."
+                />
+                <RecentMovements transactions={transactions} categories={categoryMap} />
+              </div>
+
+              <div className="space-y-3">
+                <DistributionCard
+                  title="Distribución de ingresos"
+                  description="Fuentes de ingreso del periodo."
+                  items={incomeDistribution}
+                  empty="No hay ingresos registrados en este periodo."
+                />
+                <DebtAndMSI purchases={msiPurchases} />
+                <GoalsOverview goals={goalProgress} />
+              </div>
+            </div>
+          </>
+        ) : (
+          <CalendarView
+            transactions={transactions}
+            categories={categoryMap}
+            onAddTransactionForDate={(dateStr) =>
+              useQuickActionStore.getState().openQuickAction('movement', dateStr)
+            }
+          />
+        )}
       </div>
 
       <DashboardMockPanel

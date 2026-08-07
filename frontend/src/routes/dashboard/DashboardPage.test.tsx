@@ -131,10 +131,10 @@ const transaction = (
   createdAt: date,
 })
 
-function renderPage() {
+function renderPage(initialTab: 'calendar' | 'overview' = 'overview') {
   return render(
     <MemoryRouter>
-      <DashboardPage />
+      <DashboardPage initialTab={initialTab} />
     </MemoryRouter>,
   )
 }
@@ -184,8 +184,24 @@ describe('DashboardPage', () => {
     expect(screen.queryByText('Overview mensual')).not.toBeInTheDocument()
   })
 
-  it('renders deterministic zero aggregates and empty business states', () => {
-    renderPage()
+  it('defaults to calendar sub-tab when rendered without props', () => {
+    render(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('tab', { name: 'Calendario' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Resumen' })).toHaveAttribute('aria-selected', 'false')
+    expect(screen.getByText('Mayor gasto')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mes anterior' })).toBeInTheDocument()
+  })
+
+  it('renders deterministic zero aggregates and empty business states in overview tab', () => {
+    renderPage('overview')
+
+    expect(screen.getByRole('tab', { name: 'Calendario' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Resumen' })).toBeInTheDocument()
 
     expect(screen.getByText('julio de 2026')).toBeInTheDocument()
     expect(screen.getByText('0% ahorro')).toBeInTheDocument()
@@ -193,6 +209,15 @@ describe('DashboardPage', () => {
     expect(screen.getByText('No hay gastos registrados en este periodo.')).toBeInTheDocument()
     expect(screen.getByText('No hay ingresos registrados en este periodo.')).toBeInTheDocument()
     expect(screen.getByText('0 activas')).toBeInTheDocument()
+
+    // Switch to Calendar sub-tab
+    fireEvent.click(screen.getByRole('tab', { name: 'Calendario' }))
+    expect(screen.getByText('Mayor gasto')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mes anterior' })).toBeInTheDocument()
+
+    // Switch back to Resumen sub-tab
+    fireEvent.click(screen.getByRole('tab', { name: 'Resumen' }))
+    expect(screen.getByText('Overview mensual')).toBeInTheDocument()
   })
 
   it('renders recent transfers as source-negative and only income as positive', () => {

@@ -1,8 +1,9 @@
 NPM := npm --prefix frontend
 GITLEAKS ?= gitleaks
 GO ?= go
+DOCKER_COMPOSE ?= docker compose
 
-.PHONY: check check-frontend check-backend check-security format format-check lint typecheck test test-coverage build migrate-dev-status migrate-dev-up migrate-prod-status migrate-prod-up
+.PHONY: check check-frontend check-backend check-security format format-check lint typecheck test test-coverage build dev-up dev-down dev-logs migrate-dev-status migrate-dev-up migrate-prod-status migrate-prod-up
 
 check: check-frontend check-backend check-security
 
@@ -44,6 +45,15 @@ test-coverage:
 
 build:
 	@$(NPM) run build
+
+dev-up:
+	@$(DOCKER_COMPOSE) up --build
+
+dev-down:
+	@$(DOCKER_COMPOSE) down
+
+dev-logs:
+	@$(DOCKER_COMPOSE) logs --follow
 
 migrate-dev-status:
 	@./backend/scripts/migrate.sh dev status
