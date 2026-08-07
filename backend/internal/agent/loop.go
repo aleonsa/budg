@@ -237,7 +237,7 @@ func (r *Runner) dispatchToolCalls(
 		}
 
 		if emit != nil {
-			if err := emit(ModelEvent{Type: ModelEventToolCompleted, ToolName: call.Name, ToolCallID: call.ID}); err != nil {
+			if err := emit(ModelEvent{Type: ModelEventToolCompleted, ToolName: call.Name, ToolCallID: call.ID, ToolStatus: toolResult.Status}); err != nil {
 				return "", nil, err
 			}
 		}

@@ -243,8 +243,10 @@ type ModelEvent struct {
 	// Delta is set only for ModelEventTextDelta.
 	Delta string
 	// ToolName and ToolCallID are set only for the tool_started/tool_completed events.
+	// ToolStatus is set only for tool_completed after its result validates.
 	ToolName   string
 	ToolCallID string
+	ToolStatus ToolStatus
 }
 
 type Provider interface {

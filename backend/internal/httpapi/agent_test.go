@@ -226,7 +226,7 @@ func TestAgentChatStreamsCompletedResponse(t *testing.T) {
 	stub := &stubAgentService{
 		emitEvents: []agent.ModelEvent{
 			{Type: agent.ModelEventToolStarted, ToolName: "search_transactions", ToolCallID: "c1"},
-			{Type: agent.ModelEventToolCompleted, ToolName: "search_transactions", ToolCallID: "c1"},
+			{Type: agent.ModelEventToolCompleted, ToolName: "search_transactions", ToolCallID: "c1", ToolStatus: agent.ToolStatusSuccess},
 			{Type: agent.ModelEventTextDelta, Delta: "Hola"},
 			{Type: agent.ModelEventTextDelta, Delta: " mundo"},
 		},
@@ -269,21 +269,27 @@ func TestAgentChatStreamsCompletedResponse(t *testing.T) {
 	}
 
 	frames := sseFrames(t, rec.Body.String())
-	// text_delta events must not be forwarded: the model only ever produces
-	// the FinalResponse JSON contract, so its "text" deltas are raw
-	// structured-JSON characters, not human-readable progressive text (see
-	// writeModelEvent). Only started + tool.started + tool.completed +
-	// completed should reach the wire, exactly 4 frames.
-	if len(frames) != 4 {
-		t.Fatalf("expected exactly 4 frames (started + tool.started + tool.completed + completed), got %d: %+v", len(frames), frames)
+	// Raw provider deltas are structured JSON and must not leak. Once the final
+	// contract validates, only its human-readable message is streamed.
+	if len(frames) < 5 {
+		t.Fatalf("expected progress, validated deltas, and completed frames, got %d: %+v", len(frames), frames)
 	}
 	if frames[0]["type"] != "response.started" {
 		t.Fatalf("first frame type = %v, want response.started", frames[0]["type"])
 	}
+	completedToolData := frames[2]["data"].(map[string]any)
+	if completedToolData["status"] != "success" {
+		t.Fatalf("tool.completed status = %v, want success", completedToolData["status"])
+	}
+	var streamedMessage strings.Builder
 	for _, frame := range frames {
 		if frame["type"] == "response.delta" {
-			t.Fatalf("response.delta must not be forwarded to the client: %+v", frame)
+			data := frame["data"].(map[string]any)
+			streamedMessage.WriteString(data["delta"].(string))
 		}
+	}
+	if streamedMessage.String() != "Gastaste MXN 250.00 en transporte." {
+		t.Fatalf("streamed message = %q", streamedMessage.String())
 	}
 	last := frames[len(frames)-1]
 	if last["type"] != "response.completed" {
@@ -411,6 +417,9 @@ func TestAgentChatIncludesPendingConfirmationInCompletedFrame(t *testing.T) {
 	if data["confirmationToken"] != "tok-xyz789" {
 		t.Fatalf("confirmationToken = %v, want tok-xyz789", data["confirmationToken"])
 	}
+	if data["confirmationTool"] != "create_transaction" {
+		t.Fatalf("confirmationTool = %v, want create_transaction", data["confirmationTool"])
+	}
 	if data["confirmationExpiresAt"] != "2026-07-22T16:00:00Z" {
 		t.Fatalf("confirmationExpiresAt = %v, want 2026-07-22T16:00:00Z", data["confirmationExpiresAt"])
 	}
@@ -432,6 +441,9 @@ func TestAgentChatOmitsConfirmationFieldsWhenNoneIsPending(t *testing.T) {
 	data := last["data"].(map[string]any)
 	if _, exists := data["confirmationToken"]; exists {
 		t.Fatalf("confirmationToken should be omitted when there is no pending confirmation: %+v", data)
+	}
+	if _, exists := data["confirmationTool"]; exists {
+		t.Fatalf("confirmationTool should be omitted when there is no pending confirmation: %+v", data)
 	}
 }
 

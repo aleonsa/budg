@@ -239,21 +239,15 @@ func (s *agentSSEWriter) writeStarted() {
 // callback as "the client is gone" and abort the in-flight run, which is
 // exactly what should happen when the underlying write fails.
 //
-// ModelEventTextDelta is intentionally not forwarded here. The model only
-// ever produces the FinalResponse JSON contract (never freeform prose), so
-// its "text" deltas are raw structured-JSON characters as they are generated
-// (confirmed live: a real run streamed dozens of fragments ending in things
-// like `"}"`). That is not useful to render progressively in a chat UI, so
-// clients see only tool.started/tool.completed for progress and the final
-// response.completed frame. The underlying event still exists in the agent
-// package's contract in case a future need (e.g. a "thinking..." indicator
-// keyed off delta activity rather than content) wants it.
+// ModelEventTextDelta is intentionally not forwarded here. The model produces
+// the FinalResponse JSON contract, so provider deltas are raw JSON characters.
+// writeCompleted emits only the validated message field as displayable deltas.
 func (s *agentSSEWriter) writeModelEvent(event agent.ModelEvent) error {
 	switch event.Type {
 	case agent.ModelEventToolStarted:
 		return s.write("tool.started", map[string]string{"tool": event.ToolName, "callId": event.ToolCallID})
 	case agent.ModelEventToolCompleted:
-		return s.write("tool.completed", map[string]string{"tool": event.ToolName, "callId": event.ToolCallID})
+		return s.write("tool.completed", map[string]string{"tool": event.ToolName, "callId": event.ToolCallID, "status": string(event.ToolStatus)})
 	default:
 		return nil
 	}
@@ -270,17 +264,38 @@ type agentCompletedFrame struct {
 	agent.FinalResponse
 	ConfirmationToken     string `json:"confirmationToken,omitempty"`
 	ConfirmationExpiresAt string `json:"confirmationExpiresAt,omitempty"`
+	ConfirmationTool      string `json:"confirmationTool,omitempty"`
 }
 
 func (s *agentSSEWriter) writeCompleted(result agent.Result) {
+	for _, delta := range messageDeltas(result.Response.Message, 24) {
+		if err := s.write("response.delta", map[string]string{"delta": delta}); err != nil {
+			return
+		}
+	}
+
 	frame := agentCompletedFrame{FinalResponse: result.Response}
 	if result.PendingConfirmation != nil {
 		frame.ConfirmationToken = result.PendingConfirmation.Token
+		frame.ConfirmationTool = result.PendingConfirmation.ToolName
 		if !result.PendingConfirmation.ExpiresAt.IsZero() {
 			frame.ConfirmationExpiresAt = result.PendingConfirmation.ExpiresAt.UTC().Format(time.RFC3339)
 		}
 	}
 	_ = s.write("response.completed", frame)
+}
+
+func messageDeltas(message string, maxRunes int) []string {
+	runes := []rune(message)
+	if len(runes) == 0 || maxRunes <= 0 {
+		return nil
+	}
+	deltas := make([]string, 0, (len(runes)+maxRunes-1)/maxRunes)
+	for start := 0; start < len(runes); start += maxRunes {
+		end := min(start+maxRunes, len(runes))
+		deltas = append(deltas, string(runes[start:end]))
+	}
+	return deltas
 }
 
 // writeErrorFrame is a best-effort final frame: by the time an error
