@@ -44,19 +44,19 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	maxSteps, err := boundedIntEnv("AGENT_MAX_STEPS", 6, 1, 12)
+	maxSteps, err := boundedIntEnv("AGENT_MAX_STEPS", 12, 1, 12)
 	if err != nil {
 		return Config{}, err
 	}
-	maxToolCalls, err := boundedIntEnv("AGENT_MAX_TOOL_CALLS", 8, 1, 24)
+	maxToolCalls, err := boundedIntEnv("AGENT_MAX_TOOL_CALLS", 20, 1, 24)
 	if err != nil {
 		return Config{}, err
 	}
-	timeoutSeconds, err := boundedIntEnv("AGENT_TIMEOUT_SECONDS", 30, 5, 120)
+	timeoutSeconds, err := boundedIntEnv("AGENT_TIMEOUT_SECONDS", 60, 5, 120)
 	if err != nil {
 		return Config{}, err
 	}
-	maxOutputTokens, err := boundedIntEnv("AGENT_MAX_OUTPUT_TOKENS", 1200, 64, 8192)
+	maxOutputTokens, err := boundedIntEnv("AGENT_MAX_OUTPUT_TOKENS", 4000, 64, 8192)
 	if err != nil {
 		return Config{}, err
 	}
@@ -80,7 +80,7 @@ func Load() (Config, error) {
 		Agent: AgentConfig{
 			Enabled:            apiKey != "",
 			APIKey:             apiKey,
-			Model:              strings.TrimSpace(envOrDefault("AGENT_MODEL", "gpt-5.4-nano")),
+			Model:              strings.TrimSpace(envOrDefault("AGENT_MODEL", "gpt-5.6-luna")),
 			MaxSteps:           maxSteps,
 			MaxToolCalls:       maxToolCalls,
 			Timeout:            time.Duration(timeoutSeconds) * time.Second,
