@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   ArrowLeftRight,
   CreditCard,
-  Wallet,
   Target,
   Menu,
   Tags,
@@ -12,21 +11,28 @@ import {
   BarChart3,
   Settings,
   Repeat2,
+  Wallet,
+  Plus,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Sheet } from '@/components/ui/sheet'
+import { useQuickActionStore } from '@/stores/quickAction'
 
-/** Items shown in the bottom bar (max 5 primary + 1 "Más"). */
-const BOTTOM_ITEMS = [
+/** Left 2 items shown in bottom bar */
+const LEFT_BOTTOM_ITEMS = [
   { to: '/', label: 'Inicio', icon: LayoutDashboard },
   { to: '/transactions', label: 'Mov.', icon: ArrowLeftRight },
-  { to: '/accounts', label: 'Cuentas', icon: CreditCard },
-  { to: '/budgets', label: 'Presup.', icon: Wallet },
-  { to: '/goals', label: 'Metas', icon: Target },
 ]
 
-/** Secondary routes reachable from the "Más" sheet. */
+/** Right 1 item before "Más" */
+const RIGHT_BOTTOM_ITEMS = [
+  { to: '/accounts', label: 'Cuentas', icon: CreditCard },
+]
+
+/** Secondary routes reachable from the "Más" sheet (includes "Metas" and "Presupuestos"). */
 const SECONDARY_ITEMS = [
+  { to: '/goals', label: 'Metas', icon: Target },
+  { to: '/budgets', label: 'Presupuestos', icon: Wallet },
   { to: '/categories', label: 'Categorías', icon: Tags },
   { to: '/rules', label: 'Reglas', icon: ListFilter },
   { to: '/subscriptions', label: 'Suscripciones', icon: Repeat2 },
@@ -39,6 +45,7 @@ export function BottomNav() {
   const location = useLocation()
   const navigate = useNavigate()
   const [moreOpen, setMoreOpen] = useState(false)
+  const openQuickAction = useQuickActionStore((s) => s.openQuickAction)
 
   const isActive = (to: string) =>
     to === '/' ? location.pathname === '/' : location.pathname.startsWith(to)
@@ -48,7 +55,52 @@ export function BottomNav() {
   return (
     <>
       <nav className="fixed inset-x-0 bottom-0 z-40 flex min-h-[3.75rem] items-center border-t border-border bg-background/95 pb-safe backdrop-blur supports-[backdrop-filter]:bg-background/90 sm:hidden">
-        {BOTTOM_ITEMS.map((item) => {
+        {/* Left items */}
+        {LEFT_BOTTOM_ITEMS.map((item) => {
+          const active = isActive(item.to)
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/'}
+              className="flex flex-1 flex-col items-center justify-center py-1.5 px-0.5 active:scale-95 transition-transform"
+            >
+              <div
+                className={cn(
+                  'flex flex-col items-center justify-center gap-0.5 transition-colors',
+                  active ? 'font-semibold text-foreground' : 'text-muted-foreground',
+                )}
+              >
+                <item.icon className="h-5 w-5" strokeWidth={active ? 2.2 : 1.7} />
+                <span
+                  className={cn(
+                    'text-[11px] leading-tight tracking-tight',
+                    active ? 'font-semibold' : 'font-normal',
+                  )}
+                >
+                  {item.label}
+                </span>
+              </div>
+            </NavLink>
+          )
+        })}
+
+        {/* Center Prominent Black "+" Button */}
+        <div className="flex flex-1 items-center justify-center py-1">
+          <button
+            type="button"
+            onClick={() => openQuickAction('movement')}
+            aria-label="Agregar movimiento"
+            className="flex flex-col items-center justify-center active:scale-90 transition-transform focus-visible:outline-none"
+          >
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-foreground text-background shadow-lg ring-4 ring-background -mt-4">
+              <Plus className="h-6 w-6" strokeWidth={2.5} />
+            </div>
+          </button>
+        </div>
+
+        {/* Right items */}
+        {RIGHT_BOTTOM_ITEMS.map((item) => {
           const active = isActive(item.to)
           return (
             <NavLink
