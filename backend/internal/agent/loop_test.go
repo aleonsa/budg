@@ -264,7 +264,7 @@ func TestRunnerEmitsToolLifecycleEvents(t *testing.T) {
 			if sawStarted != true {
 				t.Fatal("tool_completed emitted before tool_started")
 			}
-			if event.ToolName != "search_transactions" || event.ToolCallID != "c1" {
+			if event.ToolName != "search_transactions" || event.ToolCallID != "c1" || event.ToolStatus != ToolStatusSuccess {
 				t.Fatalf("tool_completed event = %+v", event)
 			}
 			sawCompleted = true

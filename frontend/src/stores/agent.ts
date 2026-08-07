@@ -11,18 +11,26 @@ export interface ChatTurn {
   id: string
   role: 'user' | 'assistant'
   content: string
-  status?: 'sending' | 'done' | 'error'
-  toolActivity?: string[]
+  status?: 'sending' | 'done' | 'error' | 'aborted'
+  toolActivity?: ToolActivityStep[]
   // Image attachments the user sent with this turn, kept for redisplay and to
   // rebuild the messages array on subsequent turns. UI-only preview URLs are
   // not stored here; only the wire payload is.
   images?: AgentImage[]
 }
 
+export interface ToolActivityStep {
+  id: string
+  callId: string
+  tool: string
+  status: 'running' | 'done' | 'warning' | 'failed' | 'cancelled'
+}
+
 interface AgentState {
   open: boolean
   turns: ChatTurn[]
   loading: boolean
+  confirmationInFlight: boolean
   pendingConfirmation: PendingConfirmation | null
   error: string | null
 
@@ -34,13 +42,16 @@ interface AgentState {
     confirmationToken?: string,
     images?: AgentImage[],
   ) => Promise<void>
+  stop: () => void
   reset: () => void
 }
+
+let activeController: AbortController | null = null
 
 /**
  * Agent chat store. Owns conversation state, the SSE-driven loading/error
  * lifecycle, and the pending-confirmation token the UI needs to resend on the
- * user's next "yes, confirm" message.
+ * explicit confirmation action.
  *
  * The store does NOT persist across reloads (no localStorage): the backend's
  * confirmation tokens are stateless and self-contained, but the conversation
@@ -51,12 +62,27 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   open: false,
   turns: [],
   loading: false,
+  confirmationInFlight: false,
   pendingConfirmation: null,
   error: null,
 
   setOpen: (open) => set({ open }),
   toggle: () => set((s) => ({ open: !s.open })),
-  reset: () => set({ turns: [], loading: false, pendingConfirmation: null, error: null }),
+  stop: () => {
+    if (!get().confirmationInFlight) activeController?.abort()
+  },
+  reset: () => {
+    if (get().confirmationInFlight) return
+    activeController?.abort()
+    activeController = null
+    set({
+      turns: [],
+      loading: false,
+      confirmationInFlight: false,
+      pendingConfirmation: null,
+      error: null,
+    })
+  },
 
   send: async (text, viewContext, confirmationToken, images) => {
     const trimmed = text.trim()
@@ -83,6 +109,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set((state) => ({
       turns: [...state.turns, userTurn, assistantTurn],
       loading: true,
+      confirmationInFlight: Boolean(confirmationToken),
       error: null,
       // Clear any previous pending confirmation when the user sends a new
       // message — if they confirm, the token is passed explicitly via the
@@ -107,6 +134,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const lastUserIndex = messages.map((m) => m.role).lastIndexOf('user')
     const conversationMessages = messages.slice(0, lastUserIndex + 1)
 
+    const controller = new AbortController()
+    activeController = controller
+    const isCurrentRun = () => activeController === controller
+
     try {
       const { streamAgentChat } = await import('@/lib/agent/client')
       await streamAgentChat(
@@ -114,34 +145,46 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           messages: conversationMessages,
           viewContext: viewContext ?? undefined,
           confirmationToken,
+          signal: controller.signal,
         },
         {
           onStarted: () => {
+            if (!isCurrentRun()) return
             updateTurn(set, assistantTurn.id, { status: 'sending', content: '' })
           },
-          onToolStarted: (data) => {
-            appendToolActivity(set, assistantTurn.id, data.tool)
+          onDelta: (data) => {
+            if (!isCurrentRun()) return
+            appendTurnContent(set, assistantTurn.id, data.delta)
           },
-          onToolCompleted: () => {
-            // Tool completed — no visual change needed beyond the activity log.
+          onToolStarted: (data) => {
+            if (!isCurrentRun()) return
+            startToolActivity(set, assistantTurn.id, data)
+          },
+          onToolCompleted: (data) => {
+            if (!isCurrentRun()) return
+            completeToolActivity(set, assistantTurn.id, data.callId, data.status)
           },
           onError: (data) => {
+            if (!isCurrentRun()) return
+            settleToolActivity(set, assistantTurn.id, 'failed')
             updateTurn(set, assistantTurn.id, {
               status: 'error',
               content: data.message,
             })
-            set({ loading: false, error: data.message })
+            set({ loading: false, confirmationInFlight: false, error: data.message })
           },
           onCompleted: (data) => {
+            if (!isCurrentRun()) return
             updateTurn(set, assistantTurn.id, {
               status: 'done',
               content: data.message,
             })
             set({
               loading: false,
+              confirmationInFlight: false,
               pendingConfirmation: data.confirmationToken
                 ? {
-                    toolName: '',
+                    toolName: data.confirmationTool ?? '',
                     token: data.confirmationToken,
                     expiresAt: data.confirmationExpiresAt
                       ? new Date(data.confirmationExpiresAt)
@@ -153,9 +196,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         },
       )
     } catch (err) {
+      if (!isCurrentRun()) return
+      if (controller.signal.aborted) {
+        settleToolActivity(set, assistantTurn.id, 'cancelled')
+        updateTurn(set, assistantTurn.id, { status: 'aborted' })
+        set({ loading: false, confirmationInFlight: false })
+        return
+      }
       const message = err instanceof Error ? err.message : 'Error de conexión.'
+      settleToolActivity(set, assistantTurn.id, 'failed')
       updateTurn(set, assistantTurn.id, { status: 'error', content: message })
-      set({ loading: false, error: message })
+      set({ loading: false, confirmationInFlight: false, error: message })
+    } finally {
+      if (activeController === controller) activeController = null
     }
   },
 }))
@@ -177,14 +230,82 @@ function updateTurn(
   }))
 }
 
-function appendToolActivity(
+function appendTurnContent(
   set: (fn: (s: AgentState) => Partial<AgentState>) => void,
   turnId: string,
-  tool: string,
+  delta: string,
+): void {
+  if (!delta) return
+  set((state) => ({
+    turns: state.turns.map((turn) =>
+      turn.id === turnId ? { ...turn, content: turn.content + delta } : turn,
+    ),
+  }))
+}
+
+function startToolActivity(
+  set: (fn: (s: AgentState) => Partial<AgentState>) => void,
+  turnId: string,
+  data: { tool: string; callId: string },
 ): void {
   set((state) => ({
     turns: state.turns.map((turn) =>
-      turn.id === turnId ? { ...turn, toolActivity: [...(turn.toolActivity ?? []), tool] } : turn,
+      turn.id === turnId
+        ? {
+            ...turn,
+            toolActivity: [
+              ...(turn.toolActivity ?? []),
+              {
+                id: data.callId || `${data.tool}-${turn.toolActivity?.length ?? 0}`,
+                callId: data.callId,
+                tool: data.tool,
+                status: 'running' as const,
+              },
+            ],
+          }
+        : turn,
+    ),
+  }))
+}
+
+function completeToolActivity(
+  set: (fn: (s: AgentState) => Partial<AgentState>) => void,
+  turnId: string,
+  callId: string,
+  status: 'success' | 'warning' | 'error' = 'success',
+): void {
+  const settledStatus = status === 'error' ? 'failed' : status === 'warning' ? 'warning' : 'done'
+  set((state) => ({
+    turns: state.turns.map((turn) =>
+      turn.id === turnId
+        ? {
+            ...turn,
+            toolActivity: turn.toolActivity?.map((step) =>
+              step.callId === callId && step.status === 'running'
+                ? { ...step, status: settledStatus }
+                : step,
+            ),
+          }
+        : turn,
+    ),
+  }))
+}
+
+function settleToolActivity(
+  set: (fn: (s: AgentState) => Partial<AgentState>) => void,
+  turnId: string,
+  status: 'failed' | 'cancelled',
+): void {
+  set((state) => ({
+    turns: state.turns.map((turn) =>
+      turn.id === turnId
+        ? {
+            ...turn,
+            toolActivity: turn.toolActivity?.map((step) =>
+              step.status === 'running' ? { ...step, status } : step,
+            ),
+          }
+        : turn,
     ),
   }))
 }

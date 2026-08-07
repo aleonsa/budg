@@ -56,6 +56,7 @@ export interface AgentSSEEvent {
 export interface AgentCompletedData extends AgentFinalResponse {
   confirmationToken?: string
   confirmationExpiresAt?: string
+  confirmationTool?: string
 }
 
 export interface AgentErrorData {
@@ -66,6 +67,11 @@ export interface AgentErrorData {
 export interface ToolProgressData {
   tool: string
   callId: string
+  status?: 'success' | 'warning' | 'error'
+}
+
+export interface ResponseDeltaData {
+  delta: string
 }
 
 export interface PendingConfirmation {

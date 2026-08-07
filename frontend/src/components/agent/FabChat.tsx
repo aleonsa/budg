@@ -1,9 +1,16 @@
-import { useState, useRef, useEffect, type ClipboardEvent, type FormEvent } from 'react'
-import { MessageCircle, X, Send, Loader2, Paperclip } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { useAgentStore } from '@/stores/agent'
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react'
+import { ArrowUp, MessageCircle, Paperclip, Square, SquarePen, X } from 'lucide-react'
+import { ToolActivity } from '@/components/agent/ToolActivity'
 import { useViewContext } from '@/hooks/useViewContext'
-import { renderMarkdown } from '@/lib/agent/markdown'
 import {
   fileToAttachedImage,
   ImageValidationError,
@@ -11,70 +18,138 @@ import {
   toAgentImage,
   type AttachedImage,
 } from '@/lib/agent/images'
+import { cn } from '@/lib/utils'
+import { useAgentStore, type ChatTurn } from '@/stores/agent'
 
-/**
- * FabChat — floating chat bubble persistent across all authenticated views.
- *
- * On mobile and desktop: opens a floating modal card centered/inset with
- * rounded corners and a backdrop on mobile.
- */
+const SUGGESTIONS = [
+  '¿En qué gasté más este mes?',
+  'Dame un resumen de mis cuentas',
+  'Busca mis últimos gastos',
+  'Quiero registrar un movimiento',
+]
+
+const AgentMarkdown = lazy(() =>
+  import('@/components/agent/AgentMarkdown').then((module) => ({ default: module.AgentMarkdown })),
+)
+
 export function FabChat() {
-  const open = useAgentStore((s) => s.open)
-  const toggle = useAgentStore((s) => s.toggle)
+  const open = useAgentStore((state) => state.open)
+  const toggle = useAgentStore((state) => state.toggle)
+  const setOpen = useAgentStore((state) => state.setOpen)
+  const launcherRef = useRef<HTMLButtonElement>(null)
+
+  const close = () => {
+    setOpen(false)
+    window.setTimeout(() => launcherRef.current?.focus(), 0)
+  }
 
   return (
     <>
-      {!open && (
-        <button
-          type="button"
-          onClick={toggle}
-          aria-label="Asistente budg"
-          className={cn(
-            'fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-3 z-50',
-            'flex h-12 w-12 items-center justify-center',
-            'rounded-full bg-foreground text-background shadow-lg',
-            'transition-transform active:scale-90',
-            'hover:scale-105',
-          )}
-        >
-          <MessageCircle className="h-5 w-5" />
-        </button>
-      )}
-      {open && <ChatPanel />}
+      {open && <ChatPanel onClose={close} />}
+      <button
+        ref={launcherRef}
+        type="button"
+        onClick={toggle}
+        aria-label={open ? 'Cerrar asistente budg' : 'Abrir asistente budg'}
+        aria-controls="budg-agent-dialog"
+        aria-expanded={open}
+        className={cn(
+          'fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-3 z-50',
+          'h-12 w-12 items-center justify-center rounded-full bg-foreground text-background shadow-lg',
+          'transition-transform hover:scale-105 active:scale-90 sm:bottom-6 sm:right-6 sm:h-14 sm:w-14',
+          open ? 'hidden sm:flex' : 'flex',
+        )}
+      >
+        {open ? (
+          <X className="h-5 w-5 sm:h-6 sm:w-6" />
+        ) : (
+          <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6" />
+        )}
+      </button>
     </>
   )
 }
 
-function ChatPanel() {
-  const toggle = useAgentStore((s) => s.toggle)
-  const turns = useAgentStore((s) => s.turns)
-  const loading = useAgentStore((s) => s.loading)
-  const pendingConfirmation = useAgentStore((s) => s.pendingConfirmation)
-  const error = useAgentStore((s) => s.error)
-  const send = useAgentStore((s) => s.send)
-  const reset = useAgentStore((s) => s.reset)
+function ChatPanel({ onClose }: { onClose: () => void }) {
+  const turns = useAgentStore((state) => state.turns)
+  const loading = useAgentStore((state) => state.loading)
+  const confirmationInFlight = useAgentStore((state) => state.confirmationInFlight)
+  const pendingConfirmation = useAgentStore((state) => state.pendingConfirmation)
+  const error = useAgentStore((state) => state.error)
+  const send = useAgentStore((state) => state.send)
+  const stop = useAgentStore((state) => state.stop)
+  const reset = useAgentStore((state) => state.reset)
   const viewContext = useViewContext()
 
   const [input, setInput] = useState('')
   const [attachments, setAttachments] = useState<AttachedImage[]>([])
   const [attachError, setAttachError] = useState<string | null>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const [mobileModal, setMobileModal] = useState(() => window.innerWidth < 640)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const attachmentsRef = useRef<AttachedImage[]>([])
+  const attachmentGenerationRef = useRef(0)
 
-  // Auto-scroll to bottom when new turns or tool activity arrive.
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
-  }, [turns, loading])
+  attachmentsRef.current = attachments
 
-  // Revoke preview object URLs on unmount to avoid leaking blobs.
+  const lastTurn = turns.at(-1)
+  const lastContentSize = lastTurn?.content.length ?? 0
+  const lastToolCount = lastTurn?.toolActivity?.length ?? 0
+
   useEffect(() => {
-    return () => {
-      attachments.forEach((a) => URL.revokeObjectURL(a.previewUrl))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [turns.length, lastContentSize, lastToolCount, loading])
+
+  useEffect(() => {
+    panelRef.current?.focus()
   }, [])
+
+  useEffect(() => {
+    const updateMode = () => setMobileModal(window.innerWidth < 640)
+    window.addEventListener('resize', updateMode)
+    return () => window.removeEventListener('resize', updateMode)
+  }, [])
+
+  useEffect(() => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape' && !confirmationInFlight) {
+        onClose()
+        return
+      }
+      if (event.key !== 'Tab' || !mobileModal || !panelRef.current) return
+
+      const focusable = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), a[href], textarea:not(:disabled), input:not([type="file"]):not(:disabled)',
+        ),
+      )
+      if (focusable.length === 0) return
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (
+        event.shiftKey &&
+        (document.activeElement === first || document.activeElement === panelRef.current)
+      ) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [confirmationInFlight, mobileModal, onClose])
+
+  useEffect(
+    () => () => {
+      attachmentGenerationRef.current++
+      attachmentsRef.current.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl))
+    },
+    [],
+  )
 
   const addFiles = async (files: FileList | File[]) => {
     setAttachError(null)
@@ -88,60 +163,83 @@ function ChatPanel() {
     }
 
     const accepted: AttachedImage[] = []
+    const generation = attachmentGenerationRef.current
     for (const file of incoming.slice(0, room)) {
       try {
         accepted.push(await fileToAttachedImage(file))
       } catch (err) {
+        if (generation !== attachmentGenerationRef.current) {
+          accepted.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl))
+          return
+        }
         setAttachError(
           err instanceof ImageValidationError ? err.message : 'No se pudo adjuntar la imagen.',
         )
       }
     }
+    if (generation !== attachmentGenerationRef.current) {
+      accepted.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl))
+      return
+    }
     if (accepted.length > 0) {
-      setAttachments((prev) => [...prev, ...accepted])
+      setAttachments((current) => {
+        const available = MAX_IMAGES_PER_MESSAGE - current.length
+        const added = accepted.slice(0, available)
+        accepted
+          .slice(available)
+          .forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl))
+        return [...current, ...added]
+      })
     }
   }
 
   const removeAttachment = (id: string) => {
-    setAttachments((prev) => {
-      const target = prev.find((a) => a.id === id)
+    setAttachments((current) => {
+      const target = current.find((attachment) => attachment.id === id)
       if (target) URL.revokeObjectURL(target.previewUrl)
-      return prev.filter((a) => a.id !== id)
+      return current.filter((attachment) => attachment.id !== id)
     })
   }
 
-  const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
-    const imageFiles = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith('image/'))
-    if (imageFiles.length > 0) {
-      e.preventDefault()
-      void addFiles(imageFiles)
-    }
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const imageFiles = Array.from(event.clipboardData.items)
+      .filter((item) => item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null)
+    if (imageFiles.length === 0) return
+    event.preventDefault()
+    void addFiles(imageFiles)
   }
 
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault()
-    if ((!input.trim() && attachments.length === 0) || loading) return
-
-    const confirmationToken = pendingConfirmation?.token
+  const sendMessage = (text: string, confirmationToken?: string) => {
+    attachmentGenerationRef.current++
     const images = attachments.map(toAgentImage)
-    void send(
-      input,
-      viewContext,
-      confirmationToken ?? undefined,
-      images.length > 0 ? images : undefined,
-    )
-    // Preview URLs are handed off to the sent turn's history; drop them from
-    // the composer without revoking (the store keeps only the wire payload,
-    // and the previews are no longer referenced here).
+    void send(text, viewContext, confirmationToken, images.length > 0 ? images : undefined)
+    attachments.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl))
     setInput('')
     setAttachments([])
     setAttachError(null)
   }
 
+  const handleSubmit = (event: FormEvent) => {
+    event.preventDefault()
+    if ((!input.trim() && attachments.length === 0) || loading) return
+    sendMessage(input)
+  }
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault()
+      if ((input.trim() || attachments.length > 0) && !loading) sendMessage(input)
+    }
+  }
+
   const handleReset = () => {
-    attachments.forEach((a) => URL.revokeObjectURL(a.previewUrl))
+    attachmentGenerationRef.current++
+    attachments.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl))
     setAttachments([])
     setAttachError(null)
+    setInput('')
     reset()
   }
 
@@ -149,209 +247,332 @@ function ChatPanel() {
 
   return (
     <>
-      {/* Backdrop overlay for mobile to emphasize modal card feel */}
       <div
-        className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px] sm:hidden animate-in fade-in"
-        onClick={toggle}
+        className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px] animate-in fade-in sm:hidden"
+        onClick={confirmationInFlight ? undefined : onClose}
+        aria-hidden="true"
       />
-
       <div
+        id="budg-agent-dialog"
+        ref={panelRef}
+        role="dialog"
+        aria-modal={mobileModal || undefined}
+        aria-labelledby="budg-agent-title"
+        tabIndex={-1}
         className={cn(
-          'fixed z-50 flex flex-col bg-background border border-border shadow-2xl overflow-hidden',
-          // Mobile modal card: inset with margins, lifted well above the bottom nav
-          'inset-x-3 top-16 bottom-[calc(6rem+env(safe-area-inset-bottom))] rounded-2xl',
-          // Desktop card: bottom-right fixed size
-          'sm:inset-auto sm:bottom-3 sm:right-3 sm:top-auto sm:h-[32rem] sm:w-96 sm:rounded-2xl',
+          'fixed z-50 flex flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl outline-none',
+          'inset-x-3 bottom-[calc(6rem+env(safe-area-inset-bottom))] top-16',
+          'sm:inset-auto sm:bottom-24 sm:right-6 sm:h-[42.5rem] sm:max-h-[calc(100dvh-7.5rem)] sm:w-[30rem]',
         )}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-3.5 py-3 pt-safe sm:pt-3">
-          <div className="flex items-center gap-2">
-            <MessageCircle className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-semibold">Asistente budg</span>
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4 pt-safe sm:pt-0">
+          <div className="flex items-center gap-2.5">
+            <span className="relative flex h-2 w-2" aria-hidden="true">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            </span>
+            <span id="budg-agent-title" className="text-sm font-medium tracking-tight">
+              Asistente budg
+            </span>
           </div>
           <div className="flex items-center gap-1">
-            {turns.length > 0 && (
-              <button
-                type="button"
-                onClick={handleReset}
-                className="rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent"
-              >
-                Limpiar
-              </button>
-            )}
             <button
               type="button"
-              onClick={toggle}
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent"
-              aria-label="Cerrar"
+              onClick={handleReset}
+              disabled={turns.length === 0 || confirmationInFlight}
+              className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30"
+              aria-label="Nueva conversación"
+              title="Nueva conversación"
+            >
+              <SquarePen className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={confirmationInFlight}
+              className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:hidden"
+              aria-label="Cerrar asistente budg"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
-        </div>
+        </header>
 
-        {/* Messages */}
-        <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-3.5 py-3">
-          {turns.length === 0 && (
-            <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-              <MessageCircle className="h-8 w-8 text-muted-foreground/50" />
-              <p className="text-xs text-muted-foreground">
-                Pregúntame sobre tus gastos, ingresos o cuentas.
-                <br />
-                También puedo registrar movimientos por ti.
-              </p>
+        <div
+          className="flex-1 overflow-y-auto px-4 py-6"
+          role="log"
+          aria-live="polite"
+          aria-busy={loading}
+        >
+          {turns.length === 0 ? (
+            <EmptyState
+              disabled={loading}
+              onSuggestion={(suggestion) => void send(suggestion, viewContext)}
+            />
+          ) : (
+            <div className="flex flex-col gap-8">
+              {turns.map((turn) => (
+                <Message key={turn.id} turn={turn} />
+              ))}
+              <div ref={bottomRef} />
             </div>
           )}
-
-          {turns.map((turn) => (
-            <div
-              key={turn.id}
-              className={cn(
-                'flex flex-col gap-1',
-                turn.role === 'user' ? 'items-end' : 'items-start',
-              )}
-            >
-              <div
-                className={cn(
-                  'max-w-[85%] rounded-2xl px-3.5 py-2 text-sm',
-                  turn.role === 'user'
-                    ? 'bg-foreground text-background rounded-br-md'
-                    : turn.status === 'error'
-                      ? 'bg-destructive/10 text-destructive rounded-bl-md'
-                      : 'bg-muted text-foreground rounded-bl-md',
-                )}
-              >
-                {turn.role === 'user' && turn.images && turn.images.length > 0 && (
-                  <div className="mb-1.5 flex flex-wrap gap-1.5">
-                    {turn.images.map((img, i) => (
-                      <img
-                        key={`${turn.id}-img-${i}`}
-                        src={img.data}
-                        alt={`Adjunto ${i + 1}`}
-                        className="h-16 w-16 rounded-lg object-cover"
-                      />
-                    ))}
-                  </div>
-                )}
-                {turn.status === 'sending' && !turn.content ? (
-                  <span className="flex items-center gap-1.5 text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    <span className="text-xs">Pensando…</span>
-                  </span>
-                ) : turn.role === 'assistant' ? (
-                  renderMarkdown(turn.content)
-                ) : turn.content ? (
-                  turn.content
-                ) : (
-                  <span className="text-xs opacity-70">Imagen adjunta</span>
-                )}
-              </div>
-              {turn.toolActivity && turn.toolActivity.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {turn.toolActivity.map((tool, i) => (
-                    <span
-                      key={`${tool}-${i}`}
-                      className="rounded-full bg-muted/60 px-2 py-0.5 text-[10px] text-muted-foreground"
-                    >
-                      {tool.replace(/_/g, ' ')}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-
           {error && turns.length === 0 && (
             <div className="rounded-lg bg-destructive/10 p-3 text-xs text-destructive">{error}</div>
           )}
         </div>
 
-        {/* Confirmation banner */}
         {pendingConfirmation && !loading && (
-          <div className="border-t border-border bg-muted/30 px-3.5 py-2">
-            <p className="text-[11px] text-muted-foreground">
-              Confirma escribiendo "sí" o "confirmo" para ejecutar.
+          <div className="mx-4 mb-2 rounded-xl border border-border bg-muted/50 p-3">
+            <p className="text-xs font-medium">¿Ejecuto esta acción?</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Revisa la propuesta del asistente antes de confirmar.
             </p>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => void send('Sí, confirmo.', viewContext, pendingConfirmation.token)}
+                className="rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background"
+              >
+                Confirmar
+              </button>
+              <button
+                type="button"
+                onClick={() => void send('No, cancela esa acción.', viewContext)}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Attachment previews + composer */}
-        <div className="border-t border-border">
-          {(attachments.length > 0 || attachError) && (
-            <div className="px-3.5 pt-2.5">
-              {attachments.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {attachments.map((image) => (
-                    <div key={image.id} className="relative">
-                      <img
-                        src={image.previewUrl}
-                        alt={image.name}
-                        className="h-14 w-14 rounded-lg border border-border object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeAttachment(image.id)}
-                        aria-label={`Quitar ${image.name}`}
-                        className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-foreground text-background shadow"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {attachError && <p className="mt-1 text-[11px] text-destructive">{attachError}</p>}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="flex items-center gap-2 px-3.5 py-3.5">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/heic"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files) void addFiles(e.target.files)
-                e.target.value = '' // allow re-selecting the same file
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={loading || attachments.length >= MAX_IMAGES_PER_MESSAGE}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-accent disabled:opacity-40"
-              aria-label="Adjuntar imagen"
-            >
-              <Paperclip className="h-4 w-4" />
-            </button>
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onPaste={handlePaste}
-              disabled={loading}
-              placeholder={
-                pendingConfirmation ? 'Escribe "sí" para confirmar…' : 'Pregúntame algo…'
-              }
-              className="flex-1 rounded-full border border-input bg-background px-3.5 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-50"
-            />
-            <button
-              type="submit"
-              disabled={!canSend}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-foreground text-background disabled:opacity-40"
-              aria-label="Enviar"
-            >
-              {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+        <div className="shrink-0 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-6">
+          <form
+            onSubmit={handleSubmit}
+            className="rounded-2xl border border-input bg-muted/50 p-2 transition-colors focus-within:border-foreground/25"
+          >
+            {(attachments.length > 0 || attachError) && (
+              <AttachmentPreview
+                attachments={attachments}
+                error={attachError}
+                onRemove={removeAttachment}
+              />
+            )}
+            <div className="flex items-end gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/heic"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  if (event.target.files) void addFiles(event.target.files)
+                  event.target.value = ''
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loading || attachments.length >= MAX_IMAGES_PER_MESSAGE}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent disabled:opacity-40"
+                aria-label="Adjuntar imagen"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
+              <textarea
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                disabled={loading}
+                placeholder="Escribe un mensaje..."
+                aria-label="Mensaje"
+                rows={1}
+                className="field-sizing-content max-h-44 min-h-9 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-5 outline-none placeholder:text-muted-foreground disabled:opacity-50"
+              />
+              {loading && !confirmationInFlight ? (
+                <button
+                  type="button"
+                  onClick={stop}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-foreground"
+                  aria-label="Detener respuesta"
+                >
+                  <Square className="h-3.5 w-3.5 fill-current" />
+                </button>
+              ) : loading ? (
+                <span
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground"
+                  aria-label="Confirmando acción"
+                >
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-current" />
+                </span>
               ) : (
-                <Send className="h-4 w-4" />
+                <button
+                  type="submit"
+                  disabled={!canSend}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-foreground text-background disabled:opacity-40"
+                  aria-label="Enviar mensaje"
+                >
+                  <ArrowUp className="h-4 w-4" />
+                </button>
               )}
-            </button>
+            </div>
           </form>
         </div>
       </div>
     </>
+  )
+}
+
+function Message({ turn }: { turn: ChatTurn }) {
+  if (turn.role === 'user') {
+    return (
+      <div className="flex w-full justify-end">
+        <div className="flex max-w-[75%] flex-col items-end gap-2">
+          {turn.images && turn.images.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-2">
+              {turn.images.map((image, index) => (
+                <img
+                  key={`${turn.id}-image-${index}`}
+                  src={image.data}
+                  alt={`Adjunto ${index + 1}`}
+                  className="max-h-64 max-w-full rounded-2xl object-cover shadow-md ring-1 ring-border"
+                />
+              ))}
+            </div>
+          )}
+          {turn.content ? (
+            <div className="rounded-2xl bg-muted px-4 py-2.5 text-sm leading-6 break-words whitespace-pre-wrap shadow-sm ring-1 ring-border">
+              {turn.content}
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">Imagen adjunta</span>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const streaming = turn.status === 'sending'
+  const hasTools = Boolean(turn.toolActivity?.length)
+
+  return (
+    <div className="w-full min-w-0">
+      {streaming && !turn.content && !hasTools ? (
+        <TypingDots />
+      ) : (
+        <>
+          {hasTools && <ToolActivity steps={turn.toolActivity ?? []} streaming={streaming} />}
+          {turn.content && turn.status !== 'error' && (
+            <Suspense fallback={<p className="text-sm leading-6">{turn.content}</p>}>
+              <AgentMarkdown>{turn.content}</AgentMarkdown>
+            </Suspense>
+          )}
+          {streaming && <StreamingCursor />}
+        </>
+      )}
+      {turn.status === 'error' && (
+        <p className="mt-1 text-xs text-destructive">
+          {turn.content || 'No se pudo completar la respuesta.'}
+        </p>
+      )}
+      {turn.status === 'aborted' && !turn.content && !hasTools && (
+        <p className="text-xs text-muted-foreground">Respuesta detenida.</p>
+      )}
+    </div>
+  )
+}
+
+function TypingDots() {
+  return (
+    <span className="flex items-center gap-1 py-2" aria-label="El asistente está escribiendo">
+      {[0, 150, 300].map((delay) => (
+        <span
+          key={delay}
+          className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground"
+          style={{ animationDelay: `${delay}ms` }}
+          aria-hidden="true"
+        />
+      ))}
+    </span>
+  )
+}
+
+function StreamingCursor() {
+  return (
+    <span
+      className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse rounded-sm bg-muted-foreground align-baseline"
+      aria-hidden="true"
+    />
+  )
+}
+
+function EmptyState({
+  disabled,
+  onSuggestion,
+}: {
+  disabled: boolean
+  onSuggestion: (text: string) => void
+}) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-6 text-center">
+      <div className="space-y-2">
+        <h2 className="text-xl font-medium tracking-tight">¿En qué te ayudo?</h2>
+        <p className="text-sm text-muted-foreground">
+          Consulta tus finanzas o registra movimientos con ayuda del asistente.
+        </p>
+      </div>
+      <div className="flex max-w-md flex-wrap justify-center gap-2">
+        {SUGGESTIONS.map((suggestion) => (
+          <button
+            key={suggestion}
+            type="button"
+            disabled={disabled}
+            onClick={() => onSuggestion(suggestion)}
+            className="rounded-full border border-border px-3.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+          >
+            {suggestion}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function AttachmentPreview({
+  attachments,
+  error,
+  onRemove,
+}: {
+  attachments: AttachedImage[]
+  error: string | null
+  onRemove: (id: string) => void
+}) {
+  return (
+    <div className="px-1 pb-2 pt-1">
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {attachments.map((image) => (
+            <div key={image.id} className="group relative">
+              <img
+                src={image.previewUrl}
+                alt={image.name}
+                className="h-14 w-14 rounded-lg object-cover ring-1 ring-border"
+              />
+              <button
+                type="button"
+                onClick={() => onRemove(image.id)}
+                aria-label={`Quitar ${image.name}`}
+                className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-foreground text-background opacity-100 shadow ring-1 ring-border transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {error && <p className="mt-1.5 text-xs text-destructive">{error}</p>}
+    </div>
   )
 }

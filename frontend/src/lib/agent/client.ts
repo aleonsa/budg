@@ -5,12 +5,14 @@ import type {
   AgentEventType,
   AgentMessage,
   AgentSSEEvent,
+  ResponseDeltaData,
   ToolProgressData,
   ViewContext,
 } from './types'
 
 export interface AgentChatCallbacks {
   onStarted?: () => void
+  onDelta?: (data: ResponseDeltaData) => void
   onToolStarted?: (data: ToolProgressData) => void
   onToolCompleted?: (data: ToolProgressData) => void
   onError?: (data: AgentErrorData) => void
@@ -21,6 +23,7 @@ export interface AgentChatParams {
   messages: AgentMessage[]
   viewContext?: ViewContext
   confirmationToken?: string
+  signal?: AbortSignal
 }
 
 /**
@@ -47,6 +50,7 @@ export async function streamAgentChat(
       viewContext: params.viewContext ?? null,
       confirmationToken: params.confirmationToken ?? null,
     }),
+    signal: params.signal,
   })
 
   if (!response.ok) {
@@ -66,6 +70,7 @@ export async function streamAgentChat(
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let terminalReceived = false
 
   try {
     for (;;) {
@@ -79,20 +84,26 @@ export async function streamAgentChat(
       while ((separatorIndex = buffer.indexOf('\n\n')) !== -1) {
         const frame = buffer.slice(0, separatorIndex)
         buffer = buffer.slice(separatorIndex + 2)
-        processSSEFrame(frame, callbacks)
+        terminalReceived = processSSEFrame(frame, callbacks) || terminalReceived
+        if (terminalReceived) {
+          await reader.cancel()
+          return
+        }
       }
     }
 
     // Flush any trailing partial frame.
     if (buffer.trim()) {
-      processSSEFrame(buffer, callbacks)
+      terminalReceived = processSSEFrame(buffer, callbacks) || terminalReceived
     }
+    if (!terminalReceived) throw new Error('La respuesta se interrumpió antes de completarse.')
   } finally {
     reader.releaseLock()
   }
 }
 
-function processSSEFrame(frame: string, callbacks: AgentChatCallbacks): void {
+function processSSEFrame(frame: string, callbacks: AgentChatCallbacks): boolean {
+  let terminalReceived = false
   // Each frame is one or more lines like `data: {...}`. The backend sends
   // exactly one `data:` line per frame, but we handle multiple defensively.
   for (const line of frame.split('\n')) {
@@ -107,31 +118,34 @@ function processSSEFrame(frame: string, callbacks: AgentChatCallbacks): void {
       continue // Skip malformed lines rather than crashing the whole stream.
     }
 
-    dispatchEvent(event, callbacks)
+    terminalReceived = dispatchEvent(event, callbacks) || terminalReceived
   }
+  return terminalReceived
 }
 
-function dispatchEvent(event: AgentSSEEvent, callbacks: AgentChatCallbacks): void {
+function dispatchEvent(event: AgentSSEEvent, callbacks: AgentChatCallbacks): boolean {
   const eventType = event.type as AgentEventType
   switch (eventType) {
     case 'response.started':
       callbacks.onStarted?.()
-      break
+      return false
+    case 'response.delta':
+      callbacks.onDelta?.(event.data as ResponseDeltaData)
+      return false
     case 'tool.started':
       callbacks.onToolStarted?.(event.data as ToolProgressData)
-      break
+      return false
     case 'tool.completed':
       callbacks.onToolCompleted?.(event.data as ToolProgressData)
-      break
+      return false
     case 'error':
       callbacks.onError?.(event.data as AgentErrorData)
-      break
+      return true
     case 'response.completed':
       callbacks.onCompleted?.(event.data as AgentCompletedData)
-      break
+      return true
     default:
-      // response.delta is intentionally ignored here (see backend decision).
-      break
+      return false
   }
 }
 
