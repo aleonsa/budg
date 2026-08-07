@@ -22,7 +22,11 @@ export function QuickActionModal() {
   return <QuickActionModalContent action={action} />
 }
 
-function QuickActionModalContent({ action }: { action: NonNullable<import('@/stores/quickAction').QuickActionType> }) {
+function QuickActionModalContent({
+  action,
+}: {
+  action: NonNullable<import('@/stores/quickAction').QuickActionType>
+}) {
   const defaultDate = useQuickActionStore((s) => s.defaultDate)
   const closeQuickAction = useQuickActionStore((s) => s.closeQuickAction)
 
@@ -146,7 +150,11 @@ function QuickActionModalContent({ action }: { action: NonNullable<import('@/sto
     ? {
         id: '',
         accountId: accounts[0]?.id ?? '',
-        type: (action === 'transfer' ? 'transfer' : action === 'income' ? 'income' : 'expense') as TransactionType,
+        type: (action === 'transfer'
+          ? 'transfer'
+          : action === 'income'
+            ? 'income'
+            : 'expense') as TransactionType,
         amount: 0,
         categoryId: null,
         date: defaultDate,

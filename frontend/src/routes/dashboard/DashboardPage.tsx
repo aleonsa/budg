@@ -785,7 +785,10 @@ export default function DashboardPage({ initialTab = 'calendar' }: DashboardPage
       <div className="space-y-3 py-3">
         {/* Top Sub-tabs Switcher */}
         <div className="flex items-center justify-between border-b border-border/60 pb-2">
-          <div className="flex items-center gap-1 rounded-lg bg-muted/60 p-1 text-xs" role="tablist">
+          <div
+            className="flex items-center gap-1 rounded-lg bg-muted/60 p-1 text-xs"
+            role="tablist"
+          >
             <button
               type="button"
               role="tab"

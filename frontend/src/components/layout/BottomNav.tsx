@@ -25,9 +25,7 @@ const LEFT_BOTTOM_ITEMS = [
 ]
 
 /** Right 1 item before "Más" */
-const RIGHT_BOTTOM_ITEMS = [
-  { to: '/accounts', label: 'Cuentas', icon: CreditCard },
-]
+const RIGHT_BOTTOM_ITEMS = [{ to: '/accounts', label: 'Cuentas', icon: CreditCard }]
 
 /** Secondary routes reachable from the "Más" sheet (includes "Metas" and "Presupuestos"). */
 const SECONDARY_ITEMS = [

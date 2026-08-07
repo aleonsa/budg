@@ -275,7 +275,7 @@ export function CalendarView({
             const dayInfo = dayMap.get(dateStr)
 
             const isSelected = selectedDate === dateStr
-            const isHighestExpense = highestExpenseDate === dateStr && dayInfo?.expense! > 0
+            const isHighestExpense = highestExpenseDate === dateStr && (dayInfo?.expense ?? 0) > 0
 
             const hasExpense = (dayInfo?.expense ?? 0) > 0
             const hasIncome = (dayInfo?.income ?? 0) > 0
@@ -378,12 +378,9 @@ export function CalendarView({
       <Card className="p-3.5 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <p className="text-sm font-semibold capitalize">
-              {formatDayFullLabel(selectedDate)}
-            </p>
+            <p className="text-sm font-semibold capitalize">{formatDayFullLabel(selectedDate)}</p>
             <p className="text-xs text-muted-foreground">
-              {selectedDayTxs.length}{' '}
-              {selectedDayTxs.length === 1 ? 'movimiento' : 'movimientos'}
+              {selectedDayTxs.length} {selectedDayTxs.length === 1 ? 'movimiento' : 'movimientos'}
             </p>
           </div>
 
@@ -412,7 +409,10 @@ export function CalendarView({
               const isExpense = tx.type === 'expense'
 
               return (
-                <div key={tx.id} className="pt-2 first:pt-0 flex items-center justify-between gap-3">
+                <div
+                  key={tx.id}
+                  className="pt-2 first:pt-0 flex items-center justify-between gap-3"
+                >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <CategoryIcon
                       name={category?.icon ?? 'Repeat'}
@@ -424,7 +424,8 @@ export function CalendarView({
                         {tx.description}
                       </p>
                       <p className="truncate text-[11px] text-muted-foreground">
-                        {tx.merchant ?? (isIncome ? 'Ingreso' : isExpense ? 'Gasto' : 'Transferencia')}
+                        {tx.merchant ??
+                          (isIncome ? 'Ingreso' : isExpense ? 'Gasto' : 'Transferencia')}
                       </p>
                     </div>
                   </div>

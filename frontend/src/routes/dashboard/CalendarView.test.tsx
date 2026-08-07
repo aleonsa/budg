@@ -86,9 +86,7 @@ describe('CalendarView', () => {
 
   it('displays transactions for selected day and handles add transaction callback', () => {
     const onAdd = vi.fn()
-    const txs: Transaction[] = [
-      transaction('Dinner', 'expense', 500_00, 'food', '2026-02-15'),
-    ]
+    const txs: Transaction[] = [transaction('Dinner', 'expense', 500_00, 'food', '2026-02-15')]
 
     render(
       <CalendarView
