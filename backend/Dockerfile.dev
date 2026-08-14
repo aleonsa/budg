@@ -3,16 +3,27 @@
 FROM golang:1.26.6-bookworm
 
 ARG AIR_VERSION=v1.67.4
+ARG TARGETARCH
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && go install github.com/air-verse/air@${AIR_VERSION}
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) air_sha="c8cc405210e557e2681275688ce700441eac53db9fb42bb58764874ee9aa783d" ;; \
+        arm64) air_sha="3b138e3cc01c6f1f077f555baa1db45215c02f1aa57db8ab0b5b082a76a45743" ;; \
+        *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl; \
+    rm -rf /var/lib/apt/lists/*; \
+    air_archive="air_${AIR_VERSION#v}_linux_${TARGETARCH}.tar.gz"; \
+    curl --fail --location --retry 3 \
+        --output "/tmp/${air_archive}" \
+        "https://github.com/air-verse/air/releases/download/${AIR_VERSION}/${air_archive}"; \
+    echo "${air_sha}  /tmp/${air_archive}" | sha256sum --check -; \
+    tar -xzf "/tmp/${air_archive}" -C /usr/local/bin air; \
+    rm "/tmp/${air_archive}"; \
+    air -v
 
 WORKDIR /app
-
-COPY go.mod go.sum ./
-RUN go mod download
 
 COPY . .
 

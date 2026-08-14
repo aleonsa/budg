@@ -71,7 +71,9 @@ Open `http://localhost:5173`. The API is available at
 Postgres and Auth remain external and use the development credentials from the
 existing env files.
 
-Subsequent starts can omit `--build`:
+Subsequent starts can omit `--build` while Dockerfiles and pinned toolchain
+versions remain unchanged. After pulling either kind of change, rebuild once
+with the command above.
 
 ```bash
 docker compose up
