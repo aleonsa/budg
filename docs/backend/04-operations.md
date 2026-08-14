@@ -1,71 +1,59 @@
 # Despliegue y operación
 
-## Decisión de hosting (2026-07-21)
+## Decisión de hosting (2026-08-14)
 
-Versiones anteriores de este documento planeaban Cloud Run. Se decidió
-consolidar frontend y backend en un solo proyecto Vercel usando
-[Services](https://vercel.com/docs/services) (Beta) en vez de Cloud Run, por:
+Frontend queda en Vercel (Vite estático) y backend corre en Cloud Run. Vercel
+Services agotó las 4 horas mensuales de Fluid Active CPU del plan Hobby, sobre
+todo por los streams largos del agente. Pro ($20/mes) no se justificaba para una
+app personal. Cloud Run conserva scale-to-zero, usa la misma imagen portable y
+ofrece 180,000 vCPU-s (~50h) mensuales en free tier.
 
-- Cuenta Vercel ya existente; Cloud Run hubiera exigido proyecto GCP, IAM,
-  Artifact Registry y Secret Manager nuevos solo para esto.
-- Un solo dominio: frontend y backend comparten origin (ruteo por path vía
-  `vercel.json`), eliminando CORS en producción por completo.
-- Deploy automático nativo por push a `main`; no requiere workflow GitHub
-  Actions custom para el backend.
-- El backend corre igual como imagen de contenedor (`backend/Dockerfile`);
-  nada en el código Go asume una plataforma específica. Si Vercel Services deja
-  de convenir, la misma imagen se redespliega en Cloud Run u otro runtime de
-  contenedores sin cambios.
-
-Trade-off aceptado conscientemente: Services es Beta y corre bajo el modelo de
-Vercel Functions (Fluid Compute) — escala a cero tras inactividad (5 min en
-producción, 30s en preview) y no ofrece IP estática ni Secure Compute todavía.
-Aceptable para app de uso personal de bajo tráfico.
+Vercel mantiene same-origin mediante rewrites externos `/v1/*` → Cloud Run;
+estos rewrites son routing, no Functions, y no consumen Fluid Active CPU. Ver
+provisión, IAM, WIF y cutover en `docs/backend/05-cloud-run-migration.md`.
 
 ## Topología
 
 ```txt
 Browser
-  -> Vercel (un dominio, un deployment)
-       /v1/*, /healthz, /readyz -> service "backend" (contenedor Go)
+  -> Vercel (frontend estático)
+       /v1/*, /healthz, /readyz -> rewrite externo -> Cloud Run "budg-api"
        /*                       -> service "frontend" (Vite estático)
+  -> Cloud Run us-west1 (contenedor Go, min=0, max=2)
   -> Supabase Auth (JWT) y Supabase transaction pooler (Supavisor)
 Supabase PostgreSQL
 ```
 
-`vercel.json` en la raíz del repo define ambos servicios y las rewrites
-públicas. Cada servicio se construye de forma independiente; el backend usa
-`runtime: container` + `entrypoint: Dockerfile` explícitos porque el repo no
-seguiría la convención de función serverless de Vercel para Go (esperaría
-handlers exportados por archivo bajo `api/`, no un router `chi` con `main()`
-persistente).
+`vercel.json` define el service frontend y rewrites públicos a la URL estable de
+Cloud Run. Cloud Run despliega `backend/Dockerfile` desde Artifact Registry;
+ningún código Go depende de plataforma.
 
 ## Ambientes
 
-| Ambiente | Propósito | Datos | Proyecto Supabase |
-| --- | --- | --- | --- |
-| Local | Desarrollo y pruebas | Supabase local o DB descartable | N/A |
-| Development | Integración compartida | Proyecto Supabase no productivo | `development` |
-| Production | Usuarios reales | Proyecto y secretos separados | proyecto dedicado, creado para producción |
+| Ambiente    | Propósito              | Datos                           | Proyecto Supabase                         |
+| ----------- | ---------------------- | ------------------------------- | ----------------------------------------- |
+| Local       | Desarrollo y pruebas   | Supabase local o DB descartable | N/A                                       |
+| Development | Integración compartida | Proyecto Supabase no productivo | `development`                             |
+| Production  | Usuarios reales        | Proyecto y secretos separados   | proyecto dedicado, creado para producción |
 
 Nunca se apunta test automatizado destructivo a producción. Development y
 production no comparten passwords, JWT config ni proyecto Supabase.
 
 ## Variables de entorno
 
-| Variable | Secreta | Servicio | Descripción |
-| --- | --- | --- | --- |
-| `APP_ENV` | No | backend | `development` o `production` |
-| `PORT` | No | backend | Vercel inyecta el puerto del contenedor |
-| `LOG_LEVEL` | No | backend | Nivel `slog` |
-| `DATABASE_URL` | Sí | backend | Runtime transaction pooler, `sslmode=verify-full` |
-| `SUPABASE_JWT_ISSUER` | No | backend | Issuer esperado |
-| `SUPABASE_JWKS_URL` | No | backend | JWKS del proyecto Supabase |
-| `SUPABASE_JWT_AUDIENCE` | No | backend | Audience esperada |
-| `CORS_ALLOWED_ORIGINS` | No | backend | Orígenes de desarrollo local; en producción el frontend es same-origin |
-| `VITE_SUPABASE_URL` | No | frontend | Proyecto Supabase (cliente público) |
-| `VITE_SUPABASE_ANON_KEY` | No | frontend | Anon key (segura para browser) |
-| `VITE_API_BASE_URL` | No | frontend | Sin setear en Production/Preview: default same-origin (ver `backend.ts`). Solo se usa en desarrollo local si el backend no corre en `localhost:8080` |
+| Variable                 | Secreta | Servicio | Descripción                                                                                                                                          |
+| ------------------------ | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `APP_ENV`                | No      | backend  | `development` o `production`                                                                                                                         |
+| `PORT`                   | No      | backend  | Cloud Run inyecta el puerto del contenedor                                                                                                           |
+| `LOG_LEVEL`              | No      | backend  | Nivel `slog`                                                                                                                                         |
+| `DATABASE_URL`           | Sí      | backend  | Runtime transaction pooler, `sslmode=verify-full`                                                                                                    |
+| `SUPABASE_JWT_ISSUER`    | No      | backend  | Issuer esperado                                                                                                                                      |
+| `SUPABASE_JWKS_URL`      | No      | backend  | JWKS del proyecto Supabase                                                                                                                           |
+| `SUPABASE_JWT_AUDIENCE`  | No      | backend  | Audience esperada                                                                                                                                    |
+| `CORS_ALLOWED_ORIGINS`   | No      | backend  | Orígenes de desarrollo local; producción sigue same-origin vía rewrite                                                                               |
+| `VITE_SUPABASE_URL`      | No      | frontend | Proyecto Supabase (cliente público)                                                                                                                  |
+| `VITE_SUPABASE_ANON_KEY` | No      | frontend | Anon key (segura para browser)                                                                                                                       |
+| `VITE_API_BASE_URL`      | No      | frontend | Sin setear en Production/Preview: default same-origin (ver `backend.ts`). Solo se usa en desarrollo local si el backend no corre en `localhost:8080` |
 
 Password DB y service role jamás usan prefijo `VITE_`. `DATABASE_URL` hosted
 exige TLS verificable (`sslmode=verify-full`); ver sección siguiente sobre el
@@ -98,7 +86,7 @@ runtime. `DATABASE_URL` de producción debe incluir:
 
 `backend/Dockerfile` (multi-stage, ~15MB final):
 
-1. Compila en stage `golang:1.26.5-bookworm` con `CGO_ENABLED=0` (pgx y jwx son
+1. Compila en stage `golang:1.26.6-bookworm` con `CGO_ENABLED=0` (pgx y jwx son
    pure Go, sin dependencia cgo).
 2. Runtime en `gcr.io/distroless/static-debian12:nonroot` — sin shell, sin
    package manager, corre como `nonroot` (uid 65532).
@@ -106,9 +94,7 @@ runtime. `DATABASE_URL` de producción debe incluir:
    `migrations/`, `scripts/` ni código fuente (`.dockerignore`).
 4. Escucha `$PORT` (Vercel/Cloud Run/etc. lo inyectan; default local `8080`).
 5. Recibe `SIGTERM` y cierra servidor/pool con gracia — ya implementado en
-   `cmd/api/main.go` (`signal.Notify` + `srv.Shutdown` con timeout de 30s),
-   coincide con el grace period que Vercel Services da a un contenedor antes
-   de terminarlo forzosamente.
+   `cmd/api/main.go` (`signal.Notify` + `srv.Shutdown` con timeout de 30s).
 
 Pruebas no corren en el Dockerfile: CI (`make check-backend`) es el gate antes
 de que cualquier commit llegue a un build de imagen; el Dockerfile solo
@@ -123,11 +109,13 @@ no compitan por el esquema.
 2. `.github/workflows/migrate-prod.yml` aplica la migración Goose expand
    backward-compatible contra producción. Push a `main` **no** dispara deploy por
    sí solo: el auto-deploy por git de `main` está apagado en `vercel.json`.
-3. Solo si Goose termina bien, el workflow hace `POST` al Deploy Hook y Vercel
-   construye y despliega ambos servicios; capa de contenedor del backend se
-   reconstruye desde `backend/Dockerfile`.
-4. Smoke test post-deploy (ver abajo).
-5. Migración contract destructiva solo después de que ningún código viejo use
+3. Solo si Goose termina bien, GitHub Actions autentica a GCP por WIF (sin llave
+   estática), construye/pushea la imagen a Artifact Registry y despliega a
+   Cloud Run por digest.
+4. Smoke test directo a Cloud Run.
+5. El Deploy Hook de Vercel construye solo el frontend con el rewrite externo.
+6. Smoke test por dominio Vercel, incluido stream SSE del agente.
+7. Migración contract destructiva solo después de que ningún código viejo use
    la columna/tabla anterior.
 
 ## Ejecutar migraciones
@@ -225,9 +213,10 @@ Nunca registrar:
 - SQL con valores sensibles.
 - Stack traces enviados al cliente.
 
-Logs nativos de Vercel (stdout/stderr del contenedor) son la fuente inicial.
-Proveedor externo de observability se agrega solo cuando exista necesidad
-operativa concreta.
+Logs nativos de Cloud Run (stdout/stderr del contenedor) son la fuente inicial;
+se consultan en Logs Explorer o con `gcloud run services logs read budg-api
+--region=us-west1`. Proveedor externo de observability se agrega solo cuando
+exista necesidad operativa concreta.
 
 ## Backups y recuperación
 
@@ -240,8 +229,8 @@ operativa concreta.
 
 ## Seguridad operativa
 
-- Secretos gestionados como variables de entorno "Sensitive" en el dashboard
-  de Vercel, nunca en Git.
+- Secretos backend gestionados en GCP Secret Manager y leídos solo por la SA
+  runtime `budg-api-run`; variables públicas frontend siguen en Vercel.
 - DB role de API (`budg_api`) con privilegios solo sobre tablas/secuencias
   requeridas, `NOBYPASSRLS`.
 - Dependencias actualizadas y escaneadas (`govulncheck`, `npm audit`,
@@ -254,8 +243,9 @@ operativa concreta.
 
 ## Costos y límites
 
-- Vercel Services factura bajo el mismo modelo que Vercel Functions (Active
-  CPU + Fluid Compute): se paga por CPU activa, no por tiempo ocioso.
+- Cloud Run usa billing por request, `min-instances=0`, `max-instances=2` y
+  timeout 300s. Free tier: 180k vCPU-s, 360k GiB-s, 2M requests/mes.
+- Budget GCP de 100 MXN con alertas 50%/90%; consumo normal debería ser $0.
 - `MaxConns` pequeño en `pgxpool` evita tormenta de conexiones si varias
   instancias escalan a la vez; revisar contra el límite de conexiones del plan
   Supabase elegido.
@@ -272,8 +262,8 @@ operativa concreta.
   la imagen; `DATABASE_URL` de producción usa `sslmode=verify-full` +
   `sslrootcert`.
 - Secretos fuera de imagen y repositorio.
-- `vercel.json` rutea `/v1/*`, `/healthz`, `/readyz` al backend y todo lo
-  demás al frontend.
+- `vercel.json` rutea `/v1/*`, `/healthz`, `/readyz` por rewrite externo a
+  Cloud Run y todo lo demás al frontend.
 - JWT valida firma y claims.
 - Tests de aislamiento entre usuarios (RLS) pasan.
 - Signup público deshabilitado en Supabase Auth; usuario único creado.

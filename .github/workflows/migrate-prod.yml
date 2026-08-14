@@ -3,7 +3,8 @@ name: Migrate production
 # Production deploys are gated on migrations, not parallel to them: Vercel's git
 # auto-deploy is disabled for `main` (see vercel.json `git.deploymentEnabled`),
 # so this workflow is the only thing that promotes a commit to production. It
-# runs Goose first and triggers the deploy hook only when Goose succeeds.
+# runs Goose first, deploys the backend to Cloud Run, then triggers the Vercel
+# frontend deploy hook only when both steps succeed.
 #
 # WHY: on 2026-08-03 PR #52 merged code that read
 # account_balance_entries.msi_purchase_id while production sat at migration
@@ -20,6 +21,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 # Never cancel a run mid-migration, and never let two runs apply Goose at once.
 concurrency:
@@ -36,6 +38,9 @@ jobs:
     env:
       BUDG_MIGRATION_ENV: production
       MIGRATIONS_DATABASE_URL: ${{ secrets.MIGRATIONS_DATABASE_URL }}
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
     steps:
       - name: Checkout the commit that passed CI
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -65,14 +70,50 @@ jobs:
       - name: Confirm final schema version
         run: make migrate-prod-status
 
-      # Deploy hooks build the branch tip from git, so the deployment keeps its
-      # commit metadata and stays rollback-able from the Vercel dashboard. The
-      # Vercel CLI is deliberately not used here: it uploads a working tree and
-      # marks the deployment as CLI-sourced (see docs/ci-cd.md).
-      - name: Trigger Vercel production deploy
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+
+      - name: Build and push backend image
+        run: |
+          IMAGE_REPOSITORY="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/budg/backend"
+          IMAGE="${IMAGE_REPOSITORY}:${DEPLOY_SHA}"
+          gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+          docker build --platform=linux/amd64 --tag "${IMAGE}" backend
+          docker push "${IMAGE}"
+          DIGEST="$(gcloud artifacts docker images describe "${IMAGE}" --format='value(image_summary.digest)')"
+          test -n "${DIGEST}"
+          echo "BACKEND_IMAGE=${IMAGE_REPOSITORY}@${DIGEST}" >> "${GITHUB_ENV}"
+
+      - name: Deploy backend to Cloud Run
+        run: |
+          gcloud run deploy budg-api \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${BACKEND_IMAGE}" \
+            --quiet
+
+      - name: Smoke test Cloud Run
+        run: |
+          URL="$(gcloud run services describe budg-api \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --format='value(status.url)')"
+          curl --fail --silent --show-error "${URL}/healthz" >/dev/null
+          curl --fail --silent --show-error "${URL}/readyz" >/dev/null
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' "${URL}/v1/me")" = "401"
+
+      # The deploy hook now builds only the static frontend. It keeps commit
+      # metadata and Vercel rollback support without using a CLI-sourced deploy.
+      - name: Trigger Vercel frontend production deploy
         env:
           VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
         run: |
           curl --fail --silent --show-error --request POST \
             "$VERCEL_DEPLOY_HOOK_URL" --output /dev/null
-          echo "Deploy hook accepted; Vercel is building main"
+          echo "Deploy hook accepted; Vercel is building the frontend from main"
