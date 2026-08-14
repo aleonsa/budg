@@ -59,6 +59,8 @@ func NewRouter(opts Options) http.Handler {
 	r.Use(newCORS(opts.CORSOrigins))
 
 	r.Handle("/healthz", &healthHandler{})
+	// Google Front End reserves /healthz on run.app before traffic reaches us.
+	r.Handle("/livez", &healthHandler{})
 	r.Handle("/readyz", &readyHandler{database: opts.Database})
 
 	r.Route("/v1", func(v1 chi.Router) {

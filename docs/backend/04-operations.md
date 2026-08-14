@@ -28,6 +28,10 @@ Supabase PostgreSQL
 Cloud Run. Cloud Run despliega `backend/Dockerfile` desde Artifact Registry;
 ningún código Go depende de plataforma.
 
+Google Front End reserva `/healthz` en dominios `run.app` y devuelve 404 antes
+de llegar al contenedor. El router también expone `/livez`; el rewrite público
+mantiene `/healthz` para clientes pero lo traduce a `/livez` en Cloud Run.
+
 ## Ambientes
 
 | Ambiente    | Propósito              | Datos                           | Proyecto Supabase                         |
