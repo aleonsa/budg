@@ -52,6 +52,22 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
+func TestLivez(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(httpapi.NewRouter(httpapi.Options{Database: readyDatabase()}))
+	defer srv.Close()
+
+	resp, err := srv.Client().Get(srv.URL + "/livez")
+	if err != nil {
+		t.Fatalf("request /livez: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+
 func TestHealthzRejectsPost(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(httpapi.NewRouter(httpapi.Options{Database: readyDatabase()}))

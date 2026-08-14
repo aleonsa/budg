@@ -50,9 +50,9 @@ quede en $0. Se crea un budget alert de tripwire (ver sección Costos).
 | Budget            | 100 MXN, alertas 50%/90%                                                     |
 
 Smoke directo: `/readyz` → 200 (incluye conexión real a Supabase), `/v1/me`
-sin JWT → 401. `/healthz` se intercepta con 404 por el proxy TLS local antes de
-llegar a Cloud Run (no aparece en request logs); se valida desde GitHub Actions
-durante cutover.
+sin JWT → 401. Google Front End reserva `/healthz` en `run.app` y devuelve 404
+antes de llegar al contenedor; se añadió `/livez` para smoke directo y el
+rewrite público traduce `/healthz` → `/livez`.
 
 ## Topología objetivo
 
@@ -288,7 +288,7 @@ gcloud run deploy budg-api --image=<...>  # + mismos flags
 ### 7. Smoke test directo contra Cloud Run (antes de tocar Vercel)
 
 ```txt
-GET https://budg-api-<hash>-<REGION>.a.run.app/healthz -> 200
+GET https://budg-api-<hash>-<REGION>.a.run.app/livez   -> 200
 GET https://budg-api-<hash>-<REGION>.a.run.app/readyz  -> 200
 GET .../v1/me sin token    -> 401
 GET .../v1/me con token    -> 200
@@ -325,7 +325,7 @@ frontend y dejar el proxy externo:
     },
     {
       "source": "/healthz",
-      "destination": "https://budg-api-6rdofbnp4q-uw.a.run.app/healthz"
+      "destination": "https://budg-api-6rdofbnp4q-uw.a.run.app/livez"
     },
     {
       "source": "/readyz",
@@ -376,7 +376,7 @@ migraciones siguen precediendo ambos deploys:
 - name: Smoke test
   run: |
     URL="$(gcloud run services describe budg-api --region="${GCP_REGION}" --format='value(status.url)')"
-    curl --fail "${URL}/healthz"; curl --fail "${URL}/readyz"
+          curl --fail "${URL}/livez"; curl --fail "${URL}/readyz"
     test "$(curl -s -o /dev/null -w '%{http_code}' "${URL}/v1/me")" = "401"
 ```
 

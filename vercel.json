@@ -19,7 +19,7 @@
     },
     {
       "source": "/healthz",
-      "destination": "https://budg-api-6rdofbnp4q-uw.a.run.app/healthz"
+      "destination": "https://budg-api-6rdofbnp4q-uw.a.run.app/livez"
     },
     {
       "source": "/readyz",
