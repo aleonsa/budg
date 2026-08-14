@@ -19,6 +19,7 @@ Documentos de apoyo:
 - [Modelo de datos y migraciones](backend/02-database.md)
 - [Contrato HTTP y fases de API](backend/03-api-roadmap.md)
 - [Despliegue y operación](backend/04-operations.md)
+- [Migración de Vercel Services a Cloud Run](backend/05-cloud-run-migration.md)
 - [Contrato HTTP detallado](api-contract.md)
 
 ## Objetivo
