@@ -2,7 +2,7 @@
 
 # Build stage: compiles a static binary. Pinned to the same Go version as
 # .go-version/go.mod so local, CI, and container builds never drift.
-FROM golang:1.26.5-bookworm AS builder
+FROM golang:1.26.6-bookworm AS builder
 
 WORKDIR /src
 
