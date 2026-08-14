@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { ChevronDown, TriangleAlert } from 'lucide-react'
 import { Link } from 'react-router'
 import { Header } from '@/components/layout/Header'
 import { Card, Badge, Progress, Separator, Button, Input, Label } from '@/components/ui'
@@ -7,12 +8,16 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { MockActionPanel } from '@/components/common/MockActionPanel'
 import { formatMoney, formatMoneyCompact, toCents } from '@/lib/format'
 import { api } from '@/lib/api'
+import { cycleElapsed, getCreditCardCycles, sumCycleTransactions } from '@/lib/credit-card-cycle'
+import { today } from '@/lib/date'
 import { queryKeys } from '@/lib/query-keys'
 import { cn } from '@/lib/utils'
 import {
   useAccounts,
   useCategories,
+  useCreditCardStatements,
   useMSIPurchases,
+  useTransactions,
   deriveAccountSummary,
   deriveTotalBalance,
   deriveTotalDebt,
@@ -219,11 +224,46 @@ function CreditCardItem({
   onEditMSI: (purchase: MSIPurchase) => void
   onDeleteMSI: (purchase: MSIPurchase) => void
 }) {
+  const [msiOpen, setMsiOpen] = useState(false)
+  const transactionsQ = useTransactions()
+  const statementsQ = useCreditCardStatements(account.id)
+
   const limit = account.creditLimit ?? 0
   const available = account.availableCredit ?? 0
   const usedRate = limit > 0 ? 1 - available / limit : 0
   const health = creditHealth(usedRate)
   const msiCount = account.activeMSICount ?? 0
+  const msiMonthly = msiPurchases.reduce((sum, msi) => sum + msi.installmentAmount, 0)
+
+  const cutDay = account.statementCutDay
+  const hasCycle = typeof cutDay === 'number'
+  const cycles = hasCycle ? getCreditCardCycles(cutDay, account.paymentDueDay ?? 28, today()) : null
+  const statements = statementsQ.data ?? []
+  const cycleLoading = transactionsQ.isLoading || statementsQ.isLoading
+  const openCycleTotal = cycles
+    ? Math.max(
+        0,
+        sumCycleTransactions(
+          transactionsQ.data ?? [],
+          account.id,
+          cycles.open.startDate,
+          cycles.open.endDate,
+          today(),
+        ),
+      )
+    : 0
+  const unpaidRemainder = statements
+    .filter((statement) => statement.status !== 'paid')
+    .reduce(
+      (sum, statement) => sum + Math.max(0, statement.statementBalance - statement.paidAmount),
+      0,
+    )
+  const nextStatementEstimate = openCycleTotal + unpaidRemainder
+  const previousConfirmed = cycles
+    ? statements.some((statement) => statement.cycleEndDate === cycles.previous.endDate)
+    : true
+  const overdueStatement = statements.find((statement) => statement.status === 'overdue')
+  const elapsed = cycles ? cycleElapsed(cycles.open, today()) : null
 
   return (
     <Card className="overflow-hidden">
@@ -276,6 +316,37 @@ function CreditCardItem({
           />
         </div>
 
+        {/* Next statement estimate */}
+        {cycles && (
+          <div className="mt-2.5 rounded-lg bg-muted/55 p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] text-muted-foreground">Saldo al siguiente corte</span>
+              <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                {elapsed && elapsed.daysLeft === 0
+                  ? 'corte hoy'
+                  : elapsed && elapsed.daysLeft === 1
+                    ? 'falta 1 día'
+                    : `faltan ${elapsed?.daysLeft ?? 0} días`}
+              </span>
+            </div>
+            <p className="mt-0.5 text-sm font-semibold tabular-nums">
+              {cycleLoading ? '…' : formatMoney(nextStatementEstimate, account.currency)}
+            </p>
+            <Progress
+              value={elapsed?.ratio ?? 0}
+              accent="blue"
+              className="mt-1.5 h-1"
+              aria-label={`Días transcurridos del ciclo de ${account.name}`}
+            />
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Corte {formatDate(cycles.open.endDate)} ·{' '}
+              {cycleLoading
+                ? '…'
+                : `compras del ciclo ${formatMoney(openCycleTotal, account.currency)}`}
+            </p>
+          </div>
+        )}
+
         {/* Cut & payment days */}
         {(account.statementCutDay !== undefined || account.paymentDueDay !== undefined) && (
           <div className="mt-2.5 flex items-center gap-3 text-[11px] text-muted-foreground">
@@ -291,6 +362,28 @@ function CreditCardItem({
             )}
           </div>
         )}
+
+        {/* Cut passed without confirmation, or overdue payment */}
+        {!cycleLoading && overdueStatement && (
+          <div className="mt-2.5 flex items-center gap-2 rounded-lg bg-[hsl(var(--color-red-soft))] px-2.5 py-1.5 text-[11px] font-medium text-[hsl(var(--color-red))]">
+            <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              Pago vencido · corte {formatDate(overdueStatement.cycleEndDate)} ·{' '}
+              {formatMoney(
+                Math.max(0, overdueStatement.statementBalance - overdueStatement.paidAmount),
+                account.currency,
+              )}{' '}
+              restantes
+            </span>
+          </div>
+        )}
+        {!cycleLoading && !overdueStatement && cycles && !previousConfirmed && (
+          <div className="mt-2.5 flex items-center gap-2 rounded-lg bg-[hsl(var(--color-yellow-soft))] px-2.5 py-1.5 text-[11px] font-medium text-[hsl(var(--color-yellow))]">
+            <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+            <span>Corte del {formatDate(cycles.previous.endDate)} sin confirmar</span>
+          </div>
+        )}
+
         <Link
           to={`/accounts/${account.id}`}
           className="mt-3 inline-flex text-xs font-medium text-[hsl(var(--color-blue))] hover:underline"
@@ -300,19 +393,43 @@ function CreditCardItem({
         <AccountActions accountName={account.name} onEdit={onEdit} onDelete={onDelete} />
       </div>
 
-      {/* Active MSI */}
+      {/* Active MSI (collapsible) */}
       {msiPurchases.length > 0 && (
         <>
           <Separator />
-          <div className="space-y-2.5 bg-muted/30 p-3">
-            {msiPurchases.map((msi) => (
-              <MSIRow
-                key={msi.id}
-                msi={msi}
-                onEdit={() => onEditMSI(msi)}
-                onDelete={() => onDeleteMSI(msi)}
+          <div className="bg-muted/30">
+            <button
+              type="button"
+              aria-expanded={msiOpen}
+              aria-controls={`msi-list-${account.id}`}
+              onClick={() => setMsiOpen((open) => !open)}
+              className="flex w-full items-center justify-between gap-2 p-3 text-left"
+            >
+              <span className="text-xs font-medium">
+                {msiPurchases.length} MSI activo{msiPurchases.length === 1 ? '' : 's'}
+              </span>
+              <span className="text-[11px] font-semibold tabular-nums text-[hsl(var(--color-purple))]">
+                {formatMoney(msiMonthly, account.currency)}/mes
+              </span>
+              <ChevronDown
+                className={cn(
+                  'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+                  msiOpen && 'rotate-180',
+                )}
               />
-            ))}
+            </button>
+            {msiOpen && (
+              <div id={`msi-list-${account.id}`} className="space-y-2.5 border-t border-border p-3">
+                {msiPurchases.map((msi) => (
+                  <MSIRow
+                    key={msi.id}
+                    msi={msi}
+                    onEdit={() => onEditMSI(msi)}
+                    onDelete={() => onDeleteMSI(msi)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </>
       )}

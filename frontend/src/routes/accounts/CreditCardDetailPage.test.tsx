@@ -4,13 +4,14 @@ import { useState } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '@/lib/api'
-import type { Account, CreditCardStatement, Transaction } from '@/types'
+import type { Account, CreditCardStatement, MSIPurchase, Transaction } from '@/types'
 import CreditCardDetailPage from './CreditCardDetailPage'
 
 const state = vi.hoisted(() => ({
   accounts: [] as Account[],
   transactions: [] as Transaction[],
   statements: [] as CreditCardStatement[],
+  msi: [] as MSIPurchase[],
   invalidate: vi.fn(),
 }))
 
@@ -21,7 +22,7 @@ vi.mock('@/hooks/useQueries', () => ({
   useTransactions: () => ({ data: state.transactions, isLoading: false, isError: false }),
   useCreditCardStatements: () => ({ data: state.statements, isLoading: false, isError: false }),
   useCategories: () => ({ data: [], isLoading: false, isError: false }),
-  useMSIPurchases: () => ({ data: [], isLoading: false, isError: false }),
+  useMSIPurchases: () => ({ data: state.msi, isLoading: false, isError: false }),
 }))
 
 vi.mock('@tanstack/react-query', () => ({
@@ -116,6 +117,22 @@ const statement: CreditCardStatement = {
   confirmedAt: '2026-07-13T00:00:00Z',
 }
 
+const msiPurchase = (overrides: Partial<MSIPurchase> = {}): MSIPurchase => ({
+  id: 'msi-1',
+  accountId: 'credit-1',
+  description: 'Laptop',
+  merchant: 'Tienda Tech',
+  totalAmount: 24_000,
+  installmentAmount: 2_000,
+  installmentCount: 12,
+  installmentsPaid: 3,
+  startDate: '2026-04-01',
+  nextInstallmentDate: '2026-08-15',
+  categoryId: null,
+  status: 'active',
+  ...overrides,
+})
+
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={['/accounts/credit-1']}>
@@ -154,6 +171,7 @@ describe('CreditCardDetailPage', () => {
       }),
     ]
     state.statements = []
+    state.msi = []
     state.invalidate.mockReset()
     vi.mocked(api.confirmCreditCardStatement).mockReset().mockResolvedValue(statement)
     vi.mocked(api.enableBalanceTracking).mockReset().mockResolvedValue(credit)
@@ -168,14 +186,69 @@ describe('CreditCardDetailPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Tarjeta Oro' })).toBeInTheDocument()
     expect(screen.getByText('Deuda actual').nextElementSibling).toHaveTextContent('$800.00')
-    expect(screen.getByText('Compras netas al momento').previousElementSibling).toHaveTextContent(
+    expect(screen.getByText('Saldo estimado al corte').previousElementSibling).toHaveTextContent(
       '$175.00',
     )
+    expect(screen.getByText('Compras netas al momento: $175.00')).toBeInTheDocument()
     expect(screen.getByText('Estimación de Budg').previousElementSibling).toHaveTextContent(
       '$300.00',
     )
     expect(screen.getByText('Saldo automático pendiente')).toBeInTheDocument()
     expect(screen.queryByText('Compra futura')).not.toBeInTheDocument()
+  })
+
+  it('warns prominently when the last cut passed without confirmation', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(screen.getByText('Corte del 12 jul 2026 sin confirmar')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Confirmar ahora' }))
+    expect(screen.getByRole('dialog', { name: 'Confirmar estado de cuenta' })).toBeInTheDocument()
+  })
+
+  it('adds unpaid statement remainder to the next statement estimate', () => {
+    state.statements = [statement]
+
+    renderPage()
+
+    expect(screen.getByText('Saldo estimado al corte').previousElementSibling).toHaveTextContent(
+      '$475.00',
+    )
+    expect(
+      screen.getByText('Compras del ciclo $175.00 + saldo anterior $300.00'),
+    ).toBeInTheDocument()
+  })
+
+  it('flags overdue statements with a red banner and payment action', async () => {
+    state.statements = [{ ...statement, status: 'overdue' }]
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(screen.getByText('Pago vencido · corte 12 jul 2026')).toBeInTheDocument()
+    expect(screen.queryByText(/sin confirmar/)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Pagar ahora' }))
+    expect(screen.getByRole('dialog', { name: 'Pagar tarjeta' })).toBeInTheDocument()
+  })
+
+  it('collapses MSI purchases behind a summary until expanded', async () => {
+    state.msi = [
+      msiPurchase({}),
+      msiPurchase({ id: 'msi-2', description: 'Celular', installmentAmount: 8_000 }),
+    ]
+    const user = userEvent.setup()
+    renderPage()
+
+    const toggle = screen.getByRole('button', { name: /Mostrar MSI de Tarjeta Oro/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('Laptop')).not.toBeInTheDocument()
+
+    await user.click(toggle)
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Laptop')).toBeInTheDocument()
+    expect(screen.getByText('Celular')).toBeInTheDocument()
   })
 
   it('confirms previous statement against bank amount', async () => {

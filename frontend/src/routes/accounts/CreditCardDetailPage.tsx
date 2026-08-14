@@ -1,6 +1,14 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, CalendarDays, CreditCard, Landmark, ReceiptText } from 'lucide-react'
+import {
+  ArrowLeft,
+  CalendarDays,
+  ChevronDown,
+  CreditCard,
+  Landmark,
+  ReceiptText,
+  TriangleAlert,
+} from 'lucide-react'
 import { Link, useParams } from 'react-router'
 import { Header, PageSection, SectionTitle } from '@/components/layout/Header'
 import { MockActionPanel } from '@/components/common/MockActionPanel'
@@ -14,7 +22,7 @@ import {
   useTransactions,
 } from '@/hooks/useQueries'
 import { api } from '@/lib/api'
-import { getCreditCardCycles } from '@/lib/credit-card-cycle'
+import { getCreditCardCycles, sumCycleTransactions } from '@/lib/credit-card-cycle'
 import { today } from '@/lib/date'
 import { formatMoney, toCents } from '@/lib/format'
 import { queryKeys } from '@/lib/query-keys'
@@ -37,20 +45,6 @@ function formatDate(value: string): string {
     month: 'short',
     year: 'numeric',
   })
-}
-
-function cycleTotal(transactions: Transaction[], accountId: string, start: string, end: string) {
-  return transactions
-    .filter(
-      (tx) =>
-        tx.accountId === accountId && tx.date >= start && tx.date <= end && tx.date <= today(),
-    )
-    .reduce((total, tx) => {
-      if (tx.type === 'expense') return total + tx.amount
-      if (tx.type === 'income') return total - tx.amount
-      if (tx.type === 'transfer') return total + tx.amount
-      return total
-    }, 0)
 }
 
 function cycleTransactions(
@@ -99,6 +93,7 @@ export default function CreditCardDetailPage() {
   const [reconcileOpen, setReconcileOpen] = useState(false)
   const [reconcileDebt, setReconcileDebt] = useState('')
   const [formError, setFormError] = useState('')
+  const [msiOpen, setMsiOpen] = useState(false)
 
   const account = accountsQ.data?.find((item) => item.id === accountId)
   const transactions = transactionsQ.data ?? []
@@ -122,18 +117,37 @@ export default function CreditCardDetailPage() {
   ).filter((transaction) => transaction.date <= today())
   const openCycleTotal = Math.max(
     0,
-    cycleTotal(transactions, accountId, cycles.open.startDate, cycles.open.endDate),
+    sumCycleTransactions(
+      transactions,
+      accountId,
+      cycles.open.startDate,
+      cycles.open.endDate,
+      today(),
+    ),
   )
   const previousEstimate = Math.max(
     0,
-    cycleTotal(transactions, accountId, cycles.previous.startDate, cycles.previous.endDate),
+    sumCycleTransactions(
+      transactions,
+      accountId,
+      cycles.previous.startDate,
+      cycles.previous.endDate,
+      today(),
+    ),
   )
   const previousStatement = statements.find(
     (statement) => statement.cycleEndDate === cycles.previous.endDate,
   )
   const unpaidStatements = statements.filter((statement) => statement.status !== 'paid')
+  const overdueStatement = statements.find((statement) => statement.status === 'overdue')
+  const unpaidRemainder = unpaidStatements.reduce(
+    (sum, statement) => sum + Math.max(0, statement.statementBalance - statement.paidAmount),
+    0,
+  )
+  const nextStatementEstimate = openCycleTotal + unpaidRemainder
   const currentDebt = Math.max(0, (account?.creditLimit ?? 0) - (account?.availableCredit ?? 0))
   const utilization = account?.creditLimit ? currentDebt / account.creditLimit : 0
+  const msiMonthly = msiPurchases.reduce((sum, purchase) => sum + purchase.installmentAmount, 0)
 
   const confirmMutation = useMutation({
     mutationFn: () =>
@@ -336,6 +350,55 @@ export default function CreditCardDetailPage() {
           </div>
         </Card>
 
+        {!previousStatement && (
+          <Card className="border-[hsl(var(--color-yellow))]/40 bg-[hsl(var(--color-yellow-soft))] p-3">
+            <div className="flex items-start gap-2.5">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--color-yellow))]" />
+              <div className="flex-1">
+                <p className="text-xs font-semibold text-[hsl(var(--color-yellow))]">
+                  Corte del {formatDate(cycles.previous.endDate)} sin confirmar
+                </p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  El corte ya pasó. Confirma el estado real del banco para cuadrar deuda, pagos y el
+                  saldo al siguiente corte.
+                </p>
+                <Button variant="outline" size="sm" className="mt-2" onClick={openConfirm}>
+                  Confirmar ahora
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {overdueStatement && (
+          <Card className="border-[hsl(var(--color-red))]/40 bg-[hsl(var(--color-red-soft))] p-3">
+            <div className="flex items-start gap-2.5">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--color-red))]" />
+              <div className="flex-1">
+                <p className="text-xs font-semibold text-[hsl(var(--color-red))]">
+                  Pago vencido · corte {formatDate(overdueStatement.cycleEndDate)}
+                </p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  Resta{' '}
+                  {formatMoney(
+                    Math.max(0, overdueStatement.statementBalance - overdueStatement.paidAmount),
+                    account.currency,
+                  )}{' '}
+                  de un estado ya vencido. Págalo pronto para evitar intereses.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => openPayment(overdueStatement)}
+                >
+                  Pagar ahora
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
+
         {!account.balanceTrackingEnabled && (
           <Card className="border-[hsl(var(--color-yellow))]/30 bg-[hsl(var(--color-yellow-soft))] p-3">
             <div className="flex items-start gap-2.5">
@@ -391,9 +454,14 @@ export default function CreditCardDetailPage() {
                   {formatDate(cycles.open.startDate)} – {formatDate(cycles.open.endDate)}
                 </p>
                 <p className="mt-1 text-xl font-semibold tabular-nums">
-                  {formatMoney(openCycleTotal, account.currency)}
+                  {formatMoney(nextStatementEstimate, account.currency)}
                 </p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">Compras netas al momento</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">Saldo estimado al corte</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {unpaidRemainder > 0
+                    ? `Compras del ciclo ${formatMoney(openCycleTotal, account.currency)} + saldo anterior ${formatMoney(unpaidRemainder, account.currency)}`
+                    : `Compras netas al momento: ${formatMoney(openCycleTotal, account.currency)}`}
+                </p>
               </div>
               <div className="rounded-lg bg-[hsl(var(--color-blue-soft))] p-2 text-[hsl(var(--color-blue))]">
                 <CalendarDays className="h-4 w-4" />
@@ -504,30 +572,50 @@ export default function CreditCardDetailPage() {
 
         {msiPurchases.length > 0 && (
           <PageSection>
-            <SectionTitle>Meses sin intereses</SectionTitle>
-            <Card className="divide-y divide-border">
-              {msiPurchases.map((purchase) => (
-                <div key={purchase.id} className="p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-medium">{purchase.description}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {purchase.installmentsPaid}/{purchase.installmentCount} mensualidades
+            <div className="flex items-center justify-between gap-2 px-0.5">
+              <SectionTitle>Meses sin intereses</SectionTitle>
+              <button
+                type="button"
+                aria-expanded={msiOpen}
+                aria-controls="msi-purchase-list"
+                aria-label={`Mostrar MSI de ${account.name}`}
+                onClick={() => setMsiOpen((open) => !open)}
+                className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground hover:text-foreground"
+              >
+                <span className="font-semibold text-[hsl(var(--color-purple))]">
+                  {msiPurchases.length}
+                </span>
+                · {formatMoney(msiMonthly, account.currency)}/mes
+                <ChevronDown
+                  className={cn('h-3.5 w-3.5 transition-transform', msiOpen && 'rotate-180')}
+                />
+              </button>
+            </div>
+            {msiOpen && (
+              <Card className="divide-y divide-border" id="msi-purchase-list">
+                {msiPurchases.map((purchase) => (
+                  <div key={purchase.id} className="p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium">{purchase.description}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {purchase.installmentsPaid}/{purchase.installmentCount} mensualidades
+                        </p>
+                      </div>
+                      <p className="text-xs font-semibold tabular-nums text-[hsl(var(--color-purple))]">
+                        {formatMoney(purchase.installmentAmount, account.currency)}/mes
                       </p>
                     </div>
-                    <p className="text-xs font-semibold tabular-nums text-[hsl(var(--color-purple))]">
-                      {formatMoney(purchase.installmentAmount, account.currency)}/mes
-                    </p>
+                    <Progress
+                      value={purchase.installmentsPaid / purchase.installmentCount}
+                      accent="purple"
+                      className="mt-2 h-1"
+                      aria-label={`Progreso de ${purchase.description}`}
+                    />
                   </div>
-                  <Progress
-                    value={purchase.installmentsPaid / purchase.installmentCount}
-                    accent="purple"
-                    className="mt-2 h-1"
-                    aria-label={`Progreso de ${purchase.description}`}
-                  />
-                </div>
-              ))}
-            </Card>
+                ))}
+              </Card>
+            )}
           </PageSection>
         )}
 
