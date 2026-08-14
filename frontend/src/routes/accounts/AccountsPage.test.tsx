@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Account, Category, MSIPurchase } from '@/types'
+import type { Account, Category, CreditCardStatement, MSIPurchase, Transaction } from '@/types'
 import { api } from '@/lib/api'
 import AccountsPage from './AccountsPage'
 
@@ -11,10 +11,17 @@ const state = vi.hoisted(() => ({
   accounts: { data: [] as Account[], isLoading: false, isError: false },
   msi: { data: [] as MSIPurchase[], isLoading: false, isError: false },
   categories: { data: [] as Category[], isLoading: false, isError: false },
+  transactions: { data: [] as Transaction[], isLoading: false, isError: false },
+  statements: {} as Record<
+    string,
+    { data: CreditCardStatement[]; isLoading: boolean; isError: boolean }
+  >,
   invalidate: vi.fn(),
   reset: vi.fn(),
   payloads: [] as unknown[],
 }))
+
+vi.mock('@/lib/date', () => ({ today: () => '2026-07-22' }))
 
 vi.mock('@/hooks/useQueries', async () => {
   const actual = await vi.importActual<typeof import('@/hooks/useQueries')>('@/hooks/useQueries')
@@ -23,6 +30,9 @@ vi.mock('@/hooks/useQueries', async () => {
     useAccounts: () => state.accounts,
     useMSIPurchases: () => state.msi,
     useCategories: () => state.categories,
+    useTransactions: () => state.transactions,
+    useCreditCardStatements: (accountId: string) =>
+      state.statements[accountId] ?? { data: [], isLoading: false, isError: false },
   }
 })
 
@@ -114,6 +124,34 @@ const msi = (overrides: Partial<MSIPurchase> = {}): MSIPurchase => ({
   ...overrides,
 })
 
+const tx = (overrides: Partial<Transaction> = {}): Transaction => ({
+  id: 'tx-1',
+  accountId: 'credit-1',
+  type: 'expense',
+  amount: 12_500,
+  categoryId: null,
+  date: '2026-07-20',
+  description: 'Súper',
+  affectsBalance: true,
+  isReconciled: true,
+  createdAt: '2026-07-20',
+  ...overrides,
+})
+
+const statement = (overrides: Partial<CreditCardStatement> = {}): CreditCardStatement => ({
+  id: 'statement-1',
+  accountId: 'credit-1',
+  cycleStartDate: '2026-06-13',
+  cycleEndDate: '2026-07-12',
+  paymentDueDate: '2026-07-28',
+  statementBalance: 40_000,
+  minimumPayment: 4_000,
+  paidAmount: 10_000,
+  status: 'partial',
+  confirmedAt: '2026-07-13T00:00:00Z',
+  ...overrides,
+})
+
 const expenseCategory = (overrides: Partial<Category> = {}): Category => ({
   id: 'cat-tech',
   name: 'Tecnología',
@@ -146,6 +184,8 @@ describe('AccountsPage', () => {
     state.accounts = { data: [], isLoading: false, isError: false }
     state.msi = { data: [], isLoading: false, isError: false }
     state.categories = { data: [], isLoading: false, isError: false }
+    state.transactions = { data: [], isLoading: false, isError: false }
+    state.statements = {}
     state.invalidate.mockReset()
     state.reset.mockReset()
     state.payloads.length = 0
@@ -215,6 +255,7 @@ describe('AccountsPage', () => {
     renderPage()
 
     expect(screen.queryByRole('button', { name: 'Registrar MSI' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /1 MSI activo/ }))
     await user.click(screen.getByRole('button', { name: 'Editar MSI Laptop' }))
     const dialog = screen.getByRole('dialog', { name: 'Editar compra a MSI' })
     const description = within(dialog).getByRole('textbox', { name: 'Descripción' })
@@ -246,11 +287,13 @@ describe('AccountsPage', () => {
     expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
   })
 
-  it('renders negative net worth, debit share, credit health, and active MSI details', () => {
+  it('renders negative net worth, debit share, credit health, and active MSI details', async () => {
+    const user = userEvent.setup()
     state.accounts.data = [debit(), credit()]
     state.msi.data = [msi(), msi({ id: 'done', status: 'completed', installmentAmount: 9_999 })]
 
     renderPage()
+    await user.click(screen.getByRole('button', { name: /1 MSI activo/ }))
 
     expect(screen.getByText('Negativo')).toBeInTheDocument()
     expect(screen.getByText('-$500.00')).toBeInTheDocument()
@@ -260,7 +303,7 @@ describe('AccountsPage', () => {
     expect(screen.getByText('Corte')).toHaveTextContent('12')
     expect(screen.getByText('Pago')).toHaveTextContent('28')
     expect(screen.getByText('Laptop')).toBeInTheDocument()
-    expect(screen.getAllByText('$20.00/mes')).toHaveLength(2)
+    expect(screen.getAllByText('$20.00/mes')).toHaveLength(3)
     expect(screen.getByText('Carga mensual total').nextElementSibling).toHaveTextContent(
       '$20.00/mes',
     )
@@ -284,7 +327,8 @@ describe('AccountsPage', () => {
     renderPage()
 
     expect(screen.getByText('Positivo')).toBeInTheDocument()
-    expect(screen.getByText('$0.00')).toBeInTheDocument()
+    // Net worth $0.00 plus a $0.00 next-statement estimate per configured card.
+    expect(screen.getAllByText('$0.00')).toHaveLength(3)
     expect(screen.getByText('Moderado')).toBeInTheDocument()
     expect(screen.getByText('Saludable')).toBeInTheDocument()
     expect(screen.getByText('50% usado')).toBeInTheDocument()
@@ -292,7 +336,8 @@ describe('AccountsPage', () => {
     expect(screen.getByText('Uso global').parentElement).toHaveTextContent('35%')
   })
 
-  it('handles zero credit limits and MSI rows without optional merchant or payment date', () => {
+  it('handles zero credit limits and MSI rows without optional merchant or payment date', async () => {
+    const user = userEvent.setup()
     state.accounts.data = [
       debit({ balance: 0 }),
       credit({
@@ -320,6 +365,7 @@ describe('AccountsPage', () => {
       }),
     ]
     renderPage()
+    await user.click(screen.getByRole('button', { name: /1 MSI activo/ }))
 
     expect(screen.getByText('Positivo')).toBeInTheDocument()
     expect(screen.getByText('0% del total')).toBeInTheDocument()
@@ -331,6 +377,80 @@ describe('AccountsPage', () => {
     expect(screen.queryByText(/restan/)).not.toBeInTheDocument()
     expect(screen.queryByText('Corte')).not.toBeInTheDocument()
     expect(screen.queryByText('Pago')).not.toBeInTheDocument()
+  })
+
+  it('shows the next statement estimate with cycle progress and days to cut', () => {
+    state.accounts.data = [credit()]
+    state.transactions.data = [tx({})]
+
+    renderPage()
+
+    expect(screen.getByText('Saldo al siguiente corte')).toBeInTheDocument()
+    expect(screen.getByText('faltan 21 días')).toBeInTheDocument()
+    expect(screen.getByText('$125.00')).toBeInTheDocument()
+    expect(screen.getByText(/compras del ciclo \$125\.00/)).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Días transcurridos del ciclo de Tarjeta Oro' }),
+    ).toBeInTheDocument()
+  })
+
+  it('adds unpaid statement remainders to the next statement estimate', () => {
+    state.accounts.data = [credit()]
+    state.transactions.data = [tx({})]
+    state.statements['credit-1'] = {
+      data: [statement({ status: 'pending', paidAmount: 0 })],
+      isLoading: false,
+      isError: false,
+    }
+
+    renderPage()
+
+    expect(screen.getByText('$525.00')).toBeInTheDocument()
+    expect(screen.queryByText(/sin confirmar/)).not.toBeInTheDocument()
+  })
+
+  it('warns when the last cut passed without confirmation', () => {
+    state.accounts.data = [credit()]
+
+    renderPage()
+
+    expect(screen.getByText('Corte del 12 jul sin confirmar')).toBeInTheDocument()
+  })
+
+  it('flags overdue statements instead of the unconfirmed warning', () => {
+    state.accounts.data = [credit()]
+    state.statements['credit-1'] = {
+      data: [statement({ status: 'overdue', paidAmount: 5_000 })],
+      isLoading: false,
+      isError: false,
+    }
+
+    renderPage()
+
+    expect(screen.getByText(/Pago vencido · corte 12 jul/)).toBeInTheDocument()
+    expect(screen.getByText(/\$350\.00 restantes/)).toBeInTheDocument()
+    expect(screen.queryByText(/sin confirmar/)).not.toBeInTheDocument()
+  })
+
+  it('collapses MSI rows behind a summary until expanded', async () => {
+    const user = userEvent.setup()
+    state.accounts.data = [credit()]
+    state.msi.data = [msi()]
+
+    renderPage()
+
+    expect(screen.queryByText('Laptop')).not.toBeInTheDocument()
+    const toggle = screen.getByRole('button', { name: /1 MSI activo/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    await user.click(toggle)
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Laptop')).toBeInTheDocument()
+
+    await user.click(toggle)
+
+    expect(screen.queryByText('Laptop')).not.toBeInTheDocument()
   })
 
   it('creates debit and credit accounts with normalized payloads and invalidates summaries', async () => {

@@ -1,4 +1,4 @@
-import type { ISODate } from '@/types'
+import type { Cents, ISODate, Transaction } from '@/types'
 
 export interface CreditCardCycle {
   startDate: ISODate
@@ -63,5 +63,49 @@ export function getCreditCardCycles(
       endDate: toISO(previousEnd),
       paymentDueDate: toISO(dueDateAfter(previousEnd, paymentDueDay)),
     },
+  }
+}
+
+/**
+ * Net amount a card accumulates over a cycle window: expenses and outgoing
+ * transfers add, income (refunds) subtracts. `upTo` caps how far ahead we
+ * count so future-dated transactions don't inflate the running total.
+ */
+export function sumCycleTransactions(
+  transactions: Transaction[],
+  accountId: string,
+  start: ISODate,
+  end: ISODate,
+  upTo?: ISODate,
+): Cents {
+  return transactions
+    .filter(
+      (tx) =>
+        tx.accountId === accountId &&
+        tx.date >= start &&
+        tx.date <= end &&
+        (upTo === undefined || tx.date <= upTo),
+    )
+    .reduce((total, tx) => {
+      if (tx.type === 'expense') return total + tx.amount
+      if (tx.type === 'income') return total - tx.amount
+      if (tx.type === 'transfer') return total + tx.amount
+      return total
+    }, 0)
+}
+
+/** How far into the cycle we are (0–1) and how many days remain until the cut. */
+export function cycleElapsed(
+  cycle: CreditCardCycle,
+  currentDate: ISODate,
+): { ratio: number; daysLeft: number } {
+  const start = fromISO(cycle.startDate).getTime()
+  const end = fromISO(cycle.endDate).getTime()
+  const now = fromISO(currentDate).getTime()
+  const span = Math.max(1, end - start)
+  const clamped = Math.min(Math.max(now, start), end)
+  return {
+    ratio: (clamped - start) / span,
+    daysLeft: Math.max(0, Math.ceil((end - now) / 86_400_000)),
   }
 }
