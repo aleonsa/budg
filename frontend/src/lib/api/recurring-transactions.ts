@@ -11,6 +11,10 @@ export interface CreateRecurringTransactionInput {
   startDate: string
 }
 
+export interface UpdateRecurringTransactionInput extends CreateRecurringTransactionInput {
+  isActive: boolean
+}
+
 export async function getRecurringTransactions(): Promise<RecurringTransaction[]> {
   const res = await authFetch('/v1/recurring-transactions')
   if (!res.ok) {
@@ -32,6 +36,28 @@ export async function createRecurringTransaction(
     throw new Error(`Request failed: ${res.status}`)
   }
   return toFrontend((await res.json()) as BackendRecurringTransaction)
+}
+
+export async function updateRecurringTransaction(
+  id: string,
+  input: UpdateRecurringTransactionInput,
+): Promise<RecurringTransaction> {
+  const res = await authFetch(`/v1/recurring-transactions/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) {
+    throw new Error(`Request failed: ${res.status}`)
+  }
+  return toFrontend((await res.json()) as BackendRecurringTransaction)
+}
+
+export async function deleteRecurringTransaction(id: string): Promise<void> {
+  const res = await authFetch(`/v1/recurring-transactions/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    throw new Error(`Request failed: ${res.status}`)
+  }
 }
 
 export async function processRecurringTransactions(): Promise<{ created: number }> {
