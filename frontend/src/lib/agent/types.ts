@@ -31,6 +31,7 @@ export interface AgentMessage {
 
 export interface ViewContext {
   route: string
+  currentDate?: string
   entityType?: string
   entityId?: string
   periodStart?: string

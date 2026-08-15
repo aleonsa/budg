@@ -3,11 +3,12 @@ package agent
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // systemPromptVersion tracks the prompt contract. Bump it whenever the prompt
 // changes so logs and evals can attribute behavior to a specific version.
-const systemPromptVersion = "2026-08-06.1"
+const systemPromptVersion = "2026-08-14.1"
 
 // ViewContext is the optional screen context the frontend attaches to a run.
 // It is a hint for the model, never authority: every ID is still validated
@@ -18,6 +19,7 @@ type ViewContext struct {
 	EntityID    string `json:"entityId"`
 	PeriodStart string `json:"periodStart"`
 	PeriodEnd   string `json:"periodEnd"`
+	CurrentDate string `json:"currentDate"`
 }
 
 const baseSystemPrompt = `Eres el asistente financiero de budg. Ayudas al usuario a consultar, entender, analizar y registrar sus finanzas personales en pesos mexicanos (MXN).
@@ -32,6 +34,8 @@ Reglas:
 - Los montos vienen en centavos (18450 = MXN 184.50). Al hablar con el usuario formatea en pesos.
 - Usa las herramientas disponibles para obtener datos reales; nunca inventes cuentas, categorías, montos, fechas ni IDs.
 - Si un nombre de cuenta o categoría es ambiguo o no existe, pide aclaración en lugar de adivinar. Resuelve nombres a IDs con list_accounts/list_categories/search_transactions antes de crear, corregir o eliminar un movimiento.
+- Interpreta "último movimiento", "movimiento más reciente", "hoy" y periodos actuales usando la fecha actual del usuario incluida abajo. Salvo que el usuario pida movimientos programados, proyecciones o fechas futuras, excluye transacciones con fecha posterior a esa fecha. Para obtener el último movimiento, llama search_transactions con endDate igual a la fecha actual y limit 1.
+- Las cuotas MSI con fecha futura son compromisos programados, no movimientos ya ocurridos.
 - Devuelve siempre la respuesta final en el formato estructurado requerido.
 - Si no puedes responder con la información disponible, dilo con honestidad.
 
@@ -49,14 +53,13 @@ Comprobantes e imágenes (OCR):
 - Con esos datos, propón el registro llamando a create_transaction; esto activará el flujo de confirmación normal. En "message" resume claramente lo que detectaste (monto, comercio, fecha y cuenta sugerida) y pide confirmación.
 - Si la imagen es ilegible, no es un comprobante financiero, o faltan datos esenciales (por ejemplo el monto), dilo con honestidad y pide una imagen más clara o los datos faltantes; nunca inventes montos, fechas ni comercios.`
 
-// BuildSystemPrompt composes the invariant base prompt with the optional view
-// context. The base prompt stays stable and cacheable; only the small context
-// block varies per request.
-func BuildSystemPrompt(view *ViewContext) string {
+// BuildSystemPrompt composes the invariant base prompt with trusted runtime
+// context. currentDate must be a validated YYYY-MM-DD value.
+func BuildSystemPrompt(view *ViewContext, currentDate string) string {
+	lines := []string{fmt.Sprintf("- Fecha actual del usuario: %s", currentDate)}
 	if view == nil {
-		return baseSystemPrompt
+		return baseSystemPrompt + "\n\nContexto actual:\n" + strings.Join(lines, "\n")
 	}
-	lines := make([]string, 0, 4)
 	if strings.TrimSpace(view.Route) != "" {
 		lines = append(lines, fmt.Sprintf("- Vista actual: %s", view.Route))
 	}
@@ -66,8 +69,20 @@ func BuildSystemPrompt(view *ViewContext) string {
 	if strings.TrimSpace(view.PeriodStart) != "" && strings.TrimSpace(view.PeriodEnd) != "" {
 		lines = append(lines, fmt.Sprintf("- Periodo mostrado: %s a %s", view.PeriodStart, view.PeriodEnd))
 	}
-	if len(lines) == 0 {
-		return baseSystemPrompt
+	return baseSystemPrompt + "\n\nContexto actual (la pantalla es solo una pista; valida datos con herramientas):\n" + strings.Join(lines, "\n")
+}
+
+func promptCurrentDate(view *ViewContext, now time.Time) string {
+	serverDate := now.UTC().Format("2006-01-02")
+	if view != nil {
+		clientDate, clientErr := time.Parse("2006-01-02", view.CurrentDate)
+		serverDay, serverErr := time.Parse("2006-01-02", serverDate)
+		if clientErr == nil && serverErr == nil {
+			difference := clientDate.Sub(serverDay)
+			if difference >= -24*time.Hour && difference <= 24*time.Hour {
+				return view.CurrentDate
+			}
+		}
 	}
-	return baseSystemPrompt + "\n\nContexto de la pantalla (solo pista, valida siempre con herramientas):\n" + strings.Join(lines, "\n")
+	return serverDate
 }

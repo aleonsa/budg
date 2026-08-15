@@ -1,7 +1,10 @@
+import { useEffect, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
-import { Card, Badge, Progress } from '@/components/ui'
+import { Card, Badge, Button, Progress } from '@/components/ui'
 import { EmptyState } from '@/components/common/EmptyState'
 import { formatMoney, formatMoneyCompact } from '@/lib/format'
+import { today } from '@/lib/date'
 import { deriveBudgetProgressForDate, selectApplicableBudgets } from '@/lib/budget-period'
 import { cn } from '@/lib/utils'
 import { useTransactions, useCategories, useAccounts, useBudgets } from '@/hooks/useQueries'
@@ -15,6 +18,21 @@ interface MonthData {
   income: Cents
   expense: Cents
   net: Cents
+}
+
+function monthKeyForDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+function shiftMonth(monthKey: string, delta: number): string {
+  const [year, month] = monthKey.split('-').map(Number)
+  return monthKeyForDate(new Date(year, month - 1 + delta, 1))
+}
+
+function monthEnd(monthKey: string): string {
+  const [year, month] = monthKey.split('-').map(Number)
+  const day = new Date(year, month, 0).getDate()
+  return `${monthKey}-${String(day).padStart(2, '0')}`
 }
 
 /** Group transactions by month and compute income/expense/net per month. */
@@ -186,6 +204,17 @@ export default function StatsPage() {
   const catQ = useCategories()
   const accQ = useAccounts()
   const budQ = useBudgets()
+  const currentDate = today()
+  const currentMonthKey = currentDate.slice(0, 7)
+  const [monthKey, setMonthKey] = useState(currentMonthKey)
+  const previousCurrentMonth = useRef(currentMonthKey)
+
+  useEffect(() => {
+    const previous = previousCurrentMonth.current
+    if (previous === currentMonthKey) return
+    previousCurrentMonth.current = currentMonthKey
+    setMonthKey((selected) => (selected === previous ? currentMonthKey : selected))
+  }, [currentMonthKey])
 
   const isLoading = txQ.isLoading || catQ.isLoading || accQ.isLoading || budQ.isLoading
 
@@ -230,22 +259,25 @@ export default function StatsPage() {
     )
   }
 
-  // Derive current period from data (most recent month)
-  const monthsData = monthlyBreakdown(transactions)
-  const currentMonth = monthsData[monthsData.length - 1]
-  const monthKey = currentMonth.key
-  const monthTxs = transactions.filter((t) => t.date.startsWith(monthKey))
+  const historicalTransactions = transactions.filter(
+    (transaction) => transaction.date <= currentDate,
+  )
+  const monthsData = monthlyBreakdown(historicalTransactions)
+  const currentMonth = monthsData.find((month) => month.key === monthKey)
+  const monthTxs = historicalTransactions.filter((transaction) =>
+    transaction.date.startsWith(monthKey),
+  )
 
-  const income = currentMonth.income
-  const expense = currentMonth.expense
-  const net = currentMonth.net
+  const income = currentMonth?.income ?? 0
+  const expense = currentMonth?.expense ?? 0
+  const net = currentMonth?.net ?? 0
   const savingsRate = income > 0 ? net / income : 0
   const txCount = monthTxs.filter((t) => t.type !== 'transfer').length
   const expenseTxCount = monthTxs.filter((t) => t.type === 'expense').length
 
   // Distributions
-  const expenseDist = spendingByCategory(transactions, categories, monthKey, 'expense')
-  const incomeDist = spendingByCategory(transactions, categories, monthKey, 'income')
+  const expenseDist = spendingByCategory(historicalTransactions, categories, monthKey, 'expense')
+  const incomeDist = spendingByCategory(historicalTransactions, categories, monthKey, 'income')
   const maxExpense = expenseDist[0]?.amount ?? 1
   const maxIncome = incomeDist[0]?.amount ?? 1
 
@@ -262,33 +294,55 @@ export default function StatsPage() {
 
   // Budget exceeded
   const catMap = new Map(categories.map((c) => [c.id, c]))
-  const referenceDate = monthTxs.reduce(
-    (latest, transaction) => (transaction.date > latest ? transaction.date : latest),
-    `${monthKey}-01`,
-  )
-  const exceededBudgets = selectApplicableBudgets(
-    deriveBudgetProgressForDate(budgets, transactions, referenceDate),
-    referenceDate,
-  )
-    .filter((budget) => budget.progress > 1)
-    .sort((a, b) => b.progress - a.progress)
+  const referenceDate = monthKey === currentMonthKey ? currentDate : monthEnd(monthKey)
+  const exceededBudgets =
+    monthKey > currentMonthKey
+      ? []
+      : selectApplicableBudgets(
+          deriveBudgetProgressForDate(budgets, historicalTransactions, referenceDate),
+          referenceDate,
+        )
+          .filter((budget) => budget.progress > 1)
+          .sort((a, b) => b.progress - a.progress)
   const topExceeded = exceededBudgets[0]
 
   return (
     <>
       <Header title="Estadísticas" subtitle="Análisis financiero" />
       <div className="space-y-3.5 py-3">
-        {/* Period label */}
+        {/* Period selector */}
         <div className="flex items-center justify-between px-1">
           <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Periodo actual
+            Periodo
           </h2>
-          <Badge variant="outline">
-            {new Date(monthKey + '-01T00:00:00').toLocaleDateString('es-MX', {
-              month: 'long',
-              year: 'numeric',
-            })}
-          </Badge>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              aria-label="Mes anterior"
+              onClick={() => setMonthKey((month) => shiftMonth(month, -1))}
+            >
+              <ChevronLeft />
+            </Button>
+            <Badge variant="outline" className="min-w-32 justify-center capitalize">
+              <time dateTime={`${monthKey}-01`} aria-live="polite">
+                {new Date(monthKey + '-01T00:00:00').toLocaleDateString('es-MX', {
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </time>
+            </Badge>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              aria-label="Mes siguiente"
+              onClick={() => setMonthKey((month) => shiftMonth(month, 1))}
+            >
+              <ChevronRight />
+            </Button>
+          </div>
         </div>
 
         {/* Key metrics */}
@@ -430,7 +484,7 @@ export default function StatsPage() {
             <InsightRow
               label="Carga MSI mensual"
               value={formatMoney(
-                transactions
+                historicalTransactions
                   .filter((t) => t.msiPurchaseId && t.date.startsWith(monthKey))
                   .reduce((s, t) => s + t.amount, 0),
               )}

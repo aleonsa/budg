@@ -65,7 +65,7 @@ func sampleWriteStore() *fakeWriteStore {
 func mustMutationRegistry(t *testing.T, data Store, confirmer *Confirmer) *ToolRegistry {
 	t.Helper()
 	registry := NewToolRegistry()
-	if err := RegisterReadOnlyTools(registry, data, testUser); err != nil {
+	if err := RegisterReadOnlyTools(registry, data, testUser, "2026-08-14"); err != nil {
 		t.Fatalf("register read-only tools: %v", err)
 	}
 	if err := RegisterMutationTools(registry, data, confirmer, testUser); err != nil {

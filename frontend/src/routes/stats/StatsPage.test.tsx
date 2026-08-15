@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAccounts, useBudgets, useCategories, useTransactions } from '@/hooks/useQueries'
@@ -160,7 +160,7 @@ function setQueries({
 }
 
 function renderPage() {
-  render(
+  return render(
     <MemoryRouter>
       <StatsPage />
     </MemoryRouter>,
@@ -249,6 +249,58 @@ describe('StatsPage', () => {
     expect(metric('Tasa de ahorro')).toHaveTextContent('20%')
     expect(metric('Promedio diario')).toHaveTextContent('$26.67')
     expect(metric('Gasto por mov.')).toHaveTextContent('$200.00')
+  })
+
+  it('defaults to the current calendar month when MSI installments exist in the future', () => {
+    setQueries({
+      transactionData: [
+        ...transactions,
+        tx('future-msi', {
+          type: 'expense',
+          amount: 99900,
+          date: '2028-01-02',
+          categoryId: 'food',
+          accountId: 'card',
+          msiPurchaseId: 'laptop',
+        }),
+      ],
+    })
+    renderPage()
+
+    expect(screen.getByText(/julio de 2026/i)).toBeInTheDocument()
+    expect(metric('Gastos')).toHaveTextContent('$800.00')
+    expect(metric('Gastos')).not.toHaveTextContent('$999.00')
+    expect(screen.queryByText(/ene 28/i)).not.toBeInTheDocument()
+  })
+
+  it('navigates between months and shows zeroes for a month without movements', () => {
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mes anterior' }))
+    expect(screen.getByText(/junio de 2026/i)).toBeInTheDocument()
+    expect(metric('Ingresos')).toHaveTextContent('$500.00')
+    expect(metric('Gastos')).toHaveTextContent('$600.00')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mes siguiente' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mes siguiente' }))
+    expect(screen.getByText(/agosto de 2026/i)).toBeInTheDocument()
+    expect(metric('Ingresos')).toHaveTextContent('$0.00')
+    expect(metric('Gastos')).toHaveTextContent('$0.00')
+    expect(metric('Ahorro neto')).toHaveTextContent('0 movimientos')
+  })
+
+  it('advances the current period after a calendar-month rollover', () => {
+    const page = renderPage()
+    expect(screen.getByText(/julio de 2026/i)).toBeInTheDocument()
+
+    vi.setSystemTime(new Date('2026-08-01T00:01:00-06:00'))
+    page.rerender(
+      <MemoryRouter>
+        <StatsPage />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText(/agosto de 2026/i)).toBeInTheDocument()
   })
 
   it('calculates category shares, budget excess, account usage, and MSI load', () => {
