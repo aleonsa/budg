@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/aleonsa/budg/backend/internal/config"
 )
@@ -19,6 +20,7 @@ type Service struct {
 	data      Store
 	confirmer *Confirmer
 	limits    Limits
+	now       func() time.Time
 }
 
 // NewService wires the agent service from configuration. The provider is
@@ -42,7 +44,7 @@ func NewService(provider Provider, data Store, confirmer *Confirmer, cfg config.
 	if err := limits.validate(); err != nil {
 		return nil, err
 	}
-	return &Service{provider: provider, data: data, confirmer: confirmer, limits: limits}, nil
+	return &Service{provider: provider, data: data, confirmer: confirmer, limits: limits, now: time.Now}, nil
 }
 
 // Chat runs one agent turn for a user. The userID must come from the verified
@@ -60,14 +62,15 @@ func (s *Service) Chat(
 	if userID == "" {
 		return Result{}, errors.New("user id is required")
 	}
+	currentDate := promptCurrentDate(view, s.now())
 	registry := NewToolRegistry()
-	if err := RegisterReadOnlyTools(registry, s.data, userID); err != nil {
+	if err := RegisterReadOnlyTools(registry, s.data, userID, currentDate); err != nil {
 		return Result{}, err
 	}
 	if err := RegisterMutationTools(registry, s.data, s.confirmer, userID); err != nil {
 		return Result{}, err
 	}
-	runner, err := NewRunner(s.provider, registry, BuildSystemPrompt(view), s.limits)
+	runner, err := NewRunner(s.provider, registry, BuildSystemPrompt(view, currentDate), s.limits)
 	if err != nil {
 		return Result{}, err
 	}

@@ -76,7 +76,7 @@ const testUser = "1b65ab86-586b-427f-b126-ee7f7ad35753"
 
 func mustRegistry(t *testing.T, store ReadStore) *ToolRegistry {
 	t.Helper()
-	registry, err := NewReadOnlyToolRegistry(store, testUser)
+	registry, err := NewReadOnlyToolRegistry(store, testUser, "2026-08-14")
 	if err != nil {
 		t.Fatalf("build read-only registry: %v", err)
 	}
@@ -193,6 +193,29 @@ func TestSearchTransactionsToolFiltersByPeriodAndType(t *testing.T) {
 	}
 }
 
+func TestSearchTransactionsToolReturnsLatestNonFutureMovementFirst(t *testing.T) {
+	data := sampleStore()
+	data.transactions = []store.Transaction{
+		{ID: "older", Date: "2026-08-01", Type: "expense", Amount: 100},
+		{ID: "future-msi", Date: "2028-01-15", Type: "expense", Amount: 300, MSIPurchaseID: strptr("laptop")},
+		{ID: "latest", Date: "2026-08-13", Type: "expense", Amount: 200},
+	}
+	registry := mustRegistry(t, data)
+	result := callTool(t, registry, "search_transactions", `{"limit":1}`)
+
+	var payload struct {
+		Transactions []struct {
+			ID string `json:"id"`
+		} `json:"transactions"`
+	}
+	if err := json.Unmarshal(result.Data, &payload); err != nil {
+		t.Fatalf("decode data: %v", err)
+	}
+	if len(payload.Transactions) != 1 || payload.Transactions[0].ID != "latest" {
+		t.Fatalf("transactions = %+v, want latest non-future movement", payload.Transactions)
+	}
+}
+
 func TestSearchTransactionsToolValidatesDate(t *testing.T) {
 	registry := mustRegistry(t, sampleStore())
 	tool, _ := registry.lookup("search_transactions")
@@ -221,6 +244,25 @@ func TestFinancialSummaryToolAggregatesPeriod(t *testing.T) {
 	}
 	if payload.NetCents != 2330000 {
 		t.Fatalf("net = %d, want 2330000", payload.NetCents)
+	}
+}
+
+func TestFinancialSummaryDefaultsToCurrentDate(t *testing.T) {
+	data := sampleStore()
+	data.transactions = append(data.transactions, store.Transaction{
+		ID: "future-income", Date: "2028-01-15", Type: "income", Amount: 9000000,
+	})
+	registry := mustRegistry(t, data)
+	result := callTool(t, registry, "get_financial_summary", `{}`)
+
+	var payload struct {
+		IncomeCents int64 `json:"incomeCents"`
+	}
+	if err := json.Unmarshal(result.Data, &payload); err != nil {
+		t.Fatalf("decode data: %v", err)
+	}
+	if payload.IncomeCents != 2400000 {
+		t.Fatalf("income = %d, want current income only", payload.IncomeCents)
 	}
 }
 

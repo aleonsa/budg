@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/aleonsa/budg/backend/internal/store"
@@ -22,9 +23,9 @@ type ReadStore interface {
 // NewReadOnlyToolRegistry builds the registry of read tools bound to a single
 // authenticated user. The userID always comes from the verified JWT and is
 // captured in closures so the model can never supply or override it.
-func NewReadOnlyToolRegistry(data ReadStore, userID string) (*ToolRegistry, error) {
+func NewReadOnlyToolRegistry(data ReadStore, userID, currentDate string) (*ToolRegistry, error) {
 	registry := NewToolRegistry()
-	if err := RegisterReadOnlyTools(registry, data, userID); err != nil {
+	if err := RegisterReadOnlyTools(registry, data, userID, currentDate); err != nil {
 		return nil, err
 	}
 	return registry, nil
@@ -34,7 +35,7 @@ func NewReadOnlyToolRegistry(data ReadStore, userID string) (*ToolRegistry, erro
 // letting a caller combine them with mutation tools (see
 // RegisterMutationTools) in one shared registry instead of needing two
 // separate ones.
-func RegisterReadOnlyTools(registry *ToolRegistry, data ReadStore, userID string) error {
+func RegisterReadOnlyTools(registry *ToolRegistry, data ReadStore, userID, currentDate string) error {
 	if registry == nil {
 		return errors.New("registry is required")
 	}
@@ -44,12 +45,15 @@ func RegisterReadOnlyTools(registry *ToolRegistry, data ReadStore, userID string
 	if userID == "" {
 		return errors.New("user id is required")
 	}
+	if err := validateOptionalDate(currentDate); err != nil || currentDate == "" {
+		return errors.New("current date must have format YYYY-MM-DD")
+	}
 
 	tools := []Tool{
 		newListAccountsTool(data, userID),
 		newListCategoriesTool(data, userID),
-		newSearchTransactionsTool(data, userID),
-		newFinancialSummaryTool(data, userID),
+		newSearchTransactionsTool(data, userID, currentDate),
+		newFinancialSummaryTool(data, userID, currentDate),
 	}
 	for _, tool := range tools {
 		if err := registry.Register(tool); err != nil {
@@ -247,18 +251,18 @@ type searchTransactionsArgs struct {
 
 const maxTransactionResults = 50
 
-func newSearchTransactionsTool(data ReadStore, userID string) Tool {
+func newSearchTransactionsTool(data ReadStore, userID, currentDate string) Tool {
 	return Tool{
 		Definition: ToolDefinition{
 			Name:        "search_transactions",
-			Description: "Busca movimientos del usuario por rango de fechas, tipo, cuenta o categoría. Devuelve total y lista acotada.",
+			Description: "Busca movimientos del usuario por rango de fechas, tipo, cuenta o categoría. Devuelve total y lista acotada, ordenada de fecha más reciente a más antigua.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"additionalProperties": false,
 				"required": ["startDate", "endDate", "type", "accountId", "categoryId", "limit"],
 				"properties": {
 					"startDate": {"type": ["string", "null"], "description": "Fecha inicial YYYY-MM-DD. null para no acotar."},
-					"endDate": {"type": ["string", "null"], "description": "Fecha final YYYY-MM-DD. null para no acotar."},
+					"endDate": {"type": ["string", "null"], "description": "Fecha final YYYY-MM-DD. null usa la fecha actual; especifica una fecha posterior solo si el usuario pide movimientos futuros."},
 					"type": {"type": ["string", "null"], "enum": ["expense", "income", "transfer", null], "description": "null para no filtrar por tipo."},
 					"accountId": {"type": ["string", "null"], "description": "null para no filtrar por cuenta."},
 					"categoryId": {"type": ["string", "null"], "description": "null para no filtrar por categoría."},
@@ -277,6 +281,9 @@ func newSearchTransactionsTool(data ReadStore, userID string) Tool {
 			if err := validateOptionalDate(args.EndDate); err != nil {
 				return errorResult("endDate debe tener formato YYYY-MM-DD.", false), nil
 			}
+			if args.EndDate == "" {
+				args.EndDate = currentDate
+			}
 
 			transactions, err := data.ListTransactions(ctx, userID)
 			if err != nil {
@@ -292,23 +299,33 @@ func newSearchTransactionsTool(data ReadStore, userID string) Tool {
 			}
 
 			var total int64
-			views := make([]transactionView, 0)
+			filtered := make([]store.Transaction, 0)
 			for _, tx := range transactions {
 				if !matchesTransactionFilter(tx, args) {
 					continue
 				}
 				total += tx.Amount
-				if len(views) < limit {
-					views = append(views, transactionView{
-						ID:          tx.ID,
-						Type:        tx.Type,
-						AmountCents: tx.Amount,
-						AccountID:   tx.AccountID,
-						CategoryID:  tx.CategoryID,
-						Date:        tx.Date,
-						Description: tx.Description,
-					})
+				filtered = append(filtered, tx)
+			}
+			sort.Slice(filtered, func(i, j int) bool {
+				if filtered[i].Date != filtered[j].Date {
+					return filtered[i].Date > filtered[j].Date
 				}
+				return filtered[i].ID > filtered[j].ID
+			})
+
+			resultCount := min(len(filtered), limit)
+			views := make([]transactionView, 0, resultCount)
+			for _, tx := range filtered[:resultCount] {
+				views = append(views, transactionView{
+					ID:          tx.ID,
+					Type:        tx.Type,
+					AmountCents: tx.Amount,
+					AccountID:   tx.AccountID,
+					CategoryID:  tx.CategoryID,
+					Date:        tx.Date,
+					Description: tx.Description,
+				})
 			}
 
 			return successResult(
@@ -328,7 +345,7 @@ type financialSummaryArgs struct {
 	EndDate   string `json:"endDate"`
 }
 
-func newFinancialSummaryTool(data ReadStore, userID string) Tool {
+func newFinancialSummaryTool(data ReadStore, userID, currentDate string) Tool {
 	return Tool{
 		Definition: ToolDefinition{
 			Name:        "get_financial_summary",
@@ -339,7 +356,7 @@ func newFinancialSummaryTool(data ReadStore, userID string) Tool {
 				"required": ["startDate", "endDate"],
 				"properties": {
 					"startDate": {"type": ["string", "null"], "description": "Fecha inicial YYYY-MM-DD. null para no acotar."},
-					"endDate": {"type": ["string", "null"], "description": "Fecha final YYYY-MM-DD. null para no acotar."}
+					"endDate": {"type": ["string", "null"], "description": "Fecha final YYYY-MM-DD. null usa la fecha actual; especifica una fecha posterior solo si el usuario pide una proyección futura."}
 				}
 			}`),
 		},
@@ -353,6 +370,9 @@ func newFinancialSummaryTool(data ReadStore, userID string) Tool {
 			}
 			if err := validateOptionalDate(args.EndDate); err != nil {
 				return errorResult("endDate debe tener formato YYYY-MM-DD.", false), nil
+			}
+			if args.EndDate == "" {
+				args.EndDate = currentDate
 			}
 
 			transactions, err := data.ListTransactions(ctx, userID)

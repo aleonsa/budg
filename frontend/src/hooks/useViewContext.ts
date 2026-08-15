@@ -1,6 +1,7 @@
 import { useLocation } from 'react-router'
 import { useMemo } from 'react'
 import type { ViewContext } from '@/lib/agent/types'
+import { today } from '@/lib/date'
 
 /**
  * Captures the current route and extracts an optional entity ID from the
@@ -15,10 +16,11 @@ import type { ViewContext } from '@/lib/agent/types'
  */
 export function useViewContext(): ViewContext {
   const location = useLocation()
+  const currentDate = today()
 
   return useMemo(() => {
     const path = location.pathname
-    const context: ViewContext = { route: path }
+    const context: ViewContext = { route: path, currentDate }
 
     // /accounts/:id  →  entityType: account
     const accountMatch = path.match(
@@ -39,5 +41,5 @@ export function useViewContext(): ViewContext {
     }
 
     return context
-  }, [location.pathname])
+  }, [currentDate, location.pathname])
 }
