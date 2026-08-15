@@ -68,8 +68,10 @@ export function getCreditCardCycles(
 
 /**
  * Net amount a card accumulates over a cycle window: expenses and outgoing
- * transfers add, income (refunds) subtracts. `upTo` caps how far ahead we
- * count so future-dated transactions don't inflate the running total.
+ * transfers add, while refunds and unallocated incoming payments subtract.
+ * Payments linked to a statement are excluded because its paid amount already
+ * reduces the carried remainder. `upTo` prevents future-dated transactions
+ * from inflating the running total.
  */
 export function sumCycleTransactions(
   transactions: Transaction[],
@@ -81,7 +83,8 @@ export function sumCycleTransactions(
   return transactions
     .filter(
       (tx) =>
-        tx.accountId === accountId &&
+        (tx.accountId === accountId ||
+          (tx.type === 'transfer' && tx.transferToAccountId === accountId)) &&
         tx.date >= start &&
         tx.date <= end &&
         (upTo === undefined || tx.date <= upTo),
@@ -89,7 +92,12 @@ export function sumCycleTransactions(
     .reduce((total, tx) => {
       if (tx.type === 'expense') return total + tx.amount
       if (tx.type === 'income') return total - tx.amount
-      if (tx.type === 'transfer') return total + tx.amount
+      if (tx.type === 'transfer') {
+        if (tx.transferToAccountId === accountId) {
+          return tx.creditCardStatementId ? total : total - tx.amount
+        }
+        return total + tx.amount
+      }
       return total
     }, 0)
 }

@@ -66,6 +66,7 @@ func (h *accountsHandler) create(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	in.TrackBalance = true
 	created, err := h.store.Create(r.Context(), user.ID, in)
 	if err != nil {
 		writeInternalError(w, r, err, "could not create account")
@@ -245,6 +246,9 @@ func validateAccountInput(in store.AccountInput) string {
 		return "currency must be 'MXN' or 'USD'"
 	}
 	if in.Type == "debit" {
+		if in.BalanceCents == nil {
+			return "balance is required for debit accounts"
+		}
 		if in.CreditLimitCents != nil || in.AvailableCreditCents != nil ||
 			in.StatementCutDay != nil || in.PaymentDueDay != nil {
 			return "debit accounts cannot set credit fields"
@@ -253,6 +257,9 @@ func validateAccountInput(in store.AccountInput) string {
 	if in.Type == "credit" {
 		if in.BalanceCents != nil {
 			return "credit accounts cannot set balance"
+		}
+		if in.CreditLimitCents == nil || in.AvailableCreditCents == nil {
+			return "creditLimit and availableCredit are required for credit accounts"
 		}
 	}
 	return ""

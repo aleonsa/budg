@@ -128,6 +128,63 @@ func TestAccountRepositoryCreditAccountAndNullableClear(t *testing.T) {
 	}
 }
 
+func TestAccountRepositoryCreatesTrackedAccountWithOpeningLedger(t *testing.T) {
+	pool, userID := setupPool(t, "public.accounts")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	initialBalance := int64(50_000)
+	accounts := store.NewAccountRepository(pool)
+	created, err := accounts.Create(ctx, userID, store.AccountInput{
+		Name: "Nueva", Type: "debit", Institution: "Nu", Last4: "1234",
+		Currency: "MXN", BalanceCents: &initialBalance, TrackBalance: true,
+	})
+	if err != nil {
+		t.Fatalf("create tracked account: %v", err)
+	}
+	if !created.BalanceTrackingEnabled || created.BalanceTrackingStartedAt == nil {
+		t.Fatalf("created tracking state = %+v, want enabled with start time", created)
+	}
+
+	admin := newAdminPool(t, ctx)
+	t.Cleanup(admin.Close)
+	var openingDelta int64
+	if err := admin.QueryRow(ctx, `
+		SELECT delta_cents
+		FROM public.account_balance_entries
+		WHERE user_id = $1 AND account_id = $2 AND kind = 'opening'
+	`, userID, created.ID).Scan(&openingDelta); err != nil {
+		t.Fatalf("opening ledger entry: %v", err)
+	}
+	if openingDelta != initialBalance {
+		t.Fatalf("opening delta = %d, want %d", openingDelta, initialBalance)
+	}
+
+	expense := int64(1_250)
+	createdExpense, err := store.NewTransactionRepository(pool).Create(ctx, userID, store.TransactionInput{
+		AccountID: created.ID, Type: "expense", Amount: expense,
+		Date: "2026-08-14", Description: "Compra",
+	})
+	if err != nil {
+		t.Fatalf("create expense: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if _, err := admin.Exec(cleanupCtx, `DELETE FROM public.transactions WHERE id = $1`, createdExpense.ID); err != nil {
+			t.Errorf("cleanup transaction: %v", err)
+		}
+	})
+
+	listed, err := accounts.List(ctx, userID)
+	if err != nil {
+		t.Fatalf("list accounts: %v", err)
+	}
+	if len(listed) != 1 || listed[0].BalanceCents == nil || *listed[0].BalanceCents != initialBalance-expense {
+		t.Fatalf("balance after expense = %+v, want %d", listed, initialBalance-expense)
+	}
+}
+
 func TestAccountRepositoryIsolatesByUser(t *testing.T) {
 	pool, userID := setupPool(t, "public.accounts") // already cleaned leftover rows (as admin)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

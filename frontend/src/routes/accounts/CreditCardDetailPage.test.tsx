@@ -220,6 +220,30 @@ describe('CreditCardDetailPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('subtracts an unallocated payment before carrying the previous statement balance', () => {
+    state.transactions.push(
+      transaction({
+        id: 'card-payment',
+        accountId: 'debit-1',
+        type: 'transfer',
+        amount: 20_000,
+        transferToAccountId: 'credit-1',
+        description: 'Abono a tarjeta',
+      }),
+    )
+    state.statements = [statement]
+
+    renderPage()
+
+    expect(screen.getByText('Saldo estimado al corte').previousElementSibling).toHaveTextContent(
+      '$275.00',
+    )
+    expect(
+      screen.getByText('Compras del ciclo -$25.00 + saldo anterior $300.00'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Abono a tarjeta')).toBeInTheDocument()
+  })
+
   it('flags overdue statements with a red banner and payment action', async () => {
     state.statements = [{ ...statement, status: 'overdue' }]
     const user = userEvent.setup()
