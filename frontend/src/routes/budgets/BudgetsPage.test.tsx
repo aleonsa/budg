@@ -271,7 +271,7 @@ describe('BudgetsPage', () => {
     expect(screen.queryByText('Sin presupuesto')).not.toBeInTheDocument()
   })
 
-  it('uses each budget period anchored by start date for current spending', () => {
+  it('uses calendar months while weekly and yearly periods stay anchored', () => {
     state.categories.data = [
       category('weekly', 'Semanal cat'),
       category('monthly', 'Mensual cat'),
@@ -297,9 +297,23 @@ describe('BudgetsPage', () => {
     renderPage()
 
     expect(screen.getByText('$22.22')).toBeInTheDocument()
-    expect(screen.getByText('$55.55')).toBeInTheDocument()
+    expect(screen.getByText('$44.44')).toBeInTheDocument()
     expect(screen.getByText('$88.88')).toBeInTheDocument()
-    expect(screen.getByText('$166.65')).toBeInTheDocument()
+    expect(screen.getByText('$155.54')).toBeInTheDocument()
+  })
+
+  it('shows expenses from before a monthly budget was created in the same month', () => {
+    state.categories.data = [category('food', 'Comida')]
+    state.budgets.data = [{ ...budget('food-budget', 'food', 10_000), startDate: '2026-07-20' }]
+    state.transactions.data = [
+      expense('earlier-expense', 'food', 4_000, '2026-07-05'),
+      expense('today-expense', 'food', 2_000, '2026-07-20'),
+    ]
+
+    renderPage()
+
+    expect(screen.getByText('Gasto del periodo').parentElement).toHaveTextContent('$60.00')
+    expect(screen.getByText('Gastado').nextElementSibling).toHaveTextContent('$60.00')
   })
 
   it('aggregates only the latest active global scope without future or overlapping budgets', () => {

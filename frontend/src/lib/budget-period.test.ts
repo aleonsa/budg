@@ -51,20 +51,26 @@ describe('getBudgetCycle', () => {
     })
   })
 
-  it('clamps month-end anchors and restores the anchor day when available', () => {
+  it('uses calendar-month boundaries after a monthly budget activates', () => {
     const monthly = budget({ period: 'monthly', startDate: '2026-01-31' })
 
-    expect(getBudgetCycle(monthly, '2026-02-27')).toEqual({
-      start: '2026-01-31',
-      end: '2026-02-27',
+    expect(getBudgetCycle(monthly, '2026-01-31')).toEqual({
+      start: '2026-01-01',
+      end: '2026-01-31',
     })
-    expect(getBudgetCycle(monthly, '2026-02-28')).toEqual({
-      start: '2026-02-28',
-      end: '2026-03-30',
+    expect(getBudgetCycle(monthly, '2026-02-27')).toEqual({
+      start: '2026-02-01',
+      end: '2026-02-28',
     })
     expect(getBudgetCycle(monthly, '2026-03-31')).toEqual({
-      start: '2026-03-31',
-      end: '2026-04-29',
+      start: '2026-03-01',
+      end: '2026-03-31',
+    })
+
+    const leapMonthly = budget({ period: 'monthly', startDate: '2028-02-14' })
+    expect(getBudgetCycle(leapMonthly, '2028-02-29')).toEqual({
+      start: '2028-02-01',
+      end: '2028-02-29',
     })
   })
 
@@ -91,6 +97,22 @@ describe('getBudgetCycle', () => {
 })
 
 describe('deriveBudgetProgressForDate', () => {
+  it('counts earlier expenses from the activation month retroactively', () => {
+    const [progress] = deriveBudgetProgressForDate(
+      [budget({ startDate: '2026-08-14' })],
+      [
+        transaction('previous-month', '2026-07-31', 9_000),
+        transaction('month-start', '2026-08-01', 1_000),
+        transaction('before-creation', '2026-08-13', 2_000),
+        transaction('creation-day', '2026-08-14', 3_000),
+        transaction('future', '2026-08-15', 4_000),
+      ],
+      '2026-08-14',
+    )
+
+    expect(progress).toMatchObject({ spent: 6_000, remaining: 4_000, progress: 0.6 })
+  })
+
   it('caps spending at asOf within the selected cycle', () => {
     const weekly = budget({ period: 'weekly', startDate: '2026-07-15' })
     const [progress] = deriveBudgetProgressForDate(
@@ -141,7 +163,7 @@ describe('deriveBudgetProgressForDate', () => {
   it('keeps future budgets inactive and defines zero-limit progress as zero', () => {
     const progress = deriveBudgetProgressForDate(
       [
-        budget({ id: 'future', startDate: '2026-07-21' }),
+        budget({ id: 'future', startDate: '2026-08-21' }),
         budget({ id: 'zero', amount: 0, startDate: '2026-07-01' }),
       ],
       [transaction('expense', '2026-07-20', 2_000)],

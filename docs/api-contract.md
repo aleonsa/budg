@@ -163,9 +163,12 @@ Amounts are always positive. Direction is derived from `type`.
 
 - `period`: `weekly | monthly | yearly`
 - `categoryId: null` represents a global budget.
-- `startDate` anchors recurring cycles: every seven days for `weekly`, same
-  calendar day for `monthly`, and same month/day for `yearly`. Month-end and leap
-  anchors clamp to the last valid day. Cycle date boundaries are inclusive.
+- `startDate` activates the budget. Weekly cycles recur every seven days from
+  that date; monthly budgets use calendar months; yearly cycles recur on the
+  same month/day. Yearly leap-day anchors clamp to the last valid day. Cycle
+  date boundaries are inclusive. Once a monthly budget activates, its first
+  cycle includes earlier expenses from that same calendar month through the
+  current `asOf` date.
 
 ### Savings Goal
 

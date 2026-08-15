@@ -366,6 +366,27 @@ describe('CategoriesPage', () => {
     expect(screen.getAllByText('Sin movimiento')).toHaveLength(2)
   })
 
+  it('applies a new monthly budget to earlier expenses in its calendar month', () => {
+    setQueries({
+      budgetData: [
+        {
+          id: 'rent-budget',
+          categoryId: 'rent',
+          amount: 10000,
+          period: 'monthly',
+          startDate: '2026-07-20',
+        },
+      ],
+    })
+    renderPage()
+
+    expect(
+      screen.getByText((_, element) => element?.textContent === '$120.00 / $100.00', {
+        selector: 'span',
+      }),
+    ).toBeInTheDocument()
+  })
+
   it.each([
     ['weekly', '2026-07-15', '$60.00 / $50.00'],
     ['yearly', '2026-01-01', '$1,050.00 / $2,000.00'],

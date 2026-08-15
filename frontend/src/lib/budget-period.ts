@@ -42,17 +42,22 @@ export function getBudgetCycle(
 ): BudgetCycle | null {
   if (asOf < budget.startDate) return null
 
+  if (budget.period === 'monthly') {
+    const monthKey = asOf.slice(0, 7)
+    const [year, month] = monthKey.split('-').map(Number)
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+    return {
+      start: `${monthKey}-01`,
+      end: `${monthKey}-${String(lastDay).padStart(2, '0')}`,
+    }
+  }
+
   const anchor = parseISODate(budget.startDate)
   const reference = parseISODate(asOf)
   let cycleCount: number
 
   if (budget.period === 'weekly') {
     cycleCount = Math.floor((reference.getTime() - anchor.getTime()) / (7 * DAY_MS))
-  } else if (budget.period === 'monthly') {
-    cycleCount =
-      (reference.getUTCFullYear() - anchor.getUTCFullYear()) * 12 +
-      reference.getUTCMonth() -
-      anchor.getUTCMonth()
   } else {
     cycleCount = reference.getUTCFullYear() - anchor.getUTCFullYear()
   }
