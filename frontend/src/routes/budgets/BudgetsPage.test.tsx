@@ -218,6 +218,53 @@ describe('BudgetsPage', () => {
     expect(
       screen.getAllByRole('progressbar', { name: 'Uso del presupuesto de Comida' }),
     ).toHaveLength(2)
+    expect(screen.getByRole('button', { name: 'Mes siguiente' })).toBeDisabled()
+  })
+
+  it('navigates past months, uses month-end snapshots, and cannot move into the future', () => {
+    state.categories.data = [category('food', 'Comida')]
+    state.budgets.data = [{ ...budget('food-budget', 'food', 10_000), startDate: '2026-01-01' }]
+    state.transactions.data = [
+      expense('june-expense', 'food', 6_000, '2026-06-30'),
+      expense('july-expense', 'food', 2_000, '2026-07-05'),
+      expense('future-july-expense', 'food', 9_000, '2026-07-21'),
+    ]
+    renderPage()
+
+    const previous = screen.getByRole('button', { name: 'Mes anterior' })
+    const next = screen.getByRole('button', { name: 'Mes siguiente' })
+    expect(screen.getByText('julio de 2026')).toBeInTheDocument()
+    expect(screen.getByText('Gasto del periodo').parentElement).toHaveTextContent('$20.00')
+    expect(next).toBeDisabled()
+
+    fireEvent.click(previous)
+    expect(screen.getByText('junio de 2026')).toBeInTheDocument()
+    expect(screen.getByText('Gasto del periodo').parentElement).toHaveTextContent('$60.00')
+    expect(next).toBeEnabled()
+
+    fireEvent.click(next)
+    expect(screen.getByText('julio de 2026')).toBeInTheDocument()
+    expect(next).toBeDisabled()
+  })
+
+  it('scopes unbudgeted spending and active definitions to the selected month', () => {
+    state.categories.data = [category('food', 'Comida'), category('health', 'Salud')]
+    state.budgets.data = [budget('food-budget', 'food', 10_000)]
+    state.transactions.data = [
+      expense('june-health', 'health', 3_000, '2026-06-10'),
+      expense('july-health', 'health', 4_000, '2026-07-10'),
+      expense('future-health', 'health', 5_000, '2026-07-21'),
+    ]
+    renderPage()
+
+    expect(screen.getByText('$40.00')).toBeInTheDocument()
+    expect(screen.queryByText('$50.00')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mes anterior' }))
+    expect(screen.getByText('Sin presupuestos activos en este periodo.')).toBeInTheDocument()
+    expect(screen.getByText('Presupuestado').parentElement).toHaveTextContent('$0.00')
+    expect(screen.getByText('$30.00')).toBeInTheDocument()
+    expect(screen.queryByText('$40.00')).not.toBeInTheDocument()
   })
 
   it('creates a categorized weekly budget with local date and invalidates dependent queries', async () => {
@@ -337,9 +384,10 @@ describe('BudgetsPage', () => {
     expect(screen.getByText('Gasto del periodo').parentElement).toHaveTextContent('$60.00')
     expect(screen.getByText('Presupuestado').parentElement).toHaveTextContent('$200.00')
     expect(screen.getByText('30% usado')).toBeInTheDocument()
-    expect(
-      screen.getByText('Ranking por categoría').parentElement?.parentElement,
-    ).toHaveTextContent('6')
+    const ranking = screen.getByText('Ranking por categoría').closest('section')
+    expect(ranking).toHaveTextContent('1')
+    expect(ranking).toHaveTextContent('General')
+    expect(ranking).not.toHaveTextContent('Comida')
   })
 
   it('creates default monthly and general yearly budgets with valid payloads', async () => {
