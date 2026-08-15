@@ -137,6 +137,9 @@ func TestCreateAccountPersistsAndReturnsCreated(t *testing.T) {
 	if stub.createInput.BalanceCents == nil || *stub.createInput.BalanceCents != 1845000 {
 		t.Fatalf("captured balance = %+v, want 1845000", stub.createInput.BalanceCents)
 	}
+	if !stub.createInput.TrackBalance {
+		t.Fatal("created account must start with balance tracking enabled")
+	}
 	var got store.Account
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode body: %v", err)
@@ -162,8 +165,11 @@ func TestCreateAccountRejectsInvalidPayload(t *testing.T) {
 		{"bad last4 letters", `{"name":"X","type":"debit","institution":"BBVA","last4":"45AB","currency":"MXN"}`},
 		{"bad last4 length", `{"name":"X","type":"debit","institution":"BBVA","last4":"451","currency":"MXN"}`},
 		{"bad currency", `{"name":"X","type":"debit","institution":"BBVA","last4":"4521","currency":"EUR"}`},
+		{"debit without balance", `{"name":"X","type":"debit","institution":"BBVA","last4":"4521","currency":"MXN"}`},
 		{"debit with credit field", `{"name":"X","type":"debit","institution":"BBVA","last4":"4521","currency":"MXN","creditLimit":1000}`},
 		{"credit with balance", `{"name":"X","type":"credit","institution":"BBVA","last4":"4521","currency":"MXN","balance":1000}`},
+		{"credit without limit", `{"name":"X","type":"credit","institution":"BBVA","last4":"4521","currency":"MXN","availableCredit":1000}`},
+		{"credit without available credit", `{"name":"X","type":"credit","institution":"BBVA","last4":"4521","currency":"MXN","creditLimit":1000}`},
 	}
 	for _, tc := range cases {
 		tc := tc

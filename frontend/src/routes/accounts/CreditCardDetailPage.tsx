@@ -54,7 +54,11 @@ function cycleTransactions(
   end: string,
 ) {
   return transactions.filter(
-    (tx) => tx.accountId === accountId && tx.date >= start && tx.date <= end,
+    (tx) =>
+      (tx.accountId === accountId ||
+        (tx.type === 'transfer' && tx.transferToAccountId === accountId)) &&
+      tx.date >= start &&
+      tx.date <= end,
   )
 }
 
@@ -115,15 +119,12 @@ export default function CreditCardDetailPage() {
     cycles.open.startDate,
     cycles.open.endDate,
   ).filter((transaction) => transaction.date <= today())
-  const openCycleTotal = Math.max(
-    0,
-    sumCycleTransactions(
-      transactions,
-      accountId,
-      cycles.open.startDate,
-      cycles.open.endDate,
-      today(),
-    ),
+  const openCycleTotal = sumCycleTransactions(
+    transactions,
+    accountId,
+    cycles.open.startDate,
+    cycles.open.endDate,
+    today(),
   )
   const previousEstimate = Math.max(
     0,
@@ -144,7 +145,7 @@ export default function CreditCardDetailPage() {
     (sum, statement) => sum + Math.max(0, statement.statementBalance - statement.paidAmount),
     0,
   )
-  const nextStatementEstimate = openCycleTotal + unpaidRemainder
+  const nextStatementEstimate = Math.max(0, openCycleTotal + unpaidRemainder)
   const currentDebt = Math.max(0, (account?.creditLimit ?? 0) - (account?.availableCredit ?? 0))
   const utilization = account?.creditLimit ? currentDebt / account.creditLimit : 0
   const msiMonthly = msiPurchases.reduce((sum, purchase) => sum + purchase.installmentAmount, 0)

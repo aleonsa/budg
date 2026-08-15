@@ -75,7 +75,9 @@ for over-limit debt or exceed the credit limit after an overpayment. The current
 
 ## Activation Model
 
-Automatic tracking is disabled by default for every existing account.
+Automatic tracking is disabled by default for every existing account. Accounts
+created through the API after rollout enable tracking immediately from their
+submitted opening balance and create the opening ledger entry atomically.
 
 After migration is complete, the user reconciles each account and enables
 tracking with its real current value:

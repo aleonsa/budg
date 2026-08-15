@@ -241,15 +241,12 @@ function CreditCardItem({
   const statements = statementsQ.data ?? []
   const cycleLoading = transactionsQ.isLoading || statementsQ.isLoading
   const openCycleTotal = cycles
-    ? Math.max(
-        0,
-        sumCycleTransactions(
-          transactionsQ.data ?? [],
-          account.id,
-          cycles.open.startDate,
-          cycles.open.endDate,
-          today(),
-        ),
+    ? sumCycleTransactions(
+        transactionsQ.data ?? [],
+        account.id,
+        cycles.open.startDate,
+        cycles.open.endDate,
+        today(),
       )
     : 0
   const unpaidRemainder = statements
@@ -258,7 +255,7 @@ function CreditCardItem({
       (sum, statement) => sum + Math.max(0, statement.statementBalance - statement.paidAmount),
       0,
     )
-  const nextStatementEstimate = openCycleTotal + unpaidRemainder
+  const nextStatementEstimate = Math.max(0, openCycleTotal + unpaidRemainder)
   const previousConfirmed = cycles
     ? statements.some((statement) => statement.cycleEndDate === cycles.previous.endDate)
     : true

@@ -36,8 +36,8 @@ type Account struct {
 	UpdatedAt                time.Time  `json:"-"`
 }
 
-// AccountInput captures user-controlled fields on create. IsActive always
-// starts true; there is no way to create an account already inactive.
+// AccountInput captures create fields. TrackBalance is server-controlled and
+// omitted from JSON; IsActive always starts true.
 type AccountInput struct {
 	Name                 string `json:"name"`
 	Type                 string `json:"type"`
@@ -49,6 +49,7 @@ type AccountInput struct {
 	AvailableCreditCents *int64 `json:"availableCredit"`
 	StatementCutDay      *int   `json:"statementCutDay"`
 	PaymentDueDay        *int   `json:"paymentDueDay"`
+	TrackBalance         bool   `json:"-"`
 }
 
 // AccountPatch describes a partial update. Type is intentionally not
@@ -127,21 +128,51 @@ func (r *AccountRepository) List(ctx context.Context, userID string) ([]Account,
 
 // Create inserts a new user-scoped account and returns the stored row.
 func (r *AccountRepository) Create(ctx context.Context, userID string, in AccountInput) (Account, error) {
+	var openingAmount int64
+	if in.TrackBalance {
+		switch in.Type {
+		case "debit":
+			if in.BalanceCents == nil {
+				return Account{}, ErrInvalidAccountShape
+			}
+			openingAmount = *in.BalanceCents
+		case "credit":
+			if in.CreditLimitCents == nil || in.AvailableCreditCents == nil {
+				return Account{}, ErrInvalidAccountShape
+			}
+			openingAmount = *in.AvailableCreditCents
+		default:
+			return Account{}, ErrInvalidAccountShape
+		}
+	}
+
 	var a Account
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			INSERT INTO public.accounts (
 				user_id, name, type, institution, last4, currency,
 				balance_cents, credit_limit_cents, available_credit_cents,
-				statement_cut_day, payment_due_day
+				statement_cut_day, payment_due_day,
+				balance_tracking_enabled, balance_tracking_started_at
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+				CASE WHEN $12 THEN now() ELSE NULL END)
 			RETURNING `+accountColumns,
 			userID, in.Name, in.Type, in.Institution, in.Last4, in.Currency,
 			in.BalanceCents, in.CreditLimitCents, in.AvailableCreditCents,
-			in.StatementCutDay, in.PaymentDueDay,
+			in.StatementCutDay, in.PaymentDueDay, in.TrackBalance,
 		)
-		return scanAccount(row, &a)
+		if err := scanAccount(row, &a); err != nil {
+			return err
+		}
+		if !in.TrackBalance {
+			return nil
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO public.account_balance_entries (user_id, account_id, kind, delta_cents)
+			VALUES ($1, $2, 'opening', $3)
+		`, userID, a.ID, openingAmount)
+		return err
 	})
 	if err != nil {
 		return Account{}, fmt.Errorf("create account: %w", err)

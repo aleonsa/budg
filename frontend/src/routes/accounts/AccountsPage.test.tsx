@@ -409,6 +409,30 @@ describe('AccountsPage', () => {
     expect(screen.queryByText(/sin confirmar/)).not.toBeInTheDocument()
   })
 
+  it('subtracts an unallocated card payment from the full next-statement balance', () => {
+    state.accounts.data = [credit()]
+    state.transactions.data = [
+      tx({}),
+      tx({
+        id: 'card-payment',
+        accountId: 'debit-1',
+        type: 'transfer',
+        amount: 20_000,
+        transferToAccountId: 'credit-1',
+      }),
+    ]
+    state.statements['credit-1'] = {
+      data: [statement({ status: 'pending', paidAmount: 0 })],
+      isLoading: false,
+      isError: false,
+    }
+
+    renderPage()
+
+    expect(screen.getByText('$325.00')).toBeInTheDocument()
+    expect(screen.getByText(/compras del ciclo -\$75\.00/)).toBeInTheDocument()
+  })
+
   it('warns when the last cut passed without confirmation', () => {
     state.accounts.data = [credit()]
 
