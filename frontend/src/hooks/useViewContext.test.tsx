@@ -12,7 +12,7 @@ describe('useViewContext', () => {
 
   it('includes the user local date in agent context', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-08-14T23:30:00-06:00'))
+    vi.setSystemTime(new Date(2026, 7, 14, 23, 30))
 
     render(
       <MemoryRouter initialEntries={['/stats']}>
