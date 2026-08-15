@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -77,4 +78,70 @@ func TestRecurringMaterializationAppliesBalanceExactlyOnce(t *testing.T) {
 	}
 	assertAccountAmount(t, ctx, admin, account.ID, "balance_cents", 9900)
 	assertTransactionLedger(t, ctx, admin, transactionID, map[string]int64{account.ID: -100})
+}
+
+func TestRecurringUpdateRealignsFutureScheduleAndDeleteKeepsHistory(t *testing.T) {
+	pool, userID := setupPool(t, "public.recurring_transactions")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	admin := newAdminPool(t, ctx)
+	defer admin.Close()
+
+	account, err := store.NewAccountRepository(pool).Create(ctx, userID, store.AccountInput{
+		Name: "Recurring CRUD Account", Type: "debit", Institution: "Bank", Last4: "3002", Currency: "MXN",
+	})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	repository := store.NewRecurringTransactionRepository(pool)
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	created, err := repository.Create(ctx, userID, store.RecurringTransactionInput{
+		AccountID: account.ID, Description: "Original subscription", Amount: 100,
+		Frequency: "monthly", StartDate: today.Format("2006-01-02"),
+	})
+	if err != nil {
+		t.Fatalf("create recurring transaction: %v", err)
+	}
+	active := true
+	updated, err := repository.Update(ctx, userID, created.ID, store.RecurringTransactionUpdateInput{
+		AccountID: account.ID, Description: "Updated subscription", Amount: 250,
+		Frequency: "yearly", StartDate: today.AddDate(-1, 0, 0).Format("2006-01-02"), IsActive: &active,
+	})
+	if err != nil {
+		t.Fatalf("update recurring transaction: %v", err)
+	}
+	nextDate, err := time.Parse("2006-01-02", updated.NextDate)
+	if err != nil || !nextDate.After(today) {
+		t.Fatalf("realigned next date = %q, %v; want future date", updated.NextDate, err)
+	}
+	if count, err := repository.Process(ctx, userID); err != nil || count != 0 {
+		t.Fatalf("process after update = %d, %v; want 0, nil", count, err)
+	}
+	var historicalAmount int64
+	if err := admin.QueryRow(ctx, `
+		SELECT amount FROM public.transactions
+		WHERE user_id = $1 AND description = 'Original subscription'
+	`, userID).Scan(&historicalAmount); err != nil {
+		t.Fatalf("query historical transaction: %v", err)
+	}
+	if historicalAmount != 100 {
+		t.Fatalf("historical transaction amount = %d, want original amount 100", historicalAmount)
+	}
+
+	if err := repository.Delete(ctx, userID, created.ID); err != nil {
+		t.Fatalf("delete recurring transaction: %v", err)
+	}
+	if err := repository.Delete(ctx, userID, created.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("second delete error = %v, want ErrNotFound", err)
+	}
+	var historicalCount int
+	if err := admin.QueryRow(ctx, `
+		SELECT count(*) FROM public.transactions
+		WHERE user_id = $1 AND description = 'Original subscription'
+	`, userID).Scan(&historicalCount); err != nil {
+		t.Fatalf("count historical transactions: %v", err)
+	}
+	if historicalCount != 1 {
+		t.Fatalf("historical transaction count = %d, want 1", historicalCount)
+	}
 }

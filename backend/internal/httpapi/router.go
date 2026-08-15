@@ -175,6 +175,10 @@ func NewRouter(opts Options) http.Handler {
 					recurring.Get("/", h.list)
 					recurring.Post("/", h.create)
 					recurring.Post("/process", h.process)
+					recurring.Route("/{id}", func(item chi.Router) {
+						item.Put("/", h.update)
+						item.Delete("/", h.delete)
+					})
 				})
 			}
 		})

@@ -44,6 +44,8 @@ export {
 export {
   getRecurringTransactions,
   createRecurringTransaction,
+  updateRecurringTransaction,
+  deleteRecurringTransaction,
   processRecurringTransactions,
 } from './recurring-transactions'
 

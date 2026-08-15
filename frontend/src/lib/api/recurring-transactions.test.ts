@@ -99,6 +99,48 @@ describe('recurring transactions api client', () => {
     expect((init as RequestInit).body).toBeUndefined()
   })
 
+  it('replaces editable recurring-transaction fields', async () => {
+    const updated = { ...recurring, description: 'Membresía premium', isActive: false }
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(updated))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      recurringTransactions.updateRecurringTransaction('recurring-1', {
+        accountId: 'acct-1',
+        categoryId: null,
+        description: 'Membresía premium',
+        amount: 99900,
+        frequency: 'yearly',
+        startDate: '2026-09-01',
+        isActive: false,
+      }),
+    ).resolves.toEqual(updated)
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toMatch(/\/v1\/recurring-transactions\/recurring-1$/)
+    expect((init as RequestInit).method).toBe('PUT')
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      accountId: 'acct-1',
+      categoryId: null,
+      description: 'Membresía premium',
+      amount: 99900,
+      frequency: 'yearly',
+      startDate: '2026-09-01',
+      isActive: false,
+    })
+  })
+
+  it('deletes a recurring transaction', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await recurringTransactions.deleteRecurringTransaction('recurring-1')
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toMatch(/\/v1\/recurring-transactions\/recurring-1$/)
+    expect((init as RequestInit).method).toBe('DELETE')
+  })
+
   it('surfaces non-successful responses', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('nope', { status: 500 })))
 

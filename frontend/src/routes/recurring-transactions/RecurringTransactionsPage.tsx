@@ -7,7 +7,7 @@ import { Badge, Button, Card, Input, Label } from '@/components/ui'
 import { useAccounts, useCategories, useRecurringTransactions } from '@/hooks/useQueries'
 import { api } from '@/lib/api'
 import { formatDate, today } from '@/lib/date'
-import { formatMoney, toCents } from '@/lib/format'
+import { centsToInput, formatMoney, toCents } from '@/lib/format'
 import { queryKeys } from '@/lib/query-keys'
 import type { RecurringTransaction, RecurringTransactionFrequency } from '@/types'
 
@@ -15,10 +15,14 @@ function RecurringRow({
   transaction,
   accountName,
   categoryName,
+  onEdit,
+  onDelete,
 }: {
   transaction: RecurringTransaction
   accountName?: string
   categoryName?: string
+  onEdit: () => void
+  onDelete: () => void
 }) {
   const frequency = transaction.frequency === 'monthly' ? 'Mensual' : 'Anual'
 
@@ -42,10 +46,31 @@ function RecurringRow({
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
         <span>
-          {frequency} · Próximo {formatDate(transaction.nextDate)}
+          {transaction.isActive
+            ? `${frequency} · Próximo ${formatDate(transaction.nextDate)}`
+            : `${frequency} · En pausa`}
         </span>
         {accountName && <span>{accountName}</span>}
         {categoryName && <span>{categoryName}</span>}
+      </div>
+      <div className="mt-2 flex justify-end gap-1 border-t border-border pt-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Editar ${transaction.description}`}
+          onClick={onEdit}
+        >
+          Editar
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+          aria-label={`Eliminar ${transaction.description}`}
+          onClick={onDelete}
+        >
+          Eliminar
+        </Button>
       </div>
     </Card>
   )
@@ -57,6 +82,8 @@ export default function RecurringTransactionsPage() {
   const recurringQ = useRecurringTransactions()
   const queryClient = useQueryClient()
   const [isPanelOpen, setIsPanelOpen] = useState(false)
+  const [editingTransaction, setEditingTransaction] = useState<RecurringTransaction | null>(null)
+  const [deletingTransaction, setDeletingTransaction] = useState<RecurringTransaction | null>(null)
   const [accountId, setAccountId] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [description, setDescription] = useState('')
@@ -64,12 +91,38 @@ export default function RecurringTransactionsPage() {
   const [amount, setAmount] = useState('')
   const [frequency, setFrequency] = useState<RecurringTransactionFrequency>('monthly')
   const [startDate, setStartDate] = useState(today)
+  const [isActive, setIsActive] = useState(true)
   const [showFormError, setShowFormError] = useState(false)
 
   const createMut = useMutation({
     mutationFn: api.createRecurringTransaction,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.recurringTransactions }),
+    onSuccess: invalidateRecurringTransactions,
   })
+  const updateMut = useMutation({
+    mutationFn: ({
+      id,
+      input,
+    }: {
+      id: string
+      input: Parameters<typeof api.updateRecurringTransaction>[1]
+    }) => api.updateRecurringTransaction(id, input),
+    onSuccess: invalidateAfterUpdate,
+  })
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => api.deleteRecurringTransaction(id),
+    onSuccess: invalidateRecurringTransactions,
+  })
+
+  function invalidateRecurringTransactions() {
+    queryClient.invalidateQueries({ queryKey: queryKeys.recurringTransactions })
+  }
+
+  function invalidateAfterUpdate() {
+    invalidateRecurringTransactions()
+    queryClient.invalidateQueries({ queryKey: queryKeys.transactions })
+    queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+  }
 
   const isLoading = accountsQ.isLoading || categoriesQ.isLoading || recurringQ.isLoading
   const isError = accountsQ.isError || categoriesQ.isError || recurringQ.isError
@@ -81,8 +134,9 @@ export default function RecurringTransactionsPage() {
   const accountMap = new Map(accounts.map((account) => [account.id, account.name]))
   const categoryMap = new Map(expenseCategories.map((category) => [category.id, category.name]))
 
-  const openPanel = () => {
+  const openCreatePanel = () => {
     createMut.reset()
+    setEditingTransaction(null)
     setAccountId(accounts.find((account) => account.isActive)?.id ?? accounts[0]?.id ?? '')
     setCategoryId('')
     setDescription('')
@@ -90,14 +144,42 @@ export default function RecurringTransactionsPage() {
     setAmount('')
     setFrequency('monthly')
     setStartDate(today())
+    setIsActive(true)
+    setShowFormError(false)
+    setIsPanelOpen(true)
+  }
+
+  const openEditPanel = (transaction: RecurringTransaction) => {
+    updateMut.reset()
+    setEditingTransaction(transaction)
+    setAccountId(transaction.accountId)
+    setCategoryId(transaction.categoryId ?? '')
+    setDescription(transaction.description)
+    setMerchant(transaction.merchant ?? '')
+    setAmount(centsToInput(transaction.amount))
+    setFrequency(transaction.frequency)
+    setStartDate(transaction.startDate)
+    setIsActive(transaction.isActive)
     setShowFormError(false)
     setIsPanelOpen(true)
   }
 
   const closePanel = () => {
     createMut.reset()
+    updateMut.reset()
+    setEditingTransaction(null)
     setShowFormError(false)
     setIsPanelOpen(false)
+  }
+
+  const openDeletePanel = (transaction: RecurringTransaction) => {
+    deleteMut.reset()
+    setDeletingTransaction(transaction)
+  }
+
+  const closeDeletePanel = () => {
+    deleteMut.reset()
+    setDeletingTransaction(null)
   }
 
   const handleSubmit = () => {
@@ -106,19 +188,25 @@ export default function RecurringTransactionsPage() {
       setShowFormError(true)
       return
     }
+    const input = {
+      accountId,
+      categoryId: categoryId || null,
+      description: description.trim(),
+      merchant: merchant.trim() || undefined,
+      amount: cents,
+      frequency,
+      startDate,
+    }
+    if (editingTransaction) {
+      updateMut.reset()
+      updateMut.mutate(
+        { id: editingTransaction.id, input: { ...input, isActive } },
+        { onSuccess: closePanel },
+      )
+      return
+    }
     createMut.reset()
-    createMut.mutate(
-      {
-        accountId,
-        categoryId: categoryId || null,
-        description: description.trim(),
-        merchant: merchant.trim() || undefined,
-        amount: cents,
-        frequency,
-        startDate,
-      },
-      { onSuccess: closePanel },
-    )
+    createMut.mutate(input, { onSuccess: closePanel })
   }
 
   const header = (
@@ -126,20 +214,26 @@ export default function RecurringTransactionsPage() {
       title="Suscripciones"
       subtitle="Gastos programados recurrentes"
       action={
-        <Button size="sm" onClick={openPanel}>
+        <Button size="sm" onClick={openCreatePanel}>
           Agregar suscripción
         </Button>
       }
     />
   )
 
+  const activeMutation = editingTransaction ? updateMut : createMut
+
   const panel = (
     <MockActionPanel
       open={isPanelOpen}
-      title="Agregar suscripción"
-      description="Programa un gasto mensual o anual que se registrará automáticamente."
-      submitLabel="Agregar"
-      submitting={createMut.isPending}
+      title={editingTransaction ? 'Editar suscripción' : 'Agregar suscripción'}
+      description={
+        editingTransaction
+          ? 'Actualiza la programación; los movimientos anteriores no cambiarán.'
+          : 'Programa un gasto mensual o anual que se registrará automáticamente.'
+      }
+      submitLabel={editingTransaction ? 'Guardar cambios' : 'Agregar'}
+      submitting={activeMutation.isPending}
       onClose={closePanel}
       onSubmit={handleSubmit}
     >
@@ -166,7 +260,7 @@ export default function RecurringTransactionsPage() {
           placeholder="Ej. Membresía del gym"
           value={description}
           onChange={(event) => setDescription(event.target.value)}
-          aria-invalid={showFormError || Boolean(createMut.error) || undefined}
+          aria-invalid={showFormError || Boolean(activeMutation.error) || undefined}
         />
       </div>
       <div className="space-y-1.5">
@@ -229,11 +323,50 @@ export default function RecurringTransactionsPage() {
           />
         </div>
       </div>
-      {(showFormError || createMut.error) && (
+      {editingTransaction && (
+        <div className="space-y-1.5">
+          <Label htmlFor="recurring-status">Estado</Label>
+          <select
+            id="recurring-status"
+            className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:border-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+            value={isActive ? 'active' : 'inactive'}
+            onChange={(event) => setIsActive(event.target.value === 'active')}
+          >
+            <option value="active">Activa</option>
+            <option value="inactive">Pausada</option>
+          </select>
+        </div>
+      )}
+      {(showFormError || activeMutation.error) && (
         <p role="alert" className="text-xs text-destructive">
-          {createMut.error
-            ? 'No se pudo crear la suscripción. Intenta de nuevo.'
+          {activeMutation.error
+            ? editingTransaction
+              ? 'No se pudo actualizar la suscripción. Intenta de nuevo.'
+              : 'No se pudo crear la suscripción. Intenta de nuevo.'
             : 'Completa cuenta, descripción, monto e inicio.'}
+        </p>
+      )}
+    </MockActionPanel>
+  )
+
+  const deletePanel = (
+    <MockActionPanel
+      open={deletingTransaction !== null}
+      title="Eliminar suscripción"
+      description={`¿Eliminar “${deletingTransaction?.description ?? ''}”? Los movimientos ya registrados se conservarán.`}
+      submitLabel="Eliminar suscripción"
+      submitVariant="destructive"
+      submitting={deleteMut.isPending}
+      onClose={closeDeletePanel}
+      onSubmit={() => {
+        if (!deletingTransaction) return
+        deleteMut.reset()
+        deleteMut.mutate(deletingTransaction.id, { onSuccess: closeDeletePanel })
+      }}
+    >
+      {deleteMut.error && (
+        <p role="alert" className="text-xs text-destructive">
+          No se pudo eliminar la suscripción. Intenta de nuevo.
         </p>
       )}
     </MockActionPanel>
@@ -269,7 +402,7 @@ export default function RecurringTransactionsPage() {
           <EmptyState
             title="Sin suscripciones registradas"
             description="Agrega gastos mensuales o anuales para registrarlos automáticamente."
-            action={<Button onClick={openPanel}>Agregar suscripción</Button>}
+            action={<Button onClick={openCreatePanel}>Agregar suscripción</Button>}
           />
         ) : (
           transactions.map((transaction) => (
@@ -280,11 +413,14 @@ export default function RecurringTransactionsPage() {
               categoryName={
                 transaction.categoryId ? categoryMap.get(transaction.categoryId) : undefined
               }
+              onEdit={() => openEditPanel(transaction)}
+              onDelete={() => openDeletePanel(transaction)}
             />
           ))
         )}
       </div>
       {panel}
+      {deletePanel}
     </>
   )
 }
