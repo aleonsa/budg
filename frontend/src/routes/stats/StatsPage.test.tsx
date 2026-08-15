@@ -175,7 +175,7 @@ describe('StatsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-07-20T12:00:00-06:00'))
+    vi.setSystemTime(new Date(2026, 6, 20, 12))
     setQueries()
   })
 
@@ -293,7 +293,7 @@ describe('StatsPage', () => {
     const page = renderPage()
     expect(screen.getByText(/julio de 2026/i)).toBeInTheDocument()
 
-    vi.setSystemTime(new Date('2026-08-01T00:01:00-06:00'))
+    vi.setSystemTime(new Date(2026, 7, 1, 0, 1))
     page.rerender(
       <MemoryRouter>
         <StatsPage />
@@ -445,40 +445,43 @@ describe('StatsPage', () => {
 
   it.each([
     ['weekly', '2026-07-15', '120%'],
-    ['monthly', '2026-06-15', '120%'],
+    ['monthly', '2026-06-15', '210%'],
     ['yearly', '2025-08-01', '210%'],
-  ] as const)('uses the %s budget cycle anchored by start date', (period, startDate, expected) => {
-    setQueries({
-      transactionData: [
-        tx('old-food', {
-          type: 'expense',
-          amount: 900,
-          date: '2026-07-10',
-          categoryId: 'food',
-        }),
-        tx('current-food', {
-          type: 'expense',
-          amount: 1200,
-          date: '2026-07-20',
-          categoryId: 'food',
-        }),
-      ],
-      budgetData: [
-        {
-          id: 'weekly-food',
-          categoryId: 'food',
-          amount: 1000,
-          period,
-          startDate,
-        },
-      ],
-    })
-    renderPage()
+  ] as const)(
+    'uses the canonical %s budget cycle for the selected period',
+    (period, startDate, expected) => {
+      setQueries({
+        transactionData: [
+          tx('old-food', {
+            type: 'expense',
+            amount: 900,
+            date: '2026-07-10',
+            categoryId: 'food',
+          }),
+          tx('current-food', {
+            type: 'expense',
+            amount: 1200,
+            date: '2026-07-20',
+            categoryId: 'food',
+          }),
+        ],
+        budgetData: [
+          {
+            id: 'weekly-food',
+            categoryId: 'food',
+            amount: 1000,
+            period,
+            startDate,
+          },
+        ],
+      })
+      renderPage()
 
-    expect(screen.getByText('Presupuesto más excedido').parentElement).toHaveTextContent(
-      `Comida · ${expected}`,
-    )
-  })
+      expect(screen.getByText('Presupuesto más excedido').parentElement).toHaveTextContent(
+        `Comida · ${expected}`,
+      )
+    },
+  )
 
   it('does not activate a budget before its start date', () => {
     setQueries({

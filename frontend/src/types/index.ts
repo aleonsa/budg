@@ -148,7 +148,7 @@ export interface Budget {
   categoryId: ID | null // null = global budget
   amount: Cents // limit for the period
   period: BudgetPeriod
-  startDate: ISODate // cycle anchor
+  startDate: ISODate // activation date; weekly/yearly anchor, monthly activation month
 }
 
 // ── Categorization Rule ────────────────────────────────────
