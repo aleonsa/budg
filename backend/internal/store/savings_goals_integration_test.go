@@ -148,9 +148,10 @@ func TestSavingsGoalRepositoryAllocationWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create emergency goal: %v", err)
 	}
+	operationID := time.Now().UTC().Format("20060102150405.000000000")
 
 	trip, err = goals.Allocate(ctx, userID, trip.ID, store.SavingsAllocationInput{
-		AccountID: savings.ID, Amount: 5000, Date: "2026-08-16", IdempotencyKey: "allocate-existing-1",
+		AccountID: savings.ID, Amount: 5000, Date: "2026-08-16", IdempotencyKey: operationID + "-a",
 	})
 	if err != nil {
 		t.Fatalf("allocate existing savings: %v", err)
@@ -159,13 +160,13 @@ func TestSavingsGoalRepositoryAllocationWorkflow(t *testing.T) {
 		t.Fatalf("trip current = %d, want 5000", trip.CurrentAmount)
 	}
 	replayedAllocation, err := goals.Allocate(ctx, userID, trip.ID, store.SavingsAllocationInput{
-		AccountID: savings.ID, Amount: 5000, Date: "2026-08-16", IdempotencyKey: "allocate-existing-1",
+		AccountID: savings.ID, Amount: 5000, Date: "2026-08-16", IdempotencyKey: operationID + "-a",
 	})
 	if err != nil || replayedAllocation.CurrentAmount != 5000 {
 		t.Fatalf("replayed allocation = %+v, err=%v", replayedAllocation, err)
 	}
 
-	key := "save-" + time.Now().UTC().Format("20060102150405.000000000")
+	key := operationID + "-s"
 	saved, err := goals.Save(ctx, userID, trip.ID, store.SaveToGoalInput{
 		SourceAccountID:      source.ID,
 		DestinationAccountID: savings.ID,
@@ -196,7 +197,7 @@ func TestSavingsGoalRepositoryAllocationWorkflow(t *testing.T) {
 	}
 
 	reallocated, err := goals.Reallocate(ctx, userID, trip.ID, store.SavingsReallocationInput{
-		ToGoalID: emergency.ID, AccountID: savings.ID, Amount: 4000, Date: "2026-08-16", IdempotencyKey: "reallocate-1",
+		ToGoalID: emergency.ID, AccountID: savings.ID, Amount: 4000, Date: "2026-08-16", IdempotencyKey: operationID + "-r",
 	})
 	if err != nil {
 		t.Fatalf("reallocate savings: %v", err)
@@ -205,14 +206,14 @@ func TestSavingsGoalRepositoryAllocationWorkflow(t *testing.T) {
 		t.Fatalf("reallocation result = %+v", reallocated)
 	}
 	replayedReallocation, err := goals.Reallocate(ctx, userID, trip.ID, store.SavingsReallocationInput{
-		ToGoalID: emergency.ID, AccountID: savings.ID, Amount: 4000, Date: "2026-08-16", IdempotencyKey: "reallocate-1",
+		ToGoalID: emergency.ID, AccountID: savings.ID, Amount: 4000, Date: "2026-08-16", IdempotencyKey: operationID + "-r",
 	})
 	if err != nil || replayedReallocation.FromGoal.CurrentAmount != 11000 || replayedReallocation.ToGoal.CurrentAmount != 4000 {
 		t.Fatalf("replayed reallocation = %+v, err=%v", replayedReallocation, err)
 	}
 
 	emergency, err = goals.Allocate(ctx, userID, emergency.ID, store.SavingsAllocationInput{
-		AccountID: savings.ID, Amount: -1000, Date: "2026-08-16", IdempotencyKey: "release-1",
+		AccountID: savings.ID, Amount: -1000, Date: "2026-08-16", IdempotencyKey: operationID + "-l",
 	})
 	if err != nil {
 		t.Fatalf("release savings: %v", err)
@@ -233,7 +234,7 @@ func TestSavingsGoalRepositoryAllocationWorkflow(t *testing.T) {
 	}
 
 	if _, err := goals.Allocate(ctx, userID, trip.ID, store.SavingsAllocationInput{
-		AccountID: savings.ID, Amount: 16001, Date: "2026-08-16", IdempotencyKey: "overallocate-1",
+		AccountID: savings.ID, Amount: 16001, Date: "2026-08-16", IdempotencyKey: operationID + "-o",
 	}); !errors.Is(err, store.ErrInsufficientUnallocatedSavings) {
 		t.Fatalf("over-allocation error = %v, want ErrInsufficientUnallocatedSavings", err)
 	}

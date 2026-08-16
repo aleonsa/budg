@@ -35,6 +35,7 @@ CREATE INDEX savings_goal_allocations_account_idx
     ON public.savings_goal_allocations (user_id, account_id, occurred_on, id)
     WHERE account_id IS NOT NULL;
 
+-- +goose StatementBegin
 CREATE FUNCTION public.enforce_savings_allocation_currency()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -67,6 +68,7 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+-- +goose StatementEnd
 
 CREATE TRIGGER savings_goal_allocations_currency_guard
     BEFORE INSERT OR UPDATE OF account_id

@@ -1,4 +1,5 @@
 -- +goose Up
+-- +goose StatementBegin
 DO $$
 BEGIN
     IF EXISTS (
@@ -14,6 +15,7 @@ BEGIN
     END IF;
 END;
 $$;
+-- +goose StatementEnd
 
 INSERT INTO public.savings_goal_allocations (
     user_id, goal_id, account_id, amount_cents, kind, occurred_on
