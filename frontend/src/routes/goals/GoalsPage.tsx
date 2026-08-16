@@ -5,11 +5,17 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { Amount } from '@/components/common/Amount'
 import { MockActionPanel } from '@/components/common/MockActionPanel'
 import { Badge, Button, Card, Input, Label, Progress, Separator } from '@/components/ui'
-import { deriveGoalProgress, useAccounts, useSavingsGoals } from '@/hooks/useQueries'
-import { formatMoney, toCents } from '@/lib/format'
+import {
+  deriveGoalProgress,
+  useAccounts,
+  useSavingsGoals,
+  useSavingsOverview,
+} from '@/hooks/useQueries'
+import { today } from '@/lib/date'
+import { centsToInput, formatMoney, toCents } from '@/lib/format'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
-import type { SavingsGoalWithProgress } from '@/types'
+import type { SavingsGoal, SavingsGoalWithProgress } from '@/types'
 
 const dateFormatter = new Intl.DateTimeFormat('es-MX', {
   day: 'numeric',
@@ -19,6 +25,13 @@ const dateFormatter = new Intl.DateTimeFormat('es-MX', {
 
 function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`
+}
+
+function isValidAmountInput(value: string, allowBlank = false) {
+  if (!value.trim()) return allowBlank
+  const normalized = value.replace(/[^0-9.-]/g, '')
+  if (!/^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized)) return false
+  return Number.isSafeInteger(Math.round(Number(normalized) * 100))
 }
 
 function getDaysUntil(date: string) {
@@ -87,73 +100,224 @@ function GoalStatusBadge({ goal }: { goal: SavingsGoalWithProgress }) {
 
 export default function GoalsPage() {
   const [isGoalPanelOpen, setIsGoalPanelOpen] = useState(false)
-  const [contributeGoalId, setContributeGoalId] = useState<string | null>(null)
+  const [editingGoal, setEditingGoal] = useState<SavingsGoal | null>(null)
+  const [deletingGoal, setDeletingGoal] = useState<SavingsGoal | null>(null)
+  const [savingGoal, setSavingGoal] = useState<SavingsGoal | null>(null)
   const goalsQuery = useSavingsGoals()
   const accountsQuery = useAccounts()
+  const overviewQuery = useSavingsOverview()
   const queryClient = useQueryClient()
 
   // New goal form
   const [fName, setFName] = useState('')
   const [fTarget, setFTarget] = useState('')
-  const [fCurrent, setFCurrent] = useState('')
   const [fAccount, setFAccount] = useState('')
   const [fDate, setFDate] = useState('')
   const [showGoalErrors, setShowGoalErrors] = useState(false)
 
-  // Contribution form
-  const [fContribute, setFContribute] = useState('')
-  const [showContributionError, setShowContributionError] = useState(false)
+  // Save and assign form
+  const [fSaveAmount, setFSaveAmount] = useState('')
+  const [fSaveSource, setFSaveSource] = useState('')
+  const [fSaveDestination, setFSaveDestination] = useState('')
+  const [fSaveDate, setFSaveDate] = useState(today())
+  const [saveOperationId, setSaveOperationId] = useState('')
+  const [showSaveErrors, setShowSaveErrors] = useState(false)
+  const [managingGoal, setManagingGoal] = useState<SavingsGoal | null>(null)
+  const [manageMode, setManageMode] = useState<'assign' | 'release' | 'reallocate'>('assign')
+  const [fManageAmount, setFManageAmount] = useState('')
+  const [fManageAccount, setFManageAccount] = useState('')
+  const [fManageTarget, setFManageTarget] = useState('')
+  const [fManageDate, setFManageDate] = useState(today())
+  const [manageOperationId, setManageOperationId] = useState('')
+  const [showManageErrors, setShowManageErrors] = useState(false)
 
   const createMut = useMutation({
     mutationFn: api.createSavingsGoal,
+    onSuccess: invalidateGoalQueries,
+  })
+  const updateMut = useMutation({
+    mutationFn: ({
+      id,
+      patch,
+    }: {
+      id: string
+      patch: Parameters<typeof api.updateSavingsGoal>[1]
+    }) => api.updateSavingsGoal(id, patch),
+    onSuccess: invalidateGoalQueries,
+  })
+  const saveMut = useMutation({
+    mutationFn: ({
+      id,
+      input,
+      operationId,
+    }: {
+      id: string
+      input: Parameters<typeof api.saveToGoal>[1]
+      operationId: string
+    }) => api.saveToGoal(id, input, { idempotencyKey: operationId }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.savingsGoals })
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+      invalidateGoalQueries()
+      queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
+      queryClient.invalidateQueries({ queryKey: queryKeys.transactions })
     },
   })
-  const contributeMut = useMutation({
-    mutationFn: ({ id, amount }: { id: string; amount: number }) =>
-      api.contributeToSavingsGoal(id, amount),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.savingsGoals })
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
-    },
+  const deleteMut = useMutation({
+    mutationFn: api.deleteSavingsGoal,
+    onSuccess: invalidateGoalQueries,
   })
+  const manageMut = useMutation({
+    mutationFn: (input: {
+      goalId: string
+      mode: 'assign' | 'release' | 'reallocate'
+      amount: number
+      accountId: string
+      targetGoalId: string
+      date: string
+      operationId: string
+    }) =>
+      input.mode === 'reallocate'
+        ? api.reallocateSavings(
+            input.goalId,
+            {
+              toGoalId: input.targetGoalId,
+              accountId: input.accountId,
+              amount: input.amount,
+              date: input.date,
+            },
+            { idempotencyKey: input.operationId },
+          )
+        : api.allocateSavings(
+            input.goalId,
+            {
+              accountId: input.accountId,
+              amount: input.mode === 'release' ? -input.amount : input.amount,
+              date: input.date,
+            },
+            { idempotencyKey: input.operationId },
+          ),
+    onSuccess: invalidateGoalQueries,
+  })
+
+  function invalidateGoalQueries() {
+    queryClient.invalidateQueries({ queryKey: queryKeys.savingsGoals })
+    queryClient.invalidateQueries({ queryKey: queryKeys.savingsOverview })
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+  }
 
   const openGoalPanel = () => {
     createMut.reset()
+    updateMut.reset()
+    setEditingGoal(null)
     setFName('')
     setFTarget('')
-    setFCurrent('')
     setFAccount('')
     setFDate('')
     setShowGoalErrors(false)
     setIsGoalPanelOpen(true)
   }
 
+  const openEditPanel = (goal: SavingsGoal) => {
+    createMut.reset()
+    updateMut.reset()
+    setEditingGoal(goal)
+    setFName(goal.name)
+    setFTarget(centsToInput(goal.targetAmount))
+    setFAccount(goal.accountId ?? '')
+    setFDate(goal.targetDate ?? '')
+    setShowGoalErrors(false)
+    setIsGoalPanelOpen(true)
+  }
+
   const closeGoalPanel = () => {
     createMut.reset()
+    updateMut.reset()
+    setEditingGoal(null)
     setShowGoalErrors(false)
     setIsGoalPanelOpen(false)
   }
 
-  const openContributePanel = (goalId: string) => {
-    contributeMut.reset()
-    setFContribute('')
-    setShowContributionError(false)
-    setContributeGoalId(goalId)
+  const openDeletePanel = (goal: SavingsGoal) => {
+    deleteMut.reset()
+    setDeletingGoal(goal)
   }
 
-  const closeContributePanel = () => {
-    contributeMut.reset()
-    setShowContributionError(false)
-    setContributeGoalId(null)
+  const closeDeletePanel = () => {
+    deleteMut.reset()
+    setDeletingGoal(null)
   }
 
-  const handleCreate = () => {
+  const openSavePanel = (goal: SavingsGoal) => {
+    const debitAccounts = (accountsQuery.data ?? []).filter(
+      (account) => account.type === 'debit' && account.isActive && account.balanceTrackingEnabled,
+    )
+    const destination = debitAccounts.some((account) => account.id === goal.accountId)
+      ? goal.accountId!
+      : (debitAccounts[0]?.id ?? '')
+    const source = debitAccounts.find((account) => account.id !== destination)?.id ?? ''
+    saveMut.reset()
+    setSavingGoal(goal)
+    setFSaveAmount('')
+    setFSaveSource(source)
+    setFSaveDestination(destination)
+    setFSaveDate(today())
+    setSaveOperationId(crypto.randomUUID())
+    setShowSaveErrors(false)
+  }
+
+  const closeSavePanel = () => {
+    saveMut.reset()
+    setShowSaveErrors(false)
+    setSavingGoal(null)
+  }
+
+  const openManagePanel = (goal: SavingsGoal) => {
+    manageMut.reset()
+    setManagingGoal(goal)
+    setManageMode('assign')
+    setFManageAmount('')
+    setFManageAccount(goal.accountId ?? overviewQuery.data?.accounts[0]?.accountId ?? '')
+    setFManageTarget(
+      (goalsQuery.data ?? []).find((candidate) => candidate.id !== goal.id)?.id ?? '',
+    )
+    setFManageDate(today())
+    setManageOperationId(crypto.randomUUID())
+    setShowManageErrors(false)
+  }
+
+  const closeManagePanel = () => {
+    manageMut.reset()
+    setManagingGoal(null)
+    setShowManageErrors(false)
+  }
+
+  const handleGoalSave = () => {
     const target = toCents(fTarget)
-    if (!fName.trim() || target <= 0) {
+    const current = 0
+    if (!fName.trim() || !isValidAmountInput(fTarget) || target <= 0) {
       setShowGoalErrors(true)
+      return
+    }
+    if (editingGoal) {
+      const patch: Parameters<typeof api.updateSavingsGoal>[1] = {}
+      const name = fName.trim()
+      const targetDate = fDate || null
+      const accountId = fAccount || null
+      if (name !== editingGoal.name) patch.name = name
+      if (target !== editingGoal.targetAmount) patch.targetAmount = target
+      if (targetDate !== (editingGoal.targetDate ?? null)) patch.targetDate = targetDate
+      if (accountId !== editingGoal.accountId) patch.accountId = accountId
+      if (Object.keys(patch).length === 0) {
+        closeGoalPanel()
+        return
+      }
+      updateMut.reset()
+      updateMut.mutate(
+        {
+          id: editingGoal.id,
+          patch,
+        },
+        { onSuccess: closeGoalPanel },
+      )
       return
     }
     createMut.reset()
@@ -161,7 +325,7 @@ export default function GoalsPage() {
       {
         name: fName.trim(),
         targetAmount: target,
-        currentAmount: toCents(fCurrent),
+        currentAmount: current,
         targetDate: fDate || undefined,
         accountId: fAccount || null,
         isCompleted: false,
@@ -170,18 +334,64 @@ export default function GoalsPage() {
     )
   }
 
-  const handleContribute = () => {
-    if (!contributeGoalId) return
-    const amount = toCents(fContribute)
-    if (amount === 0) {
-      setShowContributionError(true)
+  const handleSave = () => {
+    if (!savingGoal) return
+    const amount = toCents(fSaveAmount)
+    if (
+      amount <= 0 ||
+      !fSaveSource ||
+      !fSaveDestination ||
+      fSaveSource === fSaveDestination ||
+      !fSaveDate
+    ) {
+      setShowSaveErrors(true)
       return
     }
-    contributeMut.reset()
-    contributeMut.mutate({ id: contributeGoalId, amount }, { onSuccess: closeContributePanel })
+    saveMut.reset()
+    saveMut.mutate(
+      {
+        id: savingGoal.id,
+        operationId: saveOperationId,
+        input: {
+          sourceAccountId: fSaveSource,
+          destinationAccountId: fSaveDestination,
+          amount,
+          date: fSaveDate,
+          description: `Ahorro para ${savingGoal.name}`,
+        },
+      },
+      { onSuccess: closeSavePanel },
+    )
   }
 
-  if (goalsQuery.isError || accountsQuery.isError) {
+  const handleManage = () => {
+    if (!managingGoal) return
+    const amount = toCents(fManageAmount)
+    if (
+      amount <= 0 ||
+      !fManageAccount ||
+      !fManageDate ||
+      (manageMode === 'reallocate' && !fManageTarget)
+    ) {
+      setShowManageErrors(true)
+      return
+    }
+    manageMut.reset()
+    manageMut.mutate(
+      {
+        goalId: managingGoal.id,
+        mode: manageMode,
+        amount,
+        accountId: fManageAccount,
+        targetGoalId: fManageTarget,
+        date: fManageDate,
+        operationId: manageOperationId,
+      },
+      { onSuccess: closeManagePanel },
+    )
+  }
+
+  if (goalsQuery.isError || accountsQuery.isError || overviewQuery.isError) {
     return (
       <>
         <Header title="Metas" subtitle="Ahorro y objetivos" />
@@ -192,7 +402,7 @@ export default function GoalsPage() {
     )
   }
 
-  const isLoading = goalsQuery.isLoading || accountsQuery.isLoading
+  const isLoading = goalsQuery.isLoading || accountsQuery.isLoading || overviewQuery.isLoading
 
   if (isLoading) {
     return (
@@ -217,17 +427,27 @@ export default function GoalsPage() {
 
   const goals = goalsQuery.data ?? []
   const accounts = accountsQuery.data ?? []
+  const overview = overviewQuery.data!
+  const savingsEligibleAccounts = accounts.filter(
+    (account) => account.type === 'debit' && account.isActive && account.balanceTrackingEnabled,
+  )
   const goalNameInvalid = showGoalErrors && !fName.trim()
-  const goalTargetInvalid = showGoalErrors && toCents(fTarget) <= 0
+  const goalTargetInvalid =
+    showGoalErrors && (!isValidAmountInput(fTarget) || toCents(fTarget) <= 0)
+  const activeGoalMutation = editingGoal ? updateMut : createMut
   const goalPanel = (
     <MockActionPanel
       open={isGoalPanelOpen}
-      title="Nueva meta"
-      description="Define una meta de ahorro con cuenta y fecha objetivo."
-      submitLabel="Crear"
-      submitting={createMut.isPending}
+      title={editingGoal ? 'Editar meta' : 'Nueva meta'}
+      description={
+        editingGoal
+          ? 'Actualiza montos, fecha o cuenta vinculada.'
+          : 'Define una meta de ahorro con cuenta y fecha objetivo.'
+      }
+      submitLabel={editingGoal ? 'Guardar cambios' : 'Crear'}
+      submitting={activeGoalMutation.isPending}
       onClose={closeGoalPanel}
-      onSubmit={handleCreate}
+      onSubmit={handleGoalSave}
     >
       <div className="space-y-1.5">
         <Label htmlFor="goal-name">Nombre</Label>
@@ -236,9 +456,13 @@ export default function GoalsPage() {
           placeholder="Ej. Fondo de emergencia"
           value={fName}
           onChange={(e) => setFName(e.target.value)}
-          aria-invalid={goalNameInvalid || Boolean(createMut.error) || undefined}
+          aria-invalid={goalNameInvalid || Boolean(activeGoalMutation.error) || undefined}
           aria-describedby={
-            goalNameInvalid ? 'goal-name-error' : createMut.error ? 'goal-create-error' : undefined
+            goalNameInvalid
+              ? 'goal-name-error'
+              : activeGoalMutation.error
+                ? 'goal-save-error'
+                : undefined
           }
         />
         {goalNameInvalid && (
@@ -247,7 +471,7 @@ export default function GoalsPage() {
           </p>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid gap-2">
         <div className="space-y-1.5">
           <Label htmlFor="goal-target">Objetivo</Label>
           <Input
@@ -264,16 +488,6 @@ export default function GoalsPage() {
               El objetivo debe ser mayor que cero.
             </p>
           )}
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="goal-current">Ahorrado actual</Label>
-          <Input
-            id="goal-current"
-            placeholder="$0.00"
-            inputMode="decimal"
-            value={fCurrent}
-            onChange={(e) => setFCurrent(e.target.value)}
-          />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
@@ -303,9 +517,9 @@ export default function GoalsPage() {
           />
         </div>
       </div>
-      {createMut.error && (
-        <p id="goal-create-error" role="alert" className="text-xs text-destructive">
-          No se pudo crear la meta. Intenta de nuevo.
+      {activeGoalMutation.error && (
+        <p id="goal-save-error" role="alert" className="text-xs text-destructive">
+          No se pudo {editingGoal ? 'actualizar' : 'crear'} la meta. Intenta de nuevo.
         </p>
       )}
     </MockActionPanel>
@@ -375,8 +589,8 @@ export default function GoalsPage() {
           <Card className="p-3.5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs text-muted-foreground">Progreso total</p>
-                <Amount value={totalSaved} size="lg" className="mt-1 block" />
+                <p className="text-xs text-muted-foreground">En cuentas de ahorro</p>
+                <Amount value={overview.totalAccountBalance} size="lg" className="mt-1 block" />
               </div>
               <div className="text-right">
                 <p className="text-[11px] text-muted-foreground">Objetivo agregado</p>
@@ -401,16 +615,20 @@ export default function GoalsPage() {
             </div>
             <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
               <div className="rounded-md bg-muted/40 p-2">
-                <p className="text-muted-foreground">Restante</p>
+                <p className="text-muted-foreground">Asignado</p>
+                <p className="mt-1 font-semibold tabular-nums">
+                  {formatMoney(overview.totalAllocated)}
+                </p>
+              </div>
+              <div className="rounded-md bg-muted/40 p-2">
+                <p className="text-muted-foreground">Sin asignar</p>
+                <p className="mt-1 font-semibold tabular-nums">
+                  {formatMoney(overview.totalUnallocated)}
+                </p>
+              </div>
+              <div className="rounded-md bg-muted/40 p-2">
+                <p className="text-muted-foreground">Por ahorrar</p>
                 <p className="mt-1 font-semibold tabular-nums">{formatMoney(totalRemaining)}</p>
-              </div>
-              <div className="rounded-md bg-muted/40 p-2">
-                <p className="text-muted-foreground">Activas</p>
-                <p className="mt-1 font-semibold tabular-nums">{activeCount}</p>
-              </div>
-              <div className="rounded-md bg-muted/40 p-2">
-                <p className="text-muted-foreground">Listas</p>
-                <p className="mt-1 font-semibold tabular-nums">{completedCount}</p>
               </div>
             </div>
           </Card>
@@ -456,6 +674,37 @@ export default function GoalsPage() {
             )}
           </Card>
         </div>
+
+        {overview.accounts.length > 0 && (
+          <section className="space-y-2">
+            <div>
+              <p className="text-sm font-medium">Cuentas de ahorro</p>
+              <p className="text-xs text-muted-foreground">Saldo real separado por asignación.</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {overview.accounts.map((account) => (
+                <Card key={account.accountId} className="p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">{account.accountName}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {formatMoney(account.allocatedAmount)} asignado
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold tabular-nums">
+                        {formatMoney(account.balance)}
+                      </p>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {formatMoney(account.unallocatedAmount)} libre
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </section>
+        )}
 
         <section className="space-y-2">
           <div className="flex items-center justify-between gap-3">
@@ -529,16 +778,35 @@ export default function GoalsPage() {
                         {account.name} · {account.institution}
                       </Badge>
                     )}
-                    {!isComplete && (
+                    <div className="ml-auto flex items-center gap-1">
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
-                        className="ml-auto"
-                        onClick={() => openContributePanel(goal.id)}
+                        aria-label={`Editar ${goal.name}`}
+                        onClick={() => openEditPanel(goal)}
                       >
-                        Aportar
+                        Editar
                       </Button>
-                    )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        aria-label={`Eliminar ${goal.name}`}
+                        onClick={() => openDeletePanel(goal)}
+                      >
+                        Eliminar
+                      </Button>
+                      {!isComplete && (
+                        <>
+                          <Button variant="ghost" size="sm" onClick={() => openManagePanel(goal)}>
+                            Gestionar
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => openSavePanel(goal)}>
+                            Ahorrar
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </Card>
               )
@@ -578,6 +846,28 @@ export default function GoalsPage() {
                           <p className="mt-0.5 text-[11px] text-[hsl(var(--color-green))]">
                             Completada
                           </p>
+                          <div className="mt-1 flex items-center justify-end gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => openManagePanel(goal)}>
+                              Gestionar
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              aria-label={`Editar ${goal.name}`}
+                              onClick={() => openEditPanel(goal)}
+                            >
+                              Editar
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              aria-label={`Eliminar ${goal.name}`}
+                              onClick={() => openDeletePanel(goal)}
+                            >
+                              Eliminar
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -592,44 +882,193 @@ export default function GoalsPage() {
       {goalPanel}
 
       <MockActionPanel
-        open={contributeGoalId !== null}
-        title="Aportar a la meta"
-        description="Suma fondos al ahorro de esta meta."
-        submitLabel="Aportar"
-        submitting={contributeMut.isPending}
-        onClose={closeContributePanel}
-        onSubmit={handleContribute}
+        open={deletingGoal !== null}
+        title="Eliminar meta"
+        description={`¿Eliminar “${deletingGoal?.name ?? ''}”? Esta acción no se puede deshacer.`}
+        submitLabel="Eliminar meta"
+        submitVariant="destructive"
+        submitting={deleteMut.isPending}
+        onClose={closeDeletePanel}
+        onSubmit={() => {
+          if (!deletingGoal) return
+          deleteMut.reset()
+          deleteMut.mutate(deletingGoal.id, { onSuccess: closeDeletePanel })
+        }}
+      >
+        {deleteMut.error && (
+          <p role="alert" className="text-xs text-destructive">
+            No se pudo eliminar la meta. Intenta de nuevo.
+          </p>
+        )}
+      </MockActionPanel>
+
+      <MockActionPanel
+        open={managingGoal !== null}
+        title="Gestionar ahorro"
+        description={`Asigna, libera o mueve saldo de “${managingGoal?.name ?? ''}” sin crear movimientos bancarios ficticios.`}
+        submitLabel="Aplicar"
+        submitting={manageMut.isPending}
+        onClose={closeManagePanel}
+        onSubmit={handleManage}
       >
         <div className="space-y-1.5">
-          <Label htmlFor="goal-contribution">Monto</Label>
-          <Input
-            id="goal-contribution"
-            placeholder="$0.00"
-            inputMode="decimal"
-            value={fContribute}
-            onChange={(e) => setFContribute(e.target.value)}
-            aria-invalid={showContributionError || Boolean(contributeMut.error) || undefined}
-            aria-describedby={
-              showContributionError
-                ? 'goal-contribution-error goal-contribution-help'
-                : contributeMut.error
-                  ? 'goal-contribution-api-error goal-contribution-help'
-                  : 'goal-contribution-help'
-            }
-            autoFocus
-          />
-          {showContributionError && (
-            <p id="goal-contribution-error" role="alert" className="text-xs text-destructive">
-              El monto debe ser distinto de cero.
-            </p>
-          )}
-          <p id="goal-contribution-help" className="text-[11px] text-muted-foreground">
-            Usa un valor negativo para retirar fondos.
-          </p>
+          <Label htmlFor="goal-manage-mode">Operación</Label>
+          <select
+            id="goal-manage-mode"
+            value={manageMode}
+            onChange={(event) => {
+              setManageMode(event.target.value as typeof manageMode)
+              setManageOperationId(crypto.randomUUID())
+            }}
+            className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px]"
+          >
+            <option value="assign">Asignar saldo existente</option>
+            <option value="release">Liberar saldo</option>
+            {goals.length > 1 && <option value="reallocate">Mover a otra meta</option>}
+          </select>
         </div>
-        {contributeMut.error && (
-          <p id="goal-contribution-api-error" role="alert" className="text-xs text-destructive">
-            No se pudo registrar el aporte. Intenta de nuevo.
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="goal-manage-amount">Monto</Label>
+            <Input
+              id="goal-manage-amount"
+              placeholder="$0.00"
+              inputMode="decimal"
+              value={fManageAmount}
+              onChange={(event) => setFManageAmount(event.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="goal-manage-date">Fecha</Label>
+            <Input
+              id="goal-manage-date"
+              type="date"
+              value={fManageDate}
+              onChange={(event) => setFManageDate(event.target.value)}
+            />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="goal-manage-account">Cuenta de ahorro</Label>
+          <select
+            id="goal-manage-account"
+            value={fManageAccount}
+            onChange={(event) => setFManageAccount(event.target.value)}
+            className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px]"
+          >
+            <option value="">Selecciona</option>
+            {savingsEligibleAccounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {manageMode === 'reallocate' && (
+          <div className="space-y-1.5">
+            <Label htmlFor="goal-manage-target">Meta destino</Label>
+            <select
+              id="goal-manage-target"
+              value={fManageTarget}
+              onChange={(event) => setFManageTarget(event.target.value)}
+              className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px]"
+            >
+              {goals
+                .filter((goal) => goal.id !== managingGoal?.id)
+                .map((goal) => (
+                  <option key={goal.id} value={goal.id}>
+                    {goal.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+        )}
+        {showManageErrors && (
+          <p role="alert" className="text-xs text-destructive">
+            Completa cuenta, monto, fecha y meta destino cuando aplique.
+          </p>
+        )}
+        {manageMut.error && (
+          <p role="alert" className="text-xs text-destructive">
+            No se pudo actualizar la asignación. Revisa el saldo disponible.
+          </p>
+        )}
+      </MockActionPanel>
+
+      <MockActionPanel
+        open={savingGoal !== null}
+        title="Ahorrar y asignar"
+        description={`Transfiere dinero real y asígnalo a “${savingGoal?.name ?? ''}” en una sola operación.`}
+        submitLabel="Transferir y asignar"
+        submitting={saveMut.isPending}
+        onClose={closeSavePanel}
+        onSubmit={handleSave}
+      >
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="goal-save-amount">Monto</Label>
+            <Input
+              id="goal-save-amount"
+              placeholder="$0.00"
+              inputMode="decimal"
+              value={fSaveAmount}
+              onChange={(event) => setFSaveAmount(event.target.value)}
+              aria-invalid={showSaveErrors && toCents(fSaveAmount) <= 0 ? true : undefined}
+              autoFocus
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="goal-save-date">Fecha</Label>
+            <Input
+              id="goal-save-date"
+              type="date"
+              value={fSaveDate}
+              onChange={(event) => setFSaveDate(event.target.value)}
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="goal-save-source">Desde</Label>
+            <select
+              id="goal-save-source"
+              value={fSaveSource}
+              onChange={(event) => setFSaveSource(event.target.value)}
+              className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+            >
+              <option value="">Selecciona</option>
+              {savingsEligibleAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="goal-save-destination">Hacia</Label>
+            <select
+              id="goal-save-destination"
+              value={fSaveDestination}
+              onChange={(event) => setFSaveDestination(event.target.value)}
+              className="h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+            >
+              <option value="">Selecciona</option>
+              {savingsEligibleAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {showSaveErrors && (
+          <p role="alert" className="text-xs text-destructive">
+            Ingresa monto, fecha y dos cuentas distintas con saldo automático.
+          </p>
+        )}
+        {saveMut.error && (
+          <p role="alert" className="text-xs text-destructive">
+            No se pudo transferir y asignar el ahorro. Intenta de nuevo.
           </p>
         )}
       </MockActionPanel>

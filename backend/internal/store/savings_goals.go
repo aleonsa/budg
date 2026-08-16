@@ -18,6 +18,7 @@ type SavingsGoal struct {
 	Name          string    `json:"name"`
 	TargetAmount  int64     `json:"targetAmount"`
 	CurrentAmount int64     `json:"currentAmount"`
+	TargetDate    *string   `json:"targetDate"`
 	AccountID     *string   `json:"accountId"`
 	IsCompleted   bool      `json:"isCompleted"`
 	SortOrder     int       `json:"order"`
@@ -30,27 +31,27 @@ type SavingsGoalInput struct {
 	Name          string  `json:"name"`
 	TargetAmount  int64   `json:"targetAmount"`
 	CurrentAmount int64   `json:"currentAmount"`
+	TargetDate    *string `json:"targetDate"`
 	AccountID     *string `json:"accountId"`
 	SortOrder     int     `json:"order"`
 }
 
-// SavingsGoalPatch describes a partial update. AccountID uses Field[string]
+// SavingsGoalPatch describes a partial update. Nullable fields use Field[string]
 // so callers can distinguish "omitted" from "explicitly cleared to null".
 type SavingsGoalPatch struct {
-	Name          *string       `json:"name"`
-	TargetAmount  *int64        `json:"targetAmount"`
-	CurrentAmount *int64        `json:"currentAmount"`
-	AccountID     Field[string] `json:"accountId"`
-	IsCompleted   *bool         `json:"isCompleted"`
-	SortOrder     *int          `json:"order"`
+	Name         *string       `json:"name"`
+	TargetAmount *int64        `json:"targetAmount"`
+	TargetDate   Field[string] `json:"targetDate"`
+	AccountID    Field[string] `json:"accountId"`
+	SortOrder    *int          `json:"order"`
 }
 
-const savingsGoalColumns = `id, user_id, name, target_amount, current_amount, account_id, is_completed, sort_order, created_at, updated_at`
+const savingsGoalColumns = `id, user_id, name, target_amount, current_amount, target_date, account_id, is_completed, sort_order, created_at, updated_at`
 
 func scanSavingsGoal(row pgx.Row, g *SavingsGoal) error {
 	return row.Scan(
 		&g.ID, &g.UserID, &g.Name, &g.TargetAmount, &g.CurrentAmount,
-		&g.AccountID, &g.IsCompleted, &g.SortOrder, &g.CreatedAt, &g.UpdatedAt,
+		&g.TargetDate, &g.AccountID, &g.IsCompleted, &g.SortOrder, &g.CreatedAt, &g.UpdatedAt,
 	)
 }
 
@@ -96,17 +97,23 @@ func (r *SavingsGoalRepository) List(ctx context.Context, userID string) ([]Savi
 
 // Create inserts a new user-scoped savings goal and returns the stored row.
 func (r *SavingsGoalRepository) Create(ctx context.Context, userID string, in SavingsGoalInput) (SavingsGoal, error) {
+	if in.CurrentAmount != 0 {
+		return SavingsGoal{}, ErrInvalidTransactionShape
+	}
 	var g SavingsGoal
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			INSERT INTO public.savings_goals (user_id, name, target_amount, current_amount, account_id, sort_order)
-			VALUES ($1, $2, $3, $4, $5, $6)
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO public.savings_goals (user_id, name, target_amount, current_amount, target_date, account_id, is_completed, sort_order)
+			VALUES ($1, $2, $3, $4, $5, $6, $4 >= $3, $7)
 			RETURNING `+savingsGoalColumns,
-			userID, in.Name, in.TargetAmount, in.CurrentAmount, in.AccountID, in.SortOrder,
+			userID, in.Name, in.TargetAmount, in.CurrentAmount, in.TargetDate, in.AccountID, in.SortOrder,
 		).Scan(
 			&g.ID, &g.UserID, &g.Name, &g.TargetAmount, &g.CurrentAmount,
-			&g.AccountID, &g.IsCompleted, &g.SortOrder, &g.CreatedAt, &g.UpdatedAt,
-		)
+			&g.TargetDate, &g.AccountID, &g.IsCompleted, &g.SortOrder, &g.CreatedAt, &g.UpdatedAt,
+		); err != nil {
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return SavingsGoal{}, fmt.Errorf("create savings goal: %w", err)
@@ -116,6 +123,7 @@ func (r *SavingsGoalRepository) Create(ctx context.Context, userID string, in Sa
 
 // Update applies a partial update to a savings goal owned by userID.
 func (r *SavingsGoalRepository) Update(ctx context.Context, userID, id string, patch SavingsGoalPatch) (SavingsGoal, error) {
+	datePresent, dateVal := patch.TargetDate.Set, patch.TargetDate.Value
 	accPresent, accVal := patch.AccountID.Set, patch.AccountID.Value
 
 	var g SavingsGoal
@@ -124,20 +132,25 @@ func (r *SavingsGoalRepository) Update(ctx context.Context, userID, id string, p
 			UPDATE public.savings_goals SET
 				name           = COALESCE($3, name),
 				target_amount  = COALESCE($4, target_amount),
-				current_amount = COALESCE($5, current_amount),
-				account_id     = CASE WHEN $6::boolean THEN $7 ELSE account_id END,
-				is_completed   = COALESCE($8, is_completed),
+				target_date    = CASE WHEN $5::boolean THEN $6 ELSE target_date END,
+				account_id     = CASE WHEN $7::boolean THEN $8 ELSE account_id END,
+				is_completed   = CASE
+					WHEN $4::bigint IS NOT NULL
+						THEN current_amount >= $4
+					ELSE is_completed
+				END,
 				sort_order     = COALESCE($9, sort_order),
 				updated_at     = now()
 			WHERE user_id = $1 AND id = $2
 			RETURNING `+savingsGoalColumns,
 			userID, id,
-			patch.Name, patch.TargetAmount, patch.CurrentAmount,
+			patch.Name, patch.TargetAmount,
+			datePresent, dateVal,
 			accPresent, accVal,
-			patch.IsCompleted, patch.SortOrder,
+			patch.SortOrder,
 		).Scan(
 			&g.ID, &g.UserID, &g.Name, &g.TargetAmount, &g.CurrentAmount,
-			&g.AccountID, &g.IsCompleted, &g.SortOrder, &g.CreatedAt, &g.UpdatedAt,
+			&g.TargetDate, &g.AccountID, &g.IsCompleted, &g.SortOrder, &g.CreatedAt, &g.UpdatedAt,
 		)
 	})
 	if err != nil {
@@ -154,21 +167,31 @@ func (r *SavingsGoalRepository) Update(ctx context.Context, userID, id string, p
 func (r *SavingsGoalRepository) Contribute(ctx context.Context, userID, id string, amount int64) (SavingsGoal, error) {
 	var g SavingsGoal
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			UPDATE public.savings_goals SET
-				current_amount = GREATEST(0, current_amount + $3),
-				is_completed   = GREATEST(0, current_amount + $3) >= target_amount,
-				updated_at     = now()
-			WHERE user_id = $1 AND id = $2
-			RETURNING `+savingsGoalColumns,
-			userID, id, amount,
-		).Scan(
-			&g.ID, &g.UserID, &g.Name, &g.TargetAmount, &g.CurrentAmount,
-			&g.AccountID, &g.IsCompleted, &g.SortOrder, &g.CreatedAt, &g.UpdatedAt,
-		)
+		existing, err := lockSavingsGoal(ctx, tx, userID, id)
+		if err != nil {
+			return err
+		}
+		effectiveAmount := amount
+		if existing.CurrentAmount+effectiveAmount < 0 {
+			effectiveAmount = -existing.CurrentAmount
+		}
+		if effectiveAmount == 0 {
+			g = existing
+			return nil
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO public.savings_goal_allocations (
+				user_id, goal_id, account_id, amount_cents, kind, occurred_on
+			)
+			VALUES ($1, $2, $3, $4, 'manual', CURRENT_DATE)
+		`, userID, id, existing.AccountID, effectiveAmount); err != nil {
+			return err
+		}
+		g, err = applySavingsGoalDelta(ctx, tx, userID, id, effectiveAmount, existing.AccountID)
+		return err
 	})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, ErrNotFound) {
 			return SavingsGoal{}, ErrNotFound
 		}
 		return SavingsGoal{}, fmt.Errorf("contribute to savings goal: %w", err)

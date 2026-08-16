@@ -137,8 +137,11 @@ func NewRouter(opts Options) http.Handler {
 				std.Route("/savings-goals", func(goals chi.Router) {
 					goals.Get("/", h.list)
 					goals.Post("/", h.create)
+					goals.Get("/overview", h.overview)
 					goals.Route("/{id}", func(item chi.Router) {
-						item.Post("/contributions", h.contribute)
+						item.Post("/savings", h.save)
+						item.Post("/allocations", h.allocate)
+						item.Post("/reallocations", h.reallocate)
 						item.Patch("/", h.update)
 						item.Delete("/", h.delete)
 					})

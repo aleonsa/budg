@@ -1,5 +1,5 @@
 import { authFetch } from '@/lib/api/backend'
-import type { SavingsGoal } from '@/types'
+import type { SavingsGoal, SavingsOverview } from '@/types'
 
 /**
  * Savings Goal API client.
@@ -32,22 +32,18 @@ export async function createSavingsGoal(
   return toFrontend((await res.json()) as BackendSavingsGoal)
 }
 
-export async function updateSavingsGoal(id: string, patch: Partial<SavingsGoal>): Promise<void> {
+export type SavingsGoalPatch = Omit<
+  Partial<SavingsGoal>,
+  'targetDate' | 'currentAmount' | 'isCompleted'
+> & {
+  targetDate?: string | null
+}
+
+export async function updateSavingsGoal(id: string, patch: SavingsGoalPatch): Promise<void> {
   const res = await authFetch(`/v1/savings-goals/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(toBackendPatch(patch)),
-  })
-  if (!res.ok) {
-    throw new Error(`Request failed: ${res.status}`)
-  }
-}
-
-export async function contributeToSavingsGoal(id: string, amount: number): Promise<void> {
-  const res = await authFetch(`/v1/savings-goals/${id}/contributions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount }),
   })
   if (!res.ok) {
     throw new Error(`Request failed: ${res.status}`)
@@ -61,6 +57,76 @@ export async function deleteSavingsGoal(id: string): Promise<void> {
   }
 }
 
+export async function getSavingsOverview(): Promise<SavingsOverview> {
+  const res = await authFetch('/v1/savings-goals/overview')
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`)
+  return (await res.json()) as SavingsOverview
+}
+
+export interface SaveToGoalInput {
+  sourceAccountId: string
+  destinationAccountId: string
+  amount: number
+  date: string
+  description: string
+}
+
+export interface SavingsAllocationInput {
+  accountId: string
+  amount: number
+  date: string
+}
+
+export interface SavingsReallocationInput {
+  toGoalId: string
+  accountId: string
+  amount: number
+  date: string
+}
+
+function idempotentHeaders(key: string) {
+  return new Headers({ 'Content-Type': 'application/json', 'Idempotency-Key': key })
+}
+
+export async function saveToGoal(
+  id: string,
+  input: SaveToGoalInput,
+  options: { idempotencyKey: string },
+): Promise<void> {
+  const res = await authFetch(`/v1/savings-goals/${id}/savings`, {
+    method: 'POST',
+    headers: idempotentHeaders(options.idempotencyKey),
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`)
+}
+
+export async function allocateSavings(
+  id: string,
+  input: SavingsAllocationInput,
+  options: { idempotencyKey: string },
+): Promise<void> {
+  const res = await authFetch(`/v1/savings-goals/${id}/allocations`, {
+    method: 'POST',
+    headers: idempotentHeaders(options.idempotencyKey),
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`)
+}
+
+export async function reallocateSavings(
+  id: string,
+  input: SavingsReallocationInput,
+  options: { idempotencyKey: string },
+): Promise<void> {
+  const res = await authFetch(`/v1/savings-goals/${id}/reallocations`, {
+    method: 'POST',
+    headers: idempotentHeaders(options.idempotencyKey),
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`)
+}
+
 // ── Wire format ──────────────────────────────────────────────
 
 interface BackendSavingsGoal {
@@ -68,6 +134,7 @@ interface BackendSavingsGoal {
   name: string
   targetAmount: number
   currentAmount: number
+  targetDate: string | null
   accountId: string | null
   isCompleted: boolean
   order: number
@@ -79,6 +146,7 @@ function toFrontend(g: BackendSavingsGoal): SavingsGoal {
     name: g.name,
     targetAmount: g.targetAmount,
     currentAmount: g.currentAmount,
+    targetDate: g.targetDate ?? undefined,
     accountId: g.accountId,
     isCompleted: g.isCompleted,
     order: g.order,
@@ -90,18 +158,18 @@ function toBackend(input: Omit<SavingsGoal, 'id' | 'order'>, order: number) {
     name: input.name,
     targetAmount: input.targetAmount,
     currentAmount: input.currentAmount,
+    targetDate: input.targetDate ?? null,
     accountId: input.accountId ?? null,
     order,
   }
 }
 
-function toBackendPatch(patch: Partial<SavingsGoal>): Partial<BackendSavingsGoal> {
+function toBackendPatch(patch: SavingsGoalPatch): Partial<BackendSavingsGoal> {
   const out: Partial<BackendSavingsGoal> = {}
   if (patch.name !== undefined) out.name = patch.name
   if (patch.targetAmount !== undefined) out.targetAmount = patch.targetAmount
-  if (patch.currentAmount !== undefined) out.currentAmount = patch.currentAmount
+  if (patch.targetDate !== undefined) out.targetDate = patch.targetDate
   if (patch.accountId !== undefined) out.accountId = patch.accountId
-  if (patch.isCompleted !== undefined) out.isCompleted = patch.isCompleted
   if (patch.order !== undefined) out.order = patch.order
   return out
 }

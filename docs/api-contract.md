@@ -303,6 +303,22 @@ Returns `Budget[]`, sorted by `startDate DESC, id ASC`.
 
 Returns `SavingsGoal[]`, sorted by `order ASC`, then `id ASC`.
 
+### Savings allocation operations
+
+`GET /v1/savings-goals/overview` returns real balances for linked debit
+accounts, amounts allocated to goals, unallocated balances, and recent
+allocation activity.
+
+`POST /v1/savings-goals/{id}/savings` creates a real account transfer and its
+goal allocation atomically. `POST /allocations` assigns or releases existing
+account balance with a signed amount. `POST /reallocations` moves an allocation
+between goals without creating a bank transaction. All three write operations
+require `Idempotency-Key`; transfers created by the savings endpoint cannot be
+edited or deleted independently from their allocation.
+Replays never repeat side effects; responses contain current goal state rather
+than a historical snapshot. Savings allocations for one user must share one
+currency, so aggregate totals never combine unlike monetary units.
+
 ### `GET /v1/msi-purchases`
 
 Returns `MSIPurchase[]`, sorted with active purchases first, then by
@@ -361,7 +377,6 @@ financial resource and must not be used to choose the scope of other requests.
 | `DELETE /v1/budgets/{id}` | `204` | User-scoped delete |
 | `POST /v1/savings-goals` | `201` + `SavingsGoal` | Account may be `null` |
 | `PATCH /v1/savings-goals/{id}` | `200` + `SavingsGoal` | Partial update |
-| `POST /v1/savings-goals/{id}/contributions` | `200` + `SavingsGoal` | Requires idempotency key; applies amount atomically |
 | `DELETE /v1/savings-goals/{id}` | `204` | User-scoped delete |
 | `POST /v1/categories` | `201` + `Category` | Server assigns order and `isSystem: false` |
 | `PATCH /v1/categories/{id}` | `200` + `Category` | System categories are immutable |
@@ -398,7 +413,8 @@ zero. Backend derives `isCompleted` after every create, patch, or contribution.
 Resource IDs in bodies must resolve within authenticated user's scope.
 
 Financial creation endpoints that can duplicate money on retry require an
-`Idempotency-Key` UUID. The same key and request replay the original response;
+`Idempotency-Key` UUID. The same key and request never repeats side effects;
+resource responses may reflect current state when an endpoint documents that behavior.
 reusing a key with a different request returns `409`.
 
 Frontend creates an `operationId` when submission intent begins and reuses it

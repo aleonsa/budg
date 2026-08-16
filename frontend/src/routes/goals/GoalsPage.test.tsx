@@ -2,13 +2,24 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Account, SavingsGoal } from '@/types'
+import type { Account, SavingsGoal, SavingsOverview } from '@/types'
 import { api } from '@/lib/api'
 import GoalsPage from './GoalsPage'
 
 const state = vi.hoisted(() => ({
   goals: { data: [] as SavingsGoal[], isLoading: false, isError: false },
   accounts: { data: [] as Account[], isLoading: false, isError: false },
+  overview: {
+    data: {
+      totalAllocated: 0,
+      totalAccountBalance: 0,
+      totalUnallocated: 0,
+      accounts: [],
+      recentActivity: [],
+    } as SavingsOverview,
+    isLoading: false,
+    isError: false,
+  },
   invalidate: vi.fn(),
   payloads: [] as unknown[],
 }))
@@ -19,6 +30,7 @@ vi.mock('@/hooks/useQueries', async () => {
     ...actual,
     useSavingsGoals: () => state.goals,
     useAccounts: () => state.accounts,
+    useSavingsOverview: () => state.overview,
   }
 })
 
@@ -56,7 +68,14 @@ vi.mock('@tanstack/react-query', () => ({
 }))
 
 vi.mock('@/lib/api', () => ({
-  api: { createSavingsGoal: vi.fn(), contributeToSavingsGoal: vi.fn() },
+  api: {
+    createSavingsGoal: vi.fn(),
+    updateSavingsGoal: vi.fn(),
+    saveToGoal: vi.fn(),
+    allocateSavings: vi.fn(),
+    reallocateSavings: vi.fn(),
+    deleteSavingsGoal: vi.fn(),
+  },
 }))
 
 const account: Account = {
@@ -67,7 +86,16 @@ const account: Account = {
   last4: '1234',
   currency: 'MXN',
   balance: 100_000,
+  balanceTrackingEnabled: true,
   isActive: true,
+}
+
+const secondAccount: Account = {
+  ...account,
+  id: 'account-2',
+  name: 'Inversión',
+  institution: 'GBM',
+  last4: '5678',
 }
 
 const goal = (overrides: Partial<SavingsGoal> = {}): SavingsGoal => ({
@@ -103,10 +131,25 @@ describe('GoalsPage', () => {
     vi.setSystemTime(new Date(2026, 6, 20, 12))
     state.goals = { data: [], isLoading: false, isError: false }
     state.accounts = { data: [], isLoading: false, isError: false }
+    state.overview = {
+      data: {
+        totalAllocated: 0,
+        totalAccountBalance: 0,
+        totalUnallocated: 0,
+        accounts: [],
+        recentActivity: [],
+      },
+      isLoading: false,
+      isError: false,
+    }
     state.invalidate.mockReset()
     state.payloads.length = 0
     vi.mocked(api.createSavingsGoal).mockReset()
-    vi.mocked(api.contributeToSavingsGoal).mockReset()
+    vi.mocked(api.updateSavingsGoal).mockReset()
+    vi.mocked(api.saveToGoal).mockReset()
+    vi.mocked(api.allocateSavings).mockReset()
+    vi.mocked(api.reallocateSavings).mockReset()
+    vi.mocked(api.deleteSavingsGoal).mockReset()
   })
 
   afterEach(() => vi.useRealTimers())
@@ -224,9 +267,6 @@ describe('GoalsPage', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Objetivo' }), {
       target: { value: '1234.56' },
     })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Ahorrado actual' }), {
-      target: { value: '100' },
-    })
     fireEvent.change(screen.getByRole('combobox', { name: 'Cuenta vinculada' }), {
       target: { value: 'account-1' },
     })
@@ -240,36 +280,116 @@ describe('GoalsPage', () => {
       {
         name: 'Auto',
         targetAmount: 123_456,
-        currentAmount: 10_000,
+        currentAmount: 0,
         targetDate: '2026-12-31',
         accountId: 'account-1',
         isCompleted: false,
       },
     ])
-    expect(state.invalidate).toHaveBeenCalledTimes(2)
+    expect(state.invalidate).toHaveBeenCalledTimes(3)
     expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['goals'] })
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['goals', 'overview'] })
     expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
     expect(api.createSavingsGoal).toHaveBeenCalledTimes(1)
   })
 
-  it('allows negative contributions and rejects zero before mutating', async () => {
+  it('transfers and assigns savings in one operation', async () => {
+    state.accounts.data = [account, secondAccount]
     state.goals.data = [goal()]
     renderPage()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Aportar' }))
-    fireEvent.change(screen.getByPlaceholderText('$0.00'), { target: { value: '0' } })
-    fireEvent.click(screen.getAllByRole('button', { name: 'Aportar' }).at(-1)!)
-    expect(state.payloads).toHaveLength(0)
-
-    fireEvent.change(screen.getByPlaceholderText('$0.00'), { target: { value: '-25.75' } })
-    fireEvent.click(screen.getAllByRole('button', { name: 'Aportar' }).at(-1)!)
+    fireEvent.click(screen.getByRole('button', { name: 'Ahorrar' }))
+    expect(screen.getByRole('heading', { name: 'Ahorrar y asignar' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Desde' })).toHaveValue('account-2')
+    expect(screen.getByRole('combobox', { name: 'Hacia' })).toHaveValue('account-1')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Monto' }), { target: { value: '25.75' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Transferir y asignar' }))
     await flushMutation()
 
-    expect(state.payloads).toEqual([{ id: 'goal-1', amount: -2_575 }])
-    expect(state.invalidate).toHaveBeenCalledTimes(2)
+    expect(api.saveToGoal).toHaveBeenCalledWith(
+      'goal-1',
+      {
+        sourceAccountId: 'account-2',
+        destinationAccountId: 'account-1',
+        amount: 2_575,
+        date: '2026-07-20',
+        description: 'Ahorro para Emergencias',
+      },
+      { idempotencyKey: expect.any(String) },
+    )
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['goals', 'overview'] })
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['accounts'] })
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['transactions'] })
+  })
+
+  it('assigns existing account balance without creating a bank transfer', async () => {
+    state.accounts.data = [account]
+    state.goals.data = [goal()]
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Gestionar' }))
+    expect(screen.getByRole('heading', { name: 'Gestionar ahorro' })).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Monto' }), { target: { value: '10' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+    await flushMutation()
+
+    expect(api.allocateSavings).toHaveBeenCalledWith(
+      'goal-1',
+      { accountId: 'account-1', amount: 1_000, date: '2026-07-20' },
+      { idempotencyKey: expect.any(String) },
+    )
+    expect(api.saveToGoal).not.toHaveBeenCalled()
+  })
+
+  it('edits an active goal and changes its linked account', async () => {
+    state.accounts.data = [account, secondAccount]
+    state.goals.data = [goal()]
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Editar Emergencias' }))
+
+    expect(screen.getByRole('heading', { name: 'Editar meta' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Nombre' })).toHaveValue('Emergencias')
+    expect(screen.getByRole('combobox', { name: 'Cuenta vinculada' })).toHaveValue('account-1')
+    expect(screen.getByLabelText('Fecha objetivo')).toHaveValue('2026-08-10')
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Cuenta vinculada' }), {
+      target: { value: 'account-2' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await flushMutation()
+
+    expect(api.updateSavingsGoal).toHaveBeenCalledWith('goal-1', {
+      accountId: 'account-2',
+    })
     expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['goals'] })
     expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
-    expect(api.contributeToSavingsGoal).toHaveBeenCalledWith('goal-1', -2_575)
+  })
+
+  it('keeps saved progress read-only while editing goal metadata', () => {
+    state.accounts.data = [account]
+    state.goals.data = [goal()]
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Editar Emergencias' }))
+    expect(screen.queryByRole('textbox', { name: 'Ahorro inicial' })).not.toBeInTheDocument()
+  })
+
+  it('deletes an active goal only after confirmation', async () => {
+    state.goals.data = [goal()]
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar Emergencias' }))
+    const dialog = screen.getByRole('dialog', { name: 'Eliminar meta' })
+    expect(dialog).toHaveTextContent('¿Eliminar “Emergencias”?')
+    expect(api.deleteSavingsGoal).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar meta' }))
+    await flushMutation()
+
+    expect(api.deleteSavingsGoal).toHaveBeenCalledWith('goal-1')
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['goals'] })
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
   })
 
   it('shows completed-only state and falls back when linked account is unavailable', () => {
@@ -290,7 +410,7 @@ describe('GoalsPage', () => {
     expect(screen.getByText('Todas tus metas registradas están completadas.')).toBeInTheDocument()
     expect(screen.getByText('Enganche listo')).toBeInTheDocument()
     expect(screen.getByText('Sin cuenta vinculada')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Aportar' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ahorrar' })).not.toBeInTheDocument()
   })
 
   it('lists multiple completed goals with linked and missing account details', () => {
@@ -392,31 +512,34 @@ describe('GoalsPage', () => {
     expect(state.invalidate).not.toHaveBeenCalled()
   })
 
-  it('keeps a failed contribution open, clears its error on retry, and invalidates only success', async () => {
-    vi.mocked(api.contributeToSavingsGoal)
+  it('keeps a failed atomic save open and reuses its idempotency key on retry', async () => {
+    vi.mocked(api.saveToGoal)
       .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValueOnce(undefined)
+    state.accounts.data = [account, secondAccount]
     state.goals.data = [goal()]
     renderPage()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Aportar' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ahorrar' }))
     const amount = screen.getByRole('textbox', { name: 'Monto' })
     fireEvent.change(amount, { target: { value: '25' } })
-    fireEvent.click(screen.getAllByRole('button', { name: 'Aportar' }).at(-1)!)
+    fireEvent.click(screen.getByRole('button', { name: 'Transferir y asignar' }))
     await flushMutation()
 
-    expect(screen.getByRole('alert')).toHaveTextContent('No se pudo registrar el aporte')
-    expect(screen.getByRole('heading', { name: 'Aportar a la meta' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('No se pudo transferir y asignar')
+    expect(screen.getByRole('heading', { name: 'Ahorrar y asignar' })).toBeInTheDocument()
     expect(amount).toHaveValue('25')
-    expect(amount).toHaveAttribute('aria-invalid', 'true')
     expect(state.invalidate).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Aportar' }).at(-1)!)
+    fireEvent.click(screen.getByRole('button', { name: 'Transferir y asignar' }))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     await flushMutation()
 
-    expect(api.contributeToSavingsGoal).toHaveBeenCalledTimes(2)
-    expect(state.invalidate).toHaveBeenCalledTimes(2)
-    expect(screen.queryByRole('heading', { name: 'Aportar a la meta' })).not.toBeInTheDocument()
+    expect(api.saveToGoal).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(api.saveToGoal).mock.calls[0][2]).toEqual(
+      vi.mocked(api.saveToGoal).mock.calls[1][2],
+    )
+    expect(state.invalidate).toHaveBeenCalledTimes(5)
+    expect(screen.queryByRole('heading', { name: 'Ahorrar y asignar' })).not.toBeInTheDocument()
   })
 })

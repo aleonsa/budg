@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aleonsa/budg/backend/internal/httpapi"
@@ -27,6 +29,20 @@ type stubSavingsGoalStore struct {
 	createResult     store.SavingsGoal
 	updateResult     store.SavingsGoal
 	contributeResult store.SavingsGoal
+	overviewResult   store.SavingsOverview
+	overviewErr      error
+	saveID           string
+	saveInput        store.SaveToGoalInput
+	saveResult       store.SavingsGoalActionResult
+	saveErr          error
+	allocationID     string
+	allocationInput  store.SavingsAllocationInput
+	allocationResult store.SavingsGoal
+	allocationErr    error
+	reallocateID     string
+	reallocateInput  store.SavingsReallocationInput
+	reallocateResult store.SavingsReallocationResult
+	reallocateErr    error
 }
 
 func (s *stubSavingsGoalStore) List(_ context.Context, _ string) ([]store.SavingsGoal, error) {
@@ -55,6 +71,28 @@ func (s *stubSavingsGoalStore) Delete(_ context.Context, _, id string) error {
 	return s.deleteErr
 }
 
+func (s *stubSavingsGoalStore) Overview(_ context.Context, _ string) (store.SavingsOverview, error) {
+	return s.overviewResult, s.overviewErr
+}
+
+func (s *stubSavingsGoalStore) Save(_ context.Context, _, id string, in store.SaveToGoalInput) (store.SavingsGoalActionResult, error) {
+	s.saveID = id
+	s.saveInput = in
+	return s.saveResult, s.saveErr
+}
+
+func (s *stubSavingsGoalStore) Allocate(_ context.Context, _, id string, in store.SavingsAllocationInput) (store.SavingsGoal, error) {
+	s.allocationID = id
+	s.allocationInput = in
+	return s.allocationResult, s.allocationErr
+}
+
+func (s *stubSavingsGoalStore) Reallocate(_ context.Context, _, id string, in store.SavingsReallocationInput) (store.SavingsReallocationResult, error) {
+	s.reallocateID = id
+	s.reallocateInput = in
+	return s.reallocateResult, s.reallocateErr
+}
+
 func newSavingsGoalsRouter(stub SavingsGoalStoreForTest) http.Handler {
 	return httpapi.NewRouter(httpapi.Options{
 		Database:       readyDatabase(),
@@ -64,6 +102,15 @@ func newSavingsGoalsRouter(stub SavingsGoalStoreForTest) http.Handler {
 }
 
 type SavingsGoalStoreForTest = httpapi.SavingsGoalStore
+
+func doSavingsRequestWithKey(handler http.Handler, method, target, body, key string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", key)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
 
 func TestListSavingsGoalsReturnsData(t *testing.T) {
 	t.Parallel()
@@ -111,7 +158,7 @@ func TestCreateSavingsGoalPersistsAndReturnsCreated(t *testing.T) {
 	}
 	router := newSavingsGoalsRouter(stub)
 
-	body := `{"name":"Trip","targetAmount":50000,"currentAmount":0,"order":0}`
+	body := `{"name":"Trip","targetAmount":50000,"currentAmount":0,"targetDate":"2027-01-15","order":0}`
 	rec := doRequest(router, http.MethodPost, "/v1/savings-goals", body)
 
 	if rec.Code != http.StatusCreated {
@@ -119,6 +166,9 @@ func TestCreateSavingsGoalPersistsAndReturnsCreated(t *testing.T) {
 	}
 	if stub.createInput.Name != "Trip" || stub.createInput.TargetAmount != 50000 {
 		t.Fatalf("captured input = %+v", stub.createInput)
+	}
+	if stub.createInput.TargetDate == nil || *stub.createInput.TargetDate != "2027-01-15" {
+		t.Fatalf("captured target date = %+v", stub.createInput.TargetDate)
 	}
 }
 
@@ -157,7 +207,7 @@ func TestUpdateSavingsGoalAppliesPatchAndReturnsUpdated(t *testing.T) {
 	}
 	router := newSavingsGoalsRouter(stub)
 
-	body := `{"name":"Long Trip"}`
+	body := `{"name":"Long Trip","accountId":"00000000-0000-0000-0000-000000000002","targetDate":null}`
 	rec := doRequest(router, http.MethodPatch, "/v1/savings-goals/goal-1", body)
 
 	if rec.Code != http.StatusOK {
@@ -168,6 +218,29 @@ func TestUpdateSavingsGoalAppliesPatchAndReturnsUpdated(t *testing.T) {
 	}
 	if stub.updatePatch.Name == nil || *stub.updatePatch.Name != newName {
 		t.Fatalf("captured name patch = %+v", stub.updatePatch.Name)
+	}
+	if !stub.updatePatch.AccountID.Set || stub.updatePatch.AccountID.Value == nil || *stub.updatePatch.AccountID.Value != "00000000-0000-0000-0000-000000000002" {
+		t.Fatalf("captured account patch = %+v", stub.updatePatch.AccountID)
+	}
+	if !stub.updatePatch.TargetDate.Set || stub.updatePatch.TargetDate.Value != nil {
+		t.Fatalf("captured target date patch = %+v", stub.updatePatch.TargetDate)
+	}
+}
+
+func TestUpdateSavingsGoalRejectsInvalidPatch(t *testing.T) {
+	t.Parallel()
+	router := newSavingsGoalsRouter(&stubSavingsGoalStore{})
+
+	cases := []string{
+		`{"name":""}`,
+		`{"targetAmount":0}`,
+		`{"targetDate":"not-a-date"}`,
+	}
+	for _, body := range cases {
+		rec := doRequest(router, http.MethodPatch, "/v1/savings-goals/goal-1", body)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400 for body %s", rec.Code, body)
+		}
 	}
 }
 
@@ -183,20 +256,15 @@ func TestUpdateSavingsGoalReportsNotFound(t *testing.T) {
 	}
 }
 
-func TestContributeToSavingsGoalAppliesAmount(t *testing.T) {
+func TestLegacySavingsGoalContributionsAreNotRouted(t *testing.T) {
 	t.Parallel()
-	stub := &stubSavingsGoalStore{
-		contributeResult: store.SavingsGoal{ID: "goal-1", CurrentAmount: 6000},
-	}
+	stub := &stubSavingsGoalStore{}
 	router := newSavingsGoalsRouter(stub)
 
 	rec := doRequest(router, http.MethodPost, "/v1/savings-goals/goal-1/contributions", `{"amount":1000}`)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
-	}
-	if stub.contributeID != "goal-1" || stub.contributeAmount != 1000 {
-		t.Fatalf("contribution = (%q, %d), want (goal-1, 1000)", stub.contributeID, stub.contributeAmount)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
 	}
 }
 
@@ -206,8 +274,8 @@ func TestContributeToSavingsGoalRejectsZeroAmount(t *testing.T) {
 
 	rec := doRequest(router, http.MethodPost, "/v1/savings-goals/goal-1/contributions", `{"amount":0}`)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
 	}
 }
 
@@ -246,5 +314,76 @@ func TestDeleteSavingsGoalReportsNotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestSavingsOverviewReturnsAllocationTotals(t *testing.T) {
+	t.Parallel()
+	stub := &stubSavingsGoalStore{overviewResult: store.SavingsOverview{
+		TotalAllocated: 10000, TotalAccountBalance: 15000, TotalUnallocated: 5000,
+	}}
+	router := newSavingsGoalsRouter(stub)
+
+	rec := doRequest(router, http.MethodGet, "/v1/savings-goals/overview", "")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSaveToGoalCreatesTransferAndAllocation(t *testing.T) {
+	t.Parallel()
+	stub := &stubSavingsGoalStore{saveResult: store.SavingsGoalActionResult{
+		Goal:        store.SavingsGoal{ID: "goal-1", CurrentAmount: 1000},
+		Transaction: store.Transaction{ID: "tx-1", Amount: 1000},
+	}}
+	router := newSavingsGoalsRouter(stub)
+
+	body := `{"sourceAccountId":"acc-1","destinationAccountId":"acc-2","amount":1000,"date":"2026-08-16","description":"Ahorro"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/savings-goals/goal-1/savings", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "save-key-1")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (body=%s)", rec.Code, rec.Body.String())
+	}
+	if stub.saveID != "goal-1" || stub.saveInput.IdempotencyKey != "save-key-1" || stub.saveInput.Amount != 1000 {
+		t.Fatalf("captured save = id %q input %+v", stub.saveID, stub.saveInput)
+	}
+}
+
+func TestSaveToGoalRequiresIdempotencyKey(t *testing.T) {
+	t.Parallel()
+	router := newSavingsGoalsRouter(&stubSavingsGoalStore{})
+	body := `{"sourceAccountId":"acc-1","destinationAccountId":"acc-2","amount":1000,"date":"2026-08-16","description":"Ahorro"}`
+
+	rec := doRequest(router, http.MethodPost, "/v1/savings-goals/goal-1/savings", body)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestAllocateAndReallocateSavings(t *testing.T) {
+	t.Parallel()
+	stub := &stubSavingsGoalStore{}
+	router := newSavingsGoalsRouter(stub)
+
+	allocated := doSavingsRequestWithKey(router, http.MethodPost, "/v1/savings-goals/goal-1/allocations", `{"accountId":"acc-2","amount":500,"date":"2026-08-16"}`, "allocation-key-1")
+	if allocated.Code != http.StatusOK {
+		t.Fatalf("allocate status = %d, want 200 (body=%s)", allocated.Code, allocated.Body.String())
+	}
+	if stub.allocationID != "goal-1" || stub.allocationInput.Amount != 500 || stub.allocationInput.IdempotencyKey != "allocation-key-1" {
+		t.Fatalf("captured allocation = id %q input %+v", stub.allocationID, stub.allocationInput)
+	}
+
+	reallocated := doSavingsRequestWithKey(router, http.MethodPost, "/v1/savings-goals/goal-1/reallocations", `{"toGoalId":"goal-2","accountId":"acc-2","amount":250,"date":"2026-08-16"}`, "reallocation-key-1")
+	if reallocated.Code != http.StatusOK {
+		t.Fatalf("reallocate status = %d, want 200 (body=%s)", reallocated.Code, reallocated.Body.String())
+	}
+	if stub.reallocateID != "goal-1" || stub.reallocateInput.ToGoalID != "goal-2" || stub.reallocateInput.Amount != 250 {
+		t.Fatalf("captured reallocation = id %q input %+v", stub.reallocateID, stub.reallocateInput)
 	}
 }
