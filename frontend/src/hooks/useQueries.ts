@@ -49,6 +49,10 @@ export function useSavingsGoals() {
   return useQuery({ queryKey: queryKeys.savingsGoals, queryFn: api.getSavingsGoals })
 }
 
+export function useSavingsOverview() {
+  return useQuery({ queryKey: queryKeys.savingsOverview, queryFn: api.getSavingsOverview })
+}
+
 export function useBudgets() {
   return useQuery({ queryKey: queryKeys.budgets, queryFn: api.getBudgets })
 }

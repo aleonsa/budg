@@ -10,6 +10,7 @@ export const queryKeys = {
   msiPurchases: ['msi'] as const,
   recurringTransactions: ['recurring-transactions'] as const,
   savingsGoals: ['goals'] as const,
+  savingsOverview: ['goals', 'overview'] as const,
   budgets: ['budgets'] as const,
   rules: ['rules'] as const,
 

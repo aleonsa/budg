@@ -140,6 +140,34 @@ export interface SavingsGoal {
   order: number
 }
 
+export interface SavingsAccountOverview {
+  accountId: ID
+  accountName: string
+  balance: Cents
+  allocatedAmount: Cents
+  unallocatedAmount: Cents
+}
+
+export interface SavingsAllocationActivity {
+  id: ID
+  goalId: ID
+  goalName: string
+  accountId: ID | null
+  accountName: string | null
+  transactionId: ID | null
+  amount: Cents
+  kind: 'opening' | 'manual' | 'transfer' | 'allocation' | 'release' | 'reallocation'
+  date: ISODate
+}
+
+export interface SavingsOverview {
+  totalAllocated: Cents
+  totalAccountBalance: Cents
+  totalUnallocated: Cents
+  accounts: SavingsAccountOverview[]
+  recentActivity: SavingsAllocationActivity[]
+}
+
 // ── Budget ─────────────────────────────────────────────────
 export type BudgetPeriod = 'weekly' | 'monthly' | 'yearly'
 

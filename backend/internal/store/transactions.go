@@ -193,6 +193,13 @@ func (r *TransactionRepository) Update(ctx context.Context, userID, id string, p
 		if existing.MSIPurchaseID != nil {
 			return ErrMSIInstallmentManaged
 		}
+		managed, managedErr := transactionHasSavingsAllocation(ctx, tx, userID, id)
+		if managedErr != nil {
+			return managedErr
+		}
+		if managed {
+			return ErrSavingsTransactionManaged
+		}
 
 		updated = applyTransactionPatch(existing, patch)
 		if err := validateTransactionShape(updated); err != nil {
@@ -391,6 +398,13 @@ func (r *TransactionRepository) Delete(ctx context.Context, userID, id string) e
 		if existing.MSIPurchaseID != nil {
 			return ErrMSIInstallmentManaged
 		}
+		managed, managedErr := transactionHasSavingsAllocation(ctx, tx, userID, id)
+		if managedErr != nil {
+			return managedErr
+		}
+		if managed {
+			return ErrSavingsTransactionManaged
+		}
 		entries, err := loadTransactionBalanceEntries(ctx, tx, userID, id)
 		if err != nil {
 			return err
@@ -413,6 +427,18 @@ func (r *TransactionRepository) Delete(ctx context.Context, userID, id string) e
 		return fmt.Errorf("delete transaction: %w", err)
 	}
 	return nil
+}
+
+func transactionHasSavingsAllocation(ctx context.Context, tx pgx.Tx, userID, transactionID string) (bool, error) {
+	var managed bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM public.savings_goal_allocations
+			WHERE user_id = $1 AND transaction_id = $2
+		)
+	`, userID, transactionID).Scan(&managed)
+	return managed, err
 }
 
 func applyTransactionPatch(transaction Transaction, patch TransactionPatch) Transaction {

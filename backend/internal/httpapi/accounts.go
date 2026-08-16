@@ -111,6 +111,10 @@ func (h *accountsHandler) update(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		if errors.Is(err, store.ErrSavingsAccountCurrencyManaged) {
+			writeJSON(w, http.StatusConflict, errorResponse{Error: apiError{Code: "savings_currency_managed", Message: "account currency cannot change after savings have been allocated"}})
+			return
+		}
 		if errors.Is(err, store.ErrInvalidAccountShape) {
 			writeJSON(w, http.StatusBadRequest, errorResponse{
 				Error: apiError{Code: "invalid_request", Message: "account fields do not form a valid account"},

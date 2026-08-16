@@ -210,6 +210,20 @@ func (r *AccountRepository) Update(ctx context.Context, userID, id string, patch
 				return ErrInvalidAccountShape
 			}
 		}
+		if patch.Currency != nil {
+			var hasSavingsAllocations bool
+			if err := tx.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM public.savings_goal_allocations
+					WHERE user_id = $1 AND account_id = $2
+				)
+			`, userID, id).Scan(&hasSavingsAllocations); err != nil {
+				return err
+			}
+			if hasSavingsAllocations {
+				return ErrSavingsAccountCurrencyManaged
+			}
+		}
 
 		availableCreditSet := patch.AvailableCreditCents.Set
 		availableCreditValue := patch.AvailableCreditCents.Value

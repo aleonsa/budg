@@ -31,8 +31,11 @@ export {
   getSavingsGoals,
   createSavingsGoal,
   updateSavingsGoal,
-  contributeToSavingsGoal,
   deleteSavingsGoal,
+  getSavingsOverview,
+  saveToGoal,
+  allocateSavings,
+  reallocateSavings,
 } from './savings-goals'
 export { getRules, createRule, toggleRule, deleteRule } from './rules'
 export {

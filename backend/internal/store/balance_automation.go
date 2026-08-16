@@ -16,6 +16,10 @@ var (
 	ErrMSIInstallmentManaged          = errors.New("msi installments must be managed through the msi purchase")
 	ErrMSIPurchaseHasPaidInstallments = errors.New("msi purchase with paid installments cannot be replaced")
 	ErrMSILegacyBalanceChange         = errors.New("legacy msi purchase balance fields cannot be changed")
+	ErrInsufficientUnallocatedSavings = errors.New("insufficient unallocated savings")
+	ErrInsufficientGoalAllocation     = errors.New("insufficient goal allocation")
+	ErrSavingsTransactionManaged      = errors.New("transaction is managed by a savings allocation")
+	ErrSavingsAccountCurrencyManaged  = errors.New("currency cannot change after savings allocations exist")
 )
 
 // AccountDelta represents the signed change to an account's materialized balance
