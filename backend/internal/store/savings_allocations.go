@@ -108,7 +108,7 @@ func (r *SavingsGoalRepository) Overview(ctx context.Context, userID string) (Sa
 
 		rows, err := tx.Query(ctx, `
 			WITH savings_account_ids AS (
-				SELECT account_id
+				SELECT DISTINCT account_id
 				FROM public.savings_goal_allocations
 				WHERE user_id = $1 AND account_id IS NOT NULL
 			), allocated AS (
