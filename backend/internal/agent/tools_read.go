@@ -18,6 +18,10 @@ type ReadStore interface {
 	ListAccounts(ctx context.Context, userID string) ([]store.Account, error)
 	ListCategories(ctx context.Context, userID string) ([]store.Category, error)
 	ListTransactions(ctx context.Context, userID string) ([]store.Transaction, error)
+	ListBudgets(ctx context.Context, userID string) ([]store.Budget, error)
+	ListSavingsGoals(ctx context.Context, userID string) ([]store.SavingsGoal, error)
+	ListRecurringTransactions(ctx context.Context, userID string) ([]store.RecurringTransaction, error)
+	ListMSIPurchases(ctx context.Context, userID string) ([]store.MSIPurchase, error)
 }
 
 // NewReadOnlyToolRegistry builds the registry of read tools bound to a single
@@ -54,6 +58,10 @@ func RegisterReadOnlyTools(registry *ToolRegistry, data ReadStore, userID, curre
 		newListCategoriesTool(data, userID),
 		newSearchTransactionsTool(data, userID, currentDate),
 		newFinancialSummaryTool(data, userID, currentDate),
+		newListBudgetsTool(data, userID, currentDate),
+		newListSavingsGoalsTool(data, userID),
+		newListRecurringTransactionsTool(data, userID),
+		newListMSIPurchasesTool(data, userID),
 	}
 	for _, tool := range tools {
 		if err := registry.Register(tool); err != nil {
@@ -445,4 +453,402 @@ func validateOptionalDate(value string) error {
 		return fmt.Errorf("invalid date %q", value)
 	}
 	return nil
+}
+
+type budgetView struct {
+	ID             string  `json:"id"`
+	CategoryID     *string `json:"categoryId"`
+	CategoryName   string  `json:"categoryName"`
+	AmountCents    int64   `json:"amountCents"`
+	Period         string  `json:"period"`
+	WindowStart    string  `json:"windowStart"`
+	WindowEnd      string  `json:"windowEnd"`
+	SpentCents     int64   `json:"spentCents"`
+	RemainingCents int64   `json:"remainingCents"`
+}
+
+func newListBudgetsTool(data ReadStore, userID, currentDate string) Tool {
+	return Tool{
+		Definition: ToolDefinition{
+			Name:        "list_budgets",
+			Description: "Lista los presupuestos del usuario con el progreso del ciclo actual: monto, gastado y restante en la ventana vigente (anclada en la fecha de inicio del presupuesto). categoryId null significa presupuesto global (todos los gastos).",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"additionalProperties": false,
+				"properties": {}
+			}`),
+		},
+		Handler: func(ctx context.Context, raw json.RawMessage) (ToolResult, error) {
+			budgets, err := data.ListBudgets(ctx, userID)
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ToolResult{}, ctxErr
+				}
+				return storeError(), nil
+			}
+			categories, err := data.ListCategories(ctx, userID)
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ToolResult{}, ctxErr
+				}
+				return storeError(), nil
+			}
+			transactions, err := data.ListTransactions(ctx, userID)
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ToolResult{}, ctxErr
+				}
+				return storeError(), nil
+			}
+
+			categoryNames := make(map[string]string, len(categories))
+			for _, category := range categories {
+				categoryNames[category.ID] = category.Name
+			}
+
+			views := make([]budgetView, 0, len(budgets))
+			for _, budget := range budgets {
+				start, end := budgetCycleWindow(budget.Period, budget.StartDate, currentDate)
+				var spent int64
+				for _, tx := range transactions {
+					if tx.Type != "expense" || !withinDateRange(tx.Date, start, end) {
+						continue
+					}
+					if budget.CategoryID != nil {
+						if tx.CategoryID == nil || *tx.CategoryID != *budget.CategoryID {
+							continue
+						}
+					}
+					spent += tx.Amount
+				}
+				name := "Global"
+				if budget.CategoryID != nil {
+					if resolved, ok := categoryNames[*budget.CategoryID]; ok {
+						name = resolved
+					} else {
+						name = *budget.CategoryID
+					}
+				}
+				views = append(views, budgetView{
+					ID:             budget.ID,
+					CategoryID:     budget.CategoryID,
+					CategoryName:   name,
+					AmountCents:    budget.Amount,
+					Period:         budget.Period,
+					WindowStart:    start,
+					WindowEnd:      end,
+					SpentCents:     spent,
+					RemainingCents: budget.Amount - spent,
+				})
+			}
+			return successResult(
+				fmt.Sprintf("%d presupuesto(s)", len(views)),
+				map[string]any{"budgets": views},
+			)
+		},
+	}
+}
+
+// budgetCycleWindow returns the cycle window [start, end] (inclusive, YYYY-MM-DD)
+// that contains currentDate for a budget anchored at anchorDate repeating by
+// period (weekly, monthly, or yearly). Monthly and yearly anchors keep their
+// day-of-month clamped on shorter months (Jan 31 -> Feb 28). A future anchor
+// yields its first cycle.
+func budgetCycleWindow(period, anchorDate, currentDate string) (string, string) {
+	const layout = "2006-01-02"
+	anchor, err := time.Parse(layout, anchorDate)
+	if err != nil {
+		return anchorDate, anchorDate
+	}
+	current, err := time.Parse(layout, currentDate)
+	if err != nil {
+		return anchorDate, anchorDate
+	}
+
+	windowStart := anchor
+	var next time.Time
+	for k := 1; ; k++ {
+		switch period {
+		case "weekly":
+			next = anchor.AddDate(0, 0, 7*k)
+		case "yearly":
+			next = addMonthsClamped(anchor, 12*k)
+		default: // monthly and anything unexpected default to one month
+			next = addMonthsClamped(anchor, k)
+		}
+		if next.After(current) {
+			break
+		}
+		windowStart = next
+	}
+	// The candidate that overshot current is the cycle right after
+	// windowStart, so its eve closes the window.
+	windowEnd := next.AddDate(0, 0, -1)
+	return windowStart.Format(layout), windowEnd.Format(layout)
+}
+
+// addMonthsClamped advances by whole months keeping the day-of-month when the
+// target month is shorter (Jan 31 + 1 month = Feb 28). It always advances the
+// original date, never a previously clamped one, so short months never drift
+// the anchor day (Jan 31 -> Feb 28 -> Mar 31, not Mar 28).
+func addMonthsClamped(start time.Time, months int) time.Time {
+	year, month, day := start.Date()
+	total := int(month) - 1 + months
+	targetYear := year + total/12
+	targetMonth := time.Month(total%12 + 1)
+	if day > daysInMonth(targetYear, targetMonth) {
+		day = daysInMonth(targetYear, targetMonth)
+	}
+	return time.Date(targetYear, targetMonth, day, 0, 0, 0, 0, time.UTC)
+}
+
+func daysInMonth(year int, month time.Month) int {
+	return time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+}
+
+type savingsGoalView struct {
+	ID                 string  `json:"id"`
+	Name               string  `json:"name"`
+	TargetAmountCents  int64   `json:"targetAmountCents"`
+	CurrentAmountCents int64   `json:"currentAmountCents"`
+	RemainingCents     int64   `json:"remainingCents"`
+	ProgressPercent    int64   `json:"progressPercent"`
+	TargetDate         *string `json:"targetDate"`
+	AccountID          *string `json:"accountId"`
+	IsCompleted        bool    `json:"isCompleted"`
+}
+
+type listSavingsGoalsArgs struct {
+	IncludeCompleted bool `json:"includeCompleted"`
+}
+
+func newListSavingsGoalsTool(data ReadStore, userID string) Tool {
+	return Tool{
+		Definition: ToolDefinition{
+			Name:        "list_savings_goals",
+			Description: "Lista las metas de ahorro del usuario con progreso (ahorrado, restante y porcentaje). Por defecto omite las metas completadas.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"additionalProperties": false,
+				"required": ["includeCompleted"],
+				"properties": {
+					"includeCompleted": {"type": ["boolean", "null"], "description": "Incluir metas ya completadas. Usa null si no aplica."}
+				}
+			}`),
+		},
+		Handler: func(ctx context.Context, raw json.RawMessage) (ToolResult, error) {
+			args, bad := decodeToolArgs[listSavingsGoalsArgs](raw)
+			if bad != nil {
+				return *bad, nil
+			}
+			goals, err := data.ListSavingsGoals(ctx, userID)
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ToolResult{}, ctxErr
+				}
+				return storeError(), nil
+			}
+
+			views := make([]savingsGoalView, 0, len(goals))
+			for _, goal := range goals {
+				if goal.IsCompleted && !args.IncludeCompleted {
+					continue
+				}
+				remaining := goal.TargetAmount - goal.CurrentAmount
+				if remaining < 0 {
+					remaining = 0
+				}
+				var progress int64
+				if goal.TargetAmount > 0 {
+					progress = goal.CurrentAmount * 100 / goal.TargetAmount
+				}
+				views = append(views, savingsGoalView{
+					ID:                 goal.ID,
+					Name:               goal.Name,
+					TargetAmountCents:  goal.TargetAmount,
+					CurrentAmountCents: goal.CurrentAmount,
+					RemainingCents:     remaining,
+					ProgressPercent:    progress,
+					TargetDate:         goal.TargetDate,
+					AccountID:          goal.AccountID,
+					IsCompleted:        goal.IsCompleted,
+				})
+			}
+			return successResult(
+				fmt.Sprintf("%d meta(s)", len(views)),
+				map[string]any{"savingsGoals": views},
+			)
+		},
+	}
+}
+
+type recurringTransactionView struct {
+	ID          string  `json:"id"`
+	Description string  `json:"description"`
+	Merchant    *string `json:"merchant,omitempty"`
+	AmountCents int64   `json:"amountCents"`
+	Frequency   string  `json:"frequency"`
+	NextDate    string  `json:"nextDate"`
+	AccountID   string  `json:"accountId"`
+	CategoryID  *string `json:"categoryId"`
+	IsActive    bool    `json:"isActive"`
+}
+
+type listRecurringTransactionsArgs struct {
+	IncludeInactive bool `json:"includeInactive"`
+}
+
+func newListRecurringTransactionsTool(data ReadStore, userID string) Tool {
+	return Tool{
+		Definition: ToolDefinition{
+			Name:        "list_recurring_transactions",
+			Description: "Lista las transacciones recurrentes del usuario (suscripciones, rentas, nómina) con la próxima fecha de aplicación. Por defecto solo activas.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"additionalProperties": false,
+				"required": ["includeInactive"],
+				"properties": {
+					"includeInactive": {"type": ["boolean", "null"], "description": "Incluir recurrentes inactivas. Usa null si no aplica."}
+				}
+			}`),
+		},
+		Handler: func(ctx context.Context, raw json.RawMessage) (ToolResult, error) {
+			args, bad := decodeToolArgs[listRecurringTransactionsArgs](raw)
+			if bad != nil {
+				return *bad, nil
+			}
+			recurring, err := data.ListRecurringTransactions(ctx, userID)
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ToolResult{}, ctxErr
+				}
+				return storeError(), nil
+			}
+
+			views := make([]recurringTransactionView, 0, len(recurring))
+			var monthlyOutflow int64
+			for _, item := range recurring {
+				if !item.IsActive && !args.IncludeInactive {
+					continue
+				}
+				views = append(views, recurringTransactionView{
+					ID:          item.ID,
+					Description: item.Description,
+					Merchant:    item.Merchant,
+					AmountCents: item.Amount,
+					Frequency:   item.Frequency,
+					NextDate:    item.NextDate,
+					AccountID:   item.AccountID,
+					CategoryID:  item.CategoryID,
+					IsActive:    item.IsActive,
+				})
+				if item.IsActive && item.Amount > 0 {
+					monthlyOutflow += recurringMonthlyAmount(item.Frequency, item.Amount)
+				}
+			}
+			return successResult(
+				fmt.Sprintf("%d recurrente(s)", len(views)),
+				map[string]any{
+					"recurringTransactions":     views,
+					"monthlyOutflowCentsApprox": monthlyOutflow,
+				},
+			)
+		},
+	}
+}
+
+// recurringMonthlyAmount normalizes a recurring amount to an approximate
+// monthly figure for the monthly-outflow aggregate. The store only accepts
+// monthly and yearly frequencies.
+func recurringMonthlyAmount(frequency string, amount int64) int64 {
+	if frequency == "yearly" {
+		return amount / 12
+	}
+	return amount
+}
+
+type msiPurchaseView struct {
+	ID                     string  `json:"id"`
+	Description            string  `json:"description"`
+	Merchant               *string `json:"merchant,omitempty"`
+	AccountID              string  `json:"accountId"`
+	TotalAmountCents       int64   `json:"totalAmountCents"`
+	InstallmentAmountCents int64   `json:"installmentAmountCents"`
+	InstallmentCount       int     `json:"installmentCount"`
+	InstallmentsPaid       int     `json:"installmentsPaid"`
+	InstallmentsRemaining  int     `json:"installmentsRemaining"`
+	NextInstallmentDate    *string `json:"nextInstallmentDate"`
+	Status                 string  `json:"status"`
+}
+
+type listMSIPurchasesArgs struct {
+	Status string `json:"status"`
+}
+
+func newListMSIPurchasesTool(data ReadStore, userID string) Tool {
+	return Tool{
+		Definition: ToolDefinition{
+			Name:        "list_msi_purchases",
+			Description: "Lista las compras a meses sin intereses del usuario: cuotas pagadas, cuotas restantes, próximo pago y deuda total restante. Filtra opcionalmente por estado.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"additionalProperties": false,
+				"required": ["status"],
+				"properties": {
+					"status": {"type": ["string", "null"], "enum": ["active", "completed", null], "description": "null para listar todas."}
+				}
+			}`),
+		},
+		Handler: func(ctx context.Context, raw json.RawMessage) (ToolResult, error) {
+			args, bad := decodeToolArgs[listMSIPurchasesArgs](raw)
+			if bad != nil {
+				return *bad, nil
+			}
+			purchases, err := data.ListMSIPurchases(ctx, userID)
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ToolResult{}, ctxErr
+				}
+				return storeError(), nil
+			}
+
+			views := make([]msiPurchaseView, 0, len(purchases))
+			var totalRemaining int64
+			var monthlyBurden int64
+			for _, purchase := range purchases {
+				if args.Status != "" && purchase.Status != args.Status {
+					continue
+				}
+				remaining := purchase.InstallmentCount - purchase.InstallmentsPaid
+				if remaining < 0 {
+					remaining = 0
+				}
+				if purchase.Status == "active" {
+					totalRemaining += int64(remaining) * purchase.InstallmentAmount
+					monthlyBurden += purchase.InstallmentAmount
+				}
+				views = append(views, msiPurchaseView{
+					ID:                     purchase.ID,
+					Description:            purchase.Description,
+					Merchant:               purchase.Merchant,
+					AccountID:              purchase.AccountID,
+					TotalAmountCents:       purchase.TotalAmount,
+					InstallmentAmountCents: purchase.InstallmentAmount,
+					InstallmentCount:       purchase.InstallmentCount,
+					InstallmentsPaid:       purchase.InstallmentsPaid,
+					InstallmentsRemaining:  remaining,
+					NextInstallmentDate:    purchase.NextInstallmentDate,
+					Status:                 purchase.Status,
+				})
+			}
+			return successResult(
+				fmt.Sprintf("%d compra(s) a meses sin intereses", len(views)),
+				map[string]any{
+					"msiPurchases":             views,
+					"activeDebtRemainingCents": totalRemaining,
+					"activeMonthlyBurdenCents": monthlyBurden,
+				},
+			)
+		},
+	}
 }

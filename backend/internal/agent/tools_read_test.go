@@ -15,6 +15,10 @@ type fakeReadStore struct {
 	accounts     []store.Account
 	categories   []store.Category
 	transactions []store.Transaction
+	budgets      []store.Budget
+	savingsGoals []store.SavingsGoal
+	recurring    []store.RecurringTransaction
+	msiPurchases []store.MSIPurchase
 	err          error
 }
 
@@ -26,6 +30,18 @@ func (f *fakeReadStore) ListCategories(context.Context, string) ([]store.Categor
 }
 func (f *fakeReadStore) ListTransactions(context.Context, string) ([]store.Transaction, error) {
 	return f.transactions, f.err
+}
+func (f *fakeReadStore) ListBudgets(context.Context, string) ([]store.Budget, error) {
+	return f.budgets, f.err
+}
+func (f *fakeReadStore) ListSavingsGoals(context.Context, string) ([]store.SavingsGoal, error) {
+	return f.savingsGoals, f.err
+}
+func (f *fakeReadStore) ListRecurringTransactions(context.Context, string) ([]store.RecurringTransaction, error) {
+	return f.recurring, f.err
+}
+func (f *fakeReadStore) ListMSIPurchases(context.Context, string) ([]store.MSIPurchase, error) {
+	return f.msiPurchases, f.err
 }
 
 // The three methods below let *fakeReadStore satisfy Store (ReadStore +
@@ -66,6 +82,24 @@ func sampleStore() *fakeReadStore {
 			{ID: "t2", AccountID: "acc-banamex", Type: "expense", Amount: 45000, CategoryID: strptr("cat-food"), Date: "2026-07-10", Description: "Restaurante"},
 			{ID: "t3", AccountID: "acc-bbva", Type: "expense", Amount: 25000, CategoryID: strptr("cat-transport"), Date: "2026-07-11", Description: "Uber"},
 			{ID: "t4", AccountID: "acc-banamex", Type: "expense", Amount: 18000, CategoryID: strptr("cat-food"), Date: "2026-06-30", Description: "Café"},
+			{ID: "t5", AccountID: "acc-bbva", Type: "expense", Amount: 30000, CategoryID: strptr("cat-food"), Date: "2026-08-12", Description: "Despensa"},
+		},
+		budgets: []store.Budget{
+			{ID: "bud-food", CategoryID: strptr("cat-food"), Amount: 900000, Period: "monthly", StartDate: "2026-08-01"},
+			{ID: "bud-global", CategoryID: nil, Amount: 15000000, Period: "monthly", StartDate: "2026-01-01"},
+			{ID: "bud-transport", CategoryID: strptr("cat-transport"), Amount: 200000, Period: "yearly", StartDate: "2025-09-22"},
+		},
+		savingsGoals: []store.SavingsGoal{
+			{ID: "goal-emergency", Name: "Fondo de emergencia", TargetAmount: 120000000, CurrentAmount: 85000000, TargetDate: strptr("2026-12-31"), IsCompleted: false, SortOrder: 0},
+			{ID: "goal-laptop", Name: "Laptop", TargetAmount: 3500000, CurrentAmount: 3500000, IsCompleted: true, SortOrder: 1},
+		},
+		recurring: []store.RecurringTransaction{
+			{ID: "rec-netflix", AccountID: "acc-banamex", CategoryID: strptr("cat-food"), Description: "Netflix", Amount: 21900, Frequency: "monthly", StartDate: "2026-01-05", NextDate: "2026-08-05", IsActive: true},
+			{ID: "rec-old-gym", AccountID: "acc-bbva", Description: "Gimnasio viejo", Amount: 50000, Frequency: "monthly", StartDate: "2025-01-01", NextDate: "2026-02-01", IsActive: false},
+		},
+		msiPurchases: []store.MSIPurchase{
+			{ID: "msi-phone", AccountID: "acc-banamex", CategoryID: strptr("cat-food"), Description: "Celular", TotalAmount: 18000000, InstallmentAmount: 1500000, InstallmentCount: 12, InstallmentsPaid: 6, StartDate: "2026-02-01", NextInstallmentDate: strptr("2026-08-01"), Status: "active"},
+			{ID: "msi-done", AccountID: "acc-banamex", Description: "Bicicleta", TotalAmount: 6000000, InstallmentAmount: 500000, InstallmentCount: 12, InstallmentsPaid: 12, StartDate: "2025-01-01", Status: "completed"},
 		},
 	}
 }
@@ -105,7 +139,10 @@ func TestReadOnlyRegistryExposesExpectedTools(t *testing.T) {
 	for _, def := range registry.Definitions() {
 		names[def.Name] = true
 	}
-	for _, want := range []string{"list_accounts", "list_categories", "search_transactions", "get_financial_summary"} {
+	for _, want := range []string{
+		"list_accounts", "list_categories", "search_transactions", "get_financial_summary",
+		"list_budgets", "list_savings_goals", "list_recurring_transactions", "list_msi_purchases",
+	} {
 		if !names[want] {
 			t.Fatalf("missing tool %q", want)
 		}
@@ -280,5 +317,194 @@ func TestReadToolSurfacesStoreErrorSafely(t *testing.T) {
 	}
 	if result.Data != nil {
 		t.Fatalf("error result should not include data")
+	}
+}
+
+func TestListBudgetsToolComputesCycleProgress(t *testing.T) {
+	registry := mustRegistry(t, sampleStore()) // currentDate 2026-08-14
+	result := callTool(t, registry, "list_budgets", `{}`)
+
+	var payload struct {
+		Budgets []struct {
+			ID             string `json:"id"`
+			CategoryName   string `json:"categoryName"`
+			WindowStart    string `json:"windowStart"`
+			WindowEnd      string `json:"windowEnd"`
+			SpentCents     int64  `json:"spentCents"`
+			RemainingCents int64  `json:"remainingCents"`
+		} `json:"budgets"`
+	}
+	if err := json.Unmarshal(result.Data, &payload); err != nil {
+		t.Fatalf("decode data: %v", err)
+	}
+	if len(payload.Budgets) != 3 {
+		t.Fatalf("expected 3 budgets, got %d", len(payload.Budgets))
+	}
+	byID := map[string]int{}
+	for i, b := range payload.Budgets {
+		byID[b.ID] = i
+	}
+
+	// Monthly anchored 2026-08-01: window Aug 01..Aug 31, spent = t5 only.
+	food := payload.Budgets[byID["bud-food"]]
+	if food.CategoryName != "Alimentos y Bebidas" {
+		t.Fatalf("food category name = %q", food.CategoryName)
+	}
+	if food.WindowStart != "2026-08-01" || food.WindowEnd != "2026-08-31" {
+		t.Fatalf("food window = %s..%s", food.WindowStart, food.WindowEnd)
+	}
+	if food.SpentCents != 30000 || food.RemainingCents != 870000 {
+		t.Fatalf("food spent/remaining = %d/%d, want 30000/870000", food.SpentCents, food.RemainingCents)
+	}
+
+	// Global monthly anchored 2026-01-01: window Aug 01..Aug 31, expenses = t5.
+	global := payload.Budgets[byID["bud-global"]]
+	if global.CategoryName != "Global" {
+		t.Fatalf("global category name = %q", global.CategoryName)
+	}
+	if global.SpentCents != 30000 {
+		t.Fatalf("global spent = %d, want 30000 (income excluded)", global.SpentCents)
+	}
+
+	// Yearly anchored 2025-09-22: window 2025-09-22..2026-09-21, spent = t3.
+	transport := payload.Budgets[byID["bud-transport"]]
+	if transport.WindowStart != "2025-09-22" || transport.WindowEnd != "2026-09-21" {
+		t.Fatalf("transport window = %s..%s", transport.WindowStart, transport.WindowEnd)
+	}
+	if transport.SpentCents != 25000 || transport.RemainingCents != 175000 {
+		t.Fatalf("transport spent/remaining = %d/%d, want 25000/175000", transport.SpentCents, transport.RemainingCents)
+	}
+}
+
+func TestBudgetCycleWindowAdvancesFromAnchor(t *testing.T) {
+	cases := []struct {
+		name                    string
+		period, anchor, current string
+		wantStart, wantEnd      string
+	}{
+		{"weekly same cycle", "weekly", "2026-08-10", "2026-08-14", "2026-08-10", "2026-08-16"},
+		{"weekly next cycle", "weekly", "2026-08-10", "2026-08-17", "2026-08-17", "2026-08-23"},
+		{"monthly mid cycle", "monthly", "2026-08-01", "2026-08-14", "2026-08-01", "2026-08-31"},
+		{"monthly later cycle", "monthly", "2026-01-15", "2026-08-14", "2026-07-15", "2026-08-14"},
+		{"monthly clamp short month", "monthly", "2026-01-31", "2026-03-05", "2026-02-28", "2026-03-30"},
+		{"yearly first cycle", "yearly", "2025-09-22", "2026-08-14", "2025-09-22", "2026-09-21"},
+		{"yearly later cycle", "yearly", "2024-02-29", "2026-08-14", "2026-02-28", "2027-02-27"},
+		{"future anchor keeps first cycle", "monthly", "2026-09-01", "2026-08-14", "2026-09-01", "2026-09-30"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			start, end := budgetCycleWindow(tc.period, tc.anchor, tc.current)
+			if start != tc.wantStart || end != tc.wantEnd {
+				t.Fatalf("window = %s..%s, want %s..%s", start, end, tc.wantStart, tc.wantEnd)
+			}
+		})
+	}
+}
+
+func TestListSavingsGoalsToolOmitsCompletedByDefault(t *testing.T) {
+	registry := mustRegistry(t, sampleStore())
+	result := callTool(t, registry, "list_savings_goals", `{}`)
+
+	var payload struct {
+		SavingsGoals []struct {
+			Name            string `json:"name"`
+			ProgressPercent int64  `json:"progressPercent"`
+			RemainingCents  int64  `json:"remainingCents"`
+			IsCompleted     bool   `json:"isCompleted"`
+		} `json:"savingsGoals"`
+	}
+	if err := json.Unmarshal(result.Data, &payload); err != nil {
+		t.Fatalf("decode data: %v", err)
+	}
+	if len(payload.SavingsGoals) != 1 || payload.SavingsGoals[0].Name != "Fondo de emergencia" {
+		t.Fatalf("expected only the active goal, got %+v", payload.SavingsGoals)
+	}
+	goal := payload.SavingsGoals[0]
+	if goal.ProgressPercent != 70 || goal.RemainingCents != 35000000 {
+		t.Fatalf("progress/remaining = %d/%d, want 70/35000000", goal.ProgressPercent, goal.RemainingCents)
+	}
+
+	all := callTool(t, registry, "list_savings_goals", `{"includeCompleted":true}`)
+	var allPayload struct {
+		SavingsGoals []json.RawMessage `json:"savingsGoals"`
+	}
+	if err := json.Unmarshal(all.Data, &allPayload); err != nil {
+		t.Fatalf("decode all data: %v", err)
+	}
+	if len(allPayload.SavingsGoals) != 2 {
+		t.Fatalf("expected 2 goals including completed, got %d", len(allPayload.SavingsGoals))
+	}
+}
+
+func TestListRecurringTransactionsToolFiltersInactive(t *testing.T) {
+	registry := mustRegistry(t, sampleStore())
+	result := callTool(t, registry, "list_recurring_transactions", `{}`)
+
+	var payload struct {
+		RecurringTransactions []struct {
+			Description string `json:"description"`
+			NextDate    string `json:"nextDate"`
+		} `json:"recurringTransactions"`
+		MonthlyOutflowCentsApprox int64 `json:"monthlyOutflowCentsApprox"`
+	}
+	if err := json.Unmarshal(result.Data, &payload); err != nil {
+		t.Fatalf("decode data: %v", err)
+	}
+	if len(payload.RecurringTransactions) != 1 || payload.RecurringTransactions[0].Description != "Netflix" {
+		t.Fatalf("expected only active recurring, got %+v", payload.RecurringTransactions)
+	}
+	if payload.MonthlyOutflowCentsApprox != 21900 {
+		t.Fatalf("monthly outflow = %d, want 21900", payload.MonthlyOutflowCentsApprox)
+	}
+
+	withInactive := callTool(t, registry, "list_recurring_transactions", `{"includeInactive":true}`)
+	var inactivePayload struct {
+		RecurringTransactions []json.RawMessage `json:"recurringTransactions"`
+	}
+	if err := json.Unmarshal(withInactive.Data, &inactivePayload); err != nil {
+		t.Fatalf("decode inactive data: %v", err)
+	}
+	if len(inactivePayload.RecurringTransactions) != 2 {
+		t.Fatalf("expected 2 recurring including inactive, got %d", len(inactivePayload.RecurringTransactions))
+	}
+}
+
+func TestListMSIPurchasesToolAggregatesActiveDebt(t *testing.T) {
+	registry := mustRegistry(t, sampleStore())
+	result := callTool(t, registry, "list_msi_purchases", `{}`)
+
+	var payload struct {
+		MSIPurchases []struct {
+			Description           string `json:"description"`
+			InstallmentsRemaining int    `json:"installmentsRemaining"`
+			Status                string `json:"status"`
+		} `json:"msiPurchases"`
+		ActiveDebtRemainingCents int64 `json:"activeDebtRemainingCents"`
+		ActiveMonthlyBurdenCents int64 `json:"activeMonthlyBurdenCents"`
+	}
+	if err := json.Unmarshal(result.Data, &payload); err != nil {
+		t.Fatalf("decode data: %v", err)
+	}
+	if len(payload.MSIPurchases) != 2 {
+		t.Fatalf("expected 2 purchases unfiltered, got %d", len(payload.MSIPurchases))
+	}
+	if payload.ActiveDebtRemainingCents != 9000000 {
+		t.Fatalf("active debt = %d, want 9000000 (6 remaining x 1500000)", payload.ActiveDebtRemainingCents)
+	}
+	if payload.ActiveMonthlyBurdenCents != 1500000 {
+		t.Fatalf("monthly burden = %d, want 1500000", payload.ActiveMonthlyBurdenCents)
+	}
+
+	activeOnly := callTool(t, registry, "list_msi_purchases", `{"status":"active"}`)
+	var activePayload struct {
+		MSIPurchases []struct {
+			Description string `json:"description"`
+		} `json:"msiPurchases"`
+	}
+	if err := json.Unmarshal(activeOnly.Data, &activePayload); err != nil {
+		t.Fatalf("decode active data: %v", err)
+	}
+	if len(activePayload.MSIPurchases) != 1 || activePayload.MSIPurchases[0].Description != "Celular" {
+		t.Fatalf("expected only the active purchase, got %+v", activePayload.MSIPurchases)
 	}
 }
