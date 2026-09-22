@@ -31,6 +31,10 @@ type agentStore struct {
 	accounts     *store.AccountRepository
 	categories   *store.CategoryRepository
 	transactions *store.TransactionRepository
+	budgets      *store.BudgetRepository
+	savingsGoals *store.SavingsGoalRepository
+	recurring    *store.RecurringTransactionRepository
+	msiPurchases *store.MSIPurchaseRepository
 }
 
 func (s *agentStore) ListAccounts(ctx context.Context, userID string) ([]store.Account, error) {
@@ -43,6 +47,22 @@ func (s *agentStore) ListCategories(ctx context.Context, userID string) ([]store
 
 func (s *agentStore) ListTransactions(ctx context.Context, userID string) ([]store.Transaction, error) {
 	return s.transactions.List(ctx, userID)
+}
+
+func (s *agentStore) ListBudgets(ctx context.Context, userID string) ([]store.Budget, error) {
+	return s.budgets.List(ctx, userID)
+}
+
+func (s *agentStore) ListSavingsGoals(ctx context.Context, userID string) ([]store.SavingsGoal, error) {
+	return s.savingsGoals.List(ctx, userID)
+}
+
+func (s *agentStore) ListRecurringTransactions(ctx context.Context, userID string) ([]store.RecurringTransaction, error) {
+	return s.recurring.List(ctx, userID)
+}
+
+func (s *agentStore) ListMSIPurchases(ctx context.Context, userID string) ([]store.MSIPurchase, error) {
+	return s.msiPurchases.List(ctx, userID)
 }
 
 func (s *agentStore) CreateTransaction(ctx context.Context, userID string, in store.TransactionInput) (store.Transaction, error) {
@@ -113,6 +133,10 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			accounts:     store.NewAccountRepository(pool),
 			categories:   store.NewCategoryRepository(pool),
 			transactions: store.NewTransactionRepository(pool),
+			budgets:      store.NewBudgetRepository(pool),
+			savingsGoals: store.NewSavingsGoalRepository(pool),
+			recurring:    store.NewRecurringTransactionRepository(pool),
+			msiPurchases: store.NewMSIPurchaseRepository(pool),
 		}
 		agentService, err = agent.NewService(provider, combinedStore, confirmer, cfg.Agent)
 		if err != nil {
