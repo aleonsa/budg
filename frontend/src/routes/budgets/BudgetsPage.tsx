@@ -8,7 +8,7 @@ import { CategoryIcon } from '@/components/common/CategoryIcon'
 import { MockActionPanel } from '@/components/common/MockActionPanel'
 import { Badge, Button, Card, Input, Label, Progress, Separator } from '@/components/ui'
 import { useBudgets, useCategories, useTransactions } from '@/hooks/useQueries'
-import { formatMoney, toCents } from '@/lib/format'
+import { formatMoney, toCents, centsToInput } from '@/lib/format'
 import {
   deriveBudgetProgressForDate,
   getBudgetCycle,
@@ -17,7 +17,7 @@ import {
 import { today } from '@/lib/date'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
-import type { BudgetPeriod, Cents, Category, Transaction } from '@/types'
+import type { BudgetPeriod, BudgetWithProgress, Cents, Category, Transaction } from '@/types'
 
 const periodLabel: Record<BudgetPeriod, string> = {
   weekly: 'Semanal',
@@ -99,6 +99,8 @@ function getUnbudgetedSpending(
 
 export default function BudgetsPage() {
   const [isBudgetPanelOpen, setIsBudgetPanelOpen] = useState(false)
+  const [editingBudget, setEditingBudget] = useState<BudgetWithProgress | null>(null)
+  const [deletingBudget, setDeletingBudget] = useState<BudgetWithProgress | null>(null)
   const currentDate = today()
   const currentMonthKey = currentDate.slice(0, 7)
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey)
@@ -122,14 +124,28 @@ export default function BudgetsPage() {
 
   const createMut = useMutation({
     mutationFn: api.createBudget,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.budgets })
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
-    },
+    onSuccess: invalidateBudgetQueries,
   })
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<BudgetWithProgress> }) =>
+      api.updateBudget(id, patch),
+    onSuccess: invalidateBudgetQueries,
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: api.deleteBudget,
+    onSuccess: invalidateBudgetQueries,
+  })
+
+  function invalidateBudgetQueries() {
+    queryClient.invalidateQueries({ queryKey: queryKeys.budgets })
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+  }
 
   const openPanel = () => {
     createMut.reset()
+    setEditingBudget(null)
     setFCategory('')
     setFLimit('')
     setFPeriod('monthly')
@@ -137,10 +153,32 @@ export default function BudgetsPage() {
     setIsBudgetPanelOpen(true)
   }
 
+  const openEditPanel = (budget: BudgetWithProgress) => {
+    updateMut.reset()
+    setEditingBudget(budget)
+    setFCategory(budget.categoryId ?? '')
+    setFLimit(centsToInput(budget.amount))
+    setFPeriod(budget.period)
+    setLimitValidationError(false)
+    setIsBudgetPanelOpen(true)
+  }
+
   const closePanel = () => {
     createMut.reset()
+    updateMut.reset()
+    setEditingBudget(null)
     setLimitValidationError(false)
     setIsBudgetPanelOpen(false)
+  }
+
+  const openDeletePanel = (budget: BudgetWithProgress) => {
+    deleteMut.reset()
+    setDeletingBudget(budget)
+  }
+
+  const closeDeletePanel = () => {
+    deleteMut.reset()
+    setDeletingBudget(null)
   }
 
   const handleSubmit = () => {
@@ -150,6 +188,21 @@ export default function BudgetsPage() {
       return
     }
     setLimitValidationError(false)
+    if (editingBudget) {
+      updateMut.reset()
+      updateMut.mutate(
+        {
+          id: editingBudget.id,
+          patch: {
+            categoryId: fCategory || null,
+            amount,
+            period: fPeriod,
+          },
+        },
+        { onSuccess: closePanel },
+      )
+      return
+    }
     createMut.reset()
     createMut.mutate(
       {
@@ -202,16 +255,23 @@ export default function BudgetsPage() {
   const categories = categoriesQuery.data ?? []
   const budgetError = createMut.error
     ? 'No se pudo crear el presupuesto. Intenta de nuevo.'
-    : limitValidationError
-      ? 'Ingresa un límite mayor a cero.'
-      : null
+    : updateMut.error
+      ? 'No se pudo actualizar el presupuesto. Intenta de nuevo.'
+      : limitValidationError
+        ? 'Ingresa un límite mayor a cero.'
+        : null
+  const activeMutation = editingBudget ? updateMut : createMut
   const budgetPanel = (
     <MockActionPanel
       open={isBudgetPanelOpen}
-      title="Crear presupuesto"
-      description="Define límite, categoría y periodo."
-      submitLabel="Crear"
-      submitting={createMut.isPending}
+      title={editingBudget ? 'Editar presupuesto' : 'Crear presupuesto'}
+      description={
+        editingBudget
+          ? 'Actualiza el límite, categoría o periodo de este presupuesto.'
+          : 'Define límite, categoría y periodo.'
+      }
+      submitLabel={editingBudget ? 'Guardar cambios' : 'Crear'}
+      submitting={activeMutation.isPending}
       onClose={closePanel}
       onSubmit={handleSubmit}
     >
@@ -298,6 +358,48 @@ export default function BudgetsPage() {
   }
 
   const categoryMap = new Map(categories.map((category) => [category.id, category]))
+  const deleteTargetCategory = deletingBudget?.categoryId
+    ? categoryMap.get(deletingBudget.categoryId)
+    : undefined
+  const deletePanel = (
+    <MockActionPanel
+      open={deletingBudget !== null}
+      title="Eliminar presupuesto"
+      description="¿Eliminar este presupuesto? Esta acción no se puede deshacer."
+      submitLabel="Eliminar presupuesto"
+      submitVariant="destructive"
+      submitting={deleteMut.isPending}
+      onClose={closeDeletePanel}
+      onSubmit={() => {
+        if (!deletingBudget) return
+        deleteMut.reset()
+        deleteMut.mutate(deletingBudget.id, { onSuccess: closeDeletePanel })
+      }}
+    >
+      {deletingBudget && (
+        <div className="flex items-center gap-2 rounded-md bg-muted/40 p-3 text-xs">
+          <CategoryIcon
+            name={deleteTargetCategory?.icon ?? 'HelpCircle'}
+            color={deleteTargetCategory?.color ?? 'gray'}
+            className="h-7 w-7"
+          />
+          <div className="min-w-0">
+            <p className="truncate font-medium">
+              {deleteTargetCategory?.name ?? 'General'} · {periodLabel[deletingBudget.period]}
+            </p>
+            <p className="mt-0.5 text-muted-foreground">
+              Límite {formatMoney(deletingBudget.amount)}
+            </p>
+          </div>
+        </div>
+      )}
+      {deleteMut.error && (
+        <p role="alert" className="text-xs text-destructive">
+          No se pudo eliminar el presupuesto. Intenta de nuevo.
+        </p>
+      )}
+    </MockActionPanel>
+  )
   const selectedAsOf = selectedMonth === currentMonthKey ? currentDate : monthEnd(selectedMonth)
   const activeBudgets = deriveBudgetProgressForDate(budgets, transactions, selectedAsOf).filter(
     (budget) => getBudgetCycle(budget, selectedAsOf) !== null,
@@ -538,12 +640,33 @@ export default function BudgetsPage() {
                             {periodLabel[budget.period]}
                           </p>
                         </div>
-                        <Badge
-                          variant={statusVariant}
-                          className={isExceeded ? 'border-destructive text-destructive' : undefined}
-                        >
-                          {status}
-                        </Badge>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <Badge
+                            variant={statusVariant}
+                            className={
+                              isExceeded ? 'border-destructive text-destructive' : undefined
+                            }
+                          >
+                            {status}
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Editar presupuesto de ${category?.name ?? 'General'}`}
+                            onClick={() => openEditPanel(budget)}
+                          >
+                            Editar
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            aria-label={`Eliminar presupuesto de ${category?.name ?? 'General'}`}
+                            onClick={() => openDeletePanel(budget)}
+                          >
+                            Eliminar
+                          </Button>
+                        </div>
                       </div>
 
                       <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
@@ -627,6 +750,7 @@ export default function BudgetsPage() {
       </div>
 
       {budgetPanel}
+      {deletePanel}
     </>
   )
 }

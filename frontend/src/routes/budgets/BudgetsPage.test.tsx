@@ -59,7 +59,9 @@ vi.mock('@tanstack/react-query', () => ({
   },
 }))
 
-vi.mock('@/lib/api', () => ({ api: { createBudget: vi.fn() } }))
+vi.mock('@/lib/api', () => ({
+  api: { createBudget: vi.fn(), updateBudget: vi.fn(), deleteBudget: vi.fn() },
+}))
 
 const category = (id: string, name: string): Category => ({
   id,
@@ -123,6 +125,8 @@ describe('BudgetsPage', () => {
     state.reset.mockReset()
     state.payloads.length = 0
     vi.mocked(api.createBudget).mockReset()
+    vi.mocked(api.updateBudget).mockReset()
+    vi.mocked(api.deleteBudget).mockReset()
   })
 
   afterEach(() => vi.useRealTimers())
@@ -462,5 +466,92 @@ describe('BudgetsPage', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Crear' }).at(-1)!)
 
     expect(state.reset).toHaveBeenCalledTimes(resetCount + 1)
+  })
+
+  it('edits a budget from its card with prefilled values', async () => {
+    state.categories.data = [category('food', 'Comida')]
+    state.budgets.data = [budget('food-budget', 'food', 10_000)]
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Editar presupuesto de Comida' }))
+
+    expect(screen.getByRole('heading', { name: 'Editar presupuesto' })).toBeInTheDocument()
+    expect(
+      screen.getByText('Actualiza el límite, categoría o periodo de este presupuesto.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Límite' })).toHaveValue('100.00')
+    expect(screen.getByRole('combobox', { name: 'Categoría' })).toHaveValue('food')
+    expect(screen.getByRole('combobox', { name: 'Periodo' })).toHaveValue('monthly')
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Límite' }), {
+      target: { value: '500' },
+    })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Periodo' }), {
+      target: { value: 'weekly' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await flushMutation()
+
+    expect(api.updateBudget).toHaveBeenCalledWith('food-budget', {
+      categoryId: 'food',
+      amount: 50_000,
+      period: 'weekly',
+    })
+    expect(api.createBudget).not.toHaveBeenCalled()
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['budgets'] })
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
+    expect(screen.queryByText('Actualiza el límite, categoría o periodo.')).not.toBeInTheDocument()
+  })
+
+  it('keeps the edit panel open and announces API rejection without invalidating', async () => {
+    vi.mocked(api.updateBudget).mockRejectedValueOnce(new Error('offline'))
+    state.categories.data = [category('food', 'Comida')]
+    state.budgets.data = [budget('food-budget', 'food', 10_000)]
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Editar presupuesto de Comida' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Límite' }), {
+      target: { value: '250' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await flushMutation()
+
+    expect(screen.getByRole('alert')).toHaveTextContent('No se pudo actualizar el presupuesto')
+    expect(screen.getByRole('heading', { name: 'Editar presupuesto' })).toBeInTheDocument()
+    expect(state.invalidate).not.toHaveBeenCalled()
+  })
+
+  it('deletes a budget after explicit confirmation', async () => {
+    state.categories.data = [category('food', 'Comida')]
+    state.budgets.data = [budget('food-budget', 'food', 10_000)]
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar presupuesto de Comida' }))
+
+    expect(screen.getByRole('heading', { name: 'Eliminar presupuesto' })).toBeInTheDocument()
+    expect(screen.getByText('¿Eliminar este presupuesto? Esta acción no se puede deshacer.'))
+    expect(screen.getByText('Comida · Mensual')).toBeInTheDocument()
+    expect(screen.getByText('Límite $100.00')).toBeInTheDocument()
+    expect(api.deleteBudget).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar presupuesto' }))
+    await flushMutation()
+
+    expect(api.deleteBudget).toHaveBeenCalledWith('food-budget')
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['budgets'] })
+    expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
+    expect(screen.queryByRole('heading', { name: 'Eliminar presupuesto' })).not.toBeInTheDocument()
+  })
+
+  it('cancels deletion without calling the API', () => {
+    state.categories.data = [category('food', 'Comida')]
+    state.budgets.data = [budget('food-budget', 'food', 10_000)]
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar presupuesto de Comida' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+    expect(api.deleteBudget).not.toHaveBeenCalled()
+    expect(screen.queryByRole('heading', { name: 'Eliminar presupuesto' })).not.toBeInTheDocument()
   })
 })
