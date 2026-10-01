@@ -177,7 +177,7 @@ func TestLoadUsesSafeAgentDefaults(t *testing.T) {
 	if cfg.Agent.Model != "gpt-5.6-luna" {
 		t.Fatalf("agent model = %q, want gpt-5.6-luna", cfg.Agent.Model)
 	}
-	if cfg.Agent.MaxSteps != 12 || cfg.Agent.MaxToolCalls != 20 {
+	if cfg.Agent.MaxSteps != 12 || cfg.Agent.MaxToolCalls != 60 {
 		t.Fatalf("agent limits = steps %d, tools %d", cfg.Agent.MaxSteps, cfg.Agent.MaxToolCalls)
 	}
 	if cfg.Agent.Timeout != 60*time.Second || cfg.Agent.MaxOutputTokens != 4000 {
@@ -257,7 +257,7 @@ func TestLoadRejectsInvalidAgentLimits(t *testing.T) {
 		{name: "zero steps", key: "AGENT_MAX_STEPS", value: "0"},
 		{name: "too many steps", key: "AGENT_MAX_STEPS", value: "13"},
 		{name: "zero tool calls", key: "AGENT_MAX_TOOL_CALLS", value: "0"},
-		{name: "too many tool calls", key: "AGENT_MAX_TOOL_CALLS", value: "25"},
+		{name: "too many tool calls", key: "AGENT_MAX_TOOL_CALLS", value: "73"},
 		{name: "short timeout", key: "AGENT_TIMEOUT_SECONDS", value: "4"},
 		{name: "long timeout", key: "AGENT_TIMEOUT_SECONDS", value: "121"},
 		{name: "small output", key: "AGENT_MAX_OUTPUT_TOKENS", value: "63"},

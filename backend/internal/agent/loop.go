@@ -26,8 +26,8 @@ func (l Limits) validate() error {
 	if l.MaxSteps < 1 || l.MaxSteps > 12 {
 		return errors.New("max steps must be between 1 and 12")
 	}
-	if l.MaxToolCalls < 1 || l.MaxToolCalls > 24 {
-		return errors.New("max tool calls must be between 1 and 24")
+	if l.MaxToolCalls < 1 || l.MaxToolCalls > 72 {
+		return errors.New("max tool calls must be between 1 and 72")
 	}
 	if l.MaxOutputTokens < 64 || l.MaxOutputTokens > 8192 {
 		return errors.New("max output tokens must be between 64 and 8192")
