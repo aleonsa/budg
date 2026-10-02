@@ -48,7 +48,7 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	maxToolCalls, err := boundedIntEnv("AGENT_MAX_TOOL_CALLS", 20, 1, 24)
+	maxToolCalls, err := boundedIntEnv("AGENT_MAX_TOOL_CALLS", 60, 1, 72)
 	if err != nil {
 		return Config{}, err
 	}
