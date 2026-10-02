@@ -198,4 +198,26 @@ describe('agent store', () => {
       content: 'Respuesta nueva',
     })
   })
+
+  it('increments mutationExecutionCount only when confirmed mutation completes', async () => {
+    vi.mocked(streamAgentChat).mockImplementation(async (_params, callbacks) => {
+      callbacks.onStarted?.()
+      callbacks.onCompleted?.({
+        status: 'completed',
+        message: 'Movimiento registrado con éxito.',
+        summary: 'Éxito',
+        artifacts: [],
+      })
+    })
+
+    expect(useAgentStore.getState().mutationExecutionCount).toBe(0)
+
+    // Ordinary message without confirmationToken -> count remains 0
+    await useAgentStore.getState().send('Hola')
+    expect(useAgentStore.getState().mutationExecutionCount).toBe(0)
+
+    // Confirmed request with confirmationToken -> count increments
+    await useAgentStore.getState().send('Sí, confirmo', null, 'valid-token')
+    expect(useAgentStore.getState().mutationExecutionCount).toBe(1)
+  })
 })

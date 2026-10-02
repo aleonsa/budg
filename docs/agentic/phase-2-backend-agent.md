@@ -182,6 +182,7 @@ Errores internos, SQL y secretos nunca llegan al modelo.
 | `list_savings_goals` | Consultar metas, avance y monto restante |
 | `list_recurring_transactions` | Consultar gastos recurrentes y carga mensual |
 | `list_msi_purchases` | Consultar planes MSI, deuda restante y mensualidades |
+| `get_cash_flow_forecast` | Proyección de saldo y liquidez a 30, 60 o 90 días |
 
 ### Mutación
 

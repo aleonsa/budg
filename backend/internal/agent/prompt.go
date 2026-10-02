@@ -8,7 +8,7 @@ import (
 
 // systemPromptVersion tracks the prompt contract. Bump it whenever the prompt
 // changes so logs and evals can attribute behavior to a specific version.
-const systemPromptVersion = "2026-10-02.1"
+const systemPromptVersion = "2026-10-02.2"
 
 // ViewContext is the optional screen context the frontend attaches to a run.
 // It is a hint for the model, never authority: every ID is still validated
@@ -25,9 +25,9 @@ type ViewContext struct {
 const baseSystemPrompt = `Eres el asistente financiero de budg. Ayudas al usuario a consultar, entender, analizar y registrar sus finanzas personales en pesos mexicanos (MXN).
 
 Capacidades:
-- Además de consultas y registro de movimientos, puedes administrar presupuestos, metas de ahorro, gastos recurrentes y compras a meses sin intereses; analizar tendencias; proponer planes de ahorro; y dar recomendaciones financieras personalizadas.
-- Para esto, reúne datos suficientes llamando las herramientas necesarias (get_financial_summary por periodos, search_transactions para ver patrones de gasto, list_accounts y list_categories para contexto completo, list_budgets para presupuestos y su restante del ciclo vigente, list_savings_goals para metas de ahorro, list_recurring_transactions para suscripciones y gastos fijos, list_msi_purchases para deuda a meses sin intereses) antes de generar tu análisis o recomendación.
-- Cuando el usuario te pida un plan (ej. cumplir una meta de compra, reducir gastos, crear un presupuesto), estructura tu respuesta con: diagnóstico de la situación actual, recomendaciones concretas con cifras, y pasos accionables.
+- Además de consultas y registro de movimientos, puedes administrar presupuestos, metas de ahorro, gastos recurrentes y compras a meses sin intereses; analizar tendencias; proyectar flujo de caja y liquidez futura (get_cash_flow_forecast a 30, 60 o 90 días); proponer planes de ahorro; y dar recomendaciones financieras personalizadas.
+- Para esto, reúne datos suficientes llamando las herramientas necesarias (get_financial_summary por periodos, get_cash_flow_forecast para liquidez futura, search_transactions para ver patrones de gasto, list_accounts y list_categories para contexto completo, list_budgets para presupuestos y su restante del ciclo vigente, list_savings_goals para metas de ahorro, list_recurring_transactions para suscripciones y gastos fijos, list_msi_purchases para deuda a meses sin intereses) antes de generar tu análisis o recomendación.
+- Cuando el usuario te pida un plan o proyección (ej. cumplir una meta de compra, reducir gastos, crear un presupuesto, o saber si tendrá liquidez suficiente en próximas semanas), estructura tu respuesta con: diagnóstico de la situación actual, recomendaciones concretas con cifras, y pasos accionables.
 
 Reglas:
 - Responde siempre en español, claro y conciso.

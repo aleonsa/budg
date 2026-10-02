@@ -184,6 +184,7 @@ func TestReadOnlyRegistryExposesExpectedTools(t *testing.T) {
 	for _, want := range []string{
 		"list_accounts", "list_categories", "search_transactions", "get_financial_summary",
 		"list_budgets", "list_savings_goals", "list_recurring_transactions", "list_msi_purchases",
+		"get_cash_flow_forecast",
 	} {
 		if !names[want] {
 			t.Fatalf("missing tool %q", want)
@@ -582,5 +583,78 @@ func TestPlanningListToolsExposeEveryFullUpdateField(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCashFlowForecastToolProjectsLiquidityAndCommitments(t *testing.T) {
+	registry := mustRegistry(t, sampleStore()) // currentDate 2026-08-14
+	result := callTool(t, registry, "get_cash_flow_forecast", `{"daysAhead":30}`)
+
+	var payload struct {
+		StartingLiquidBalanceCents int64  `json:"startingLiquidBalanceCents"`
+		HorizonDays                int    `json:"horizonDays"`
+		EndDate                    string `json:"endDate"`
+		ProjectedBalanceCents      int64  `json:"projectedBalanceCents"`
+		MinBalanceCents            int64  `json:"minBalanceCents"`
+		MinBalanceDate             string `json:"minBalanceDate"`
+		IsLiquidityRisk            bool   `json:"isLiquidityRisk"`
+		TotalRecurringOutflowCents int64  `json:"totalRecurringOutflowCents"`
+		TotalMSIOutflowCents       int64  `json:"totalMSIOutflowCents"`
+		ScheduledPaymentsCount     int    `json:"scheduledPaymentsCount"`
+		UpcomingPayments           []struct {
+			Date                       string `json:"date"`
+			Type                       string `json:"type"`
+			Description                string `json:"description"`
+			AmountCents                int64  `json:"amountCents"`
+			ProjectedBalanceAfterCents int64  `json:"projectedBalanceAfterCents"`
+		} `json:"upcomingPayments"`
+	}
+
+	if err := json.Unmarshal(result.Data, &payload); err != nil {
+		t.Fatalf("decode forecast payload: %v", err)
+	}
+
+	// acc-bbva is active debit account with 2540050 cents
+	if payload.StartingLiquidBalanceCents != 2540050 {
+		t.Fatalf("starting liquid balance = %d, want 2540050", payload.StartingLiquidBalanceCents)
+	}
+	if payload.HorizonDays != 30 {
+		t.Fatalf("horizonDays = %d, want 30", payload.HorizonDays)
+	}
+	if payload.IsLiquidityRisk {
+		t.Fatal("expected no liquidity risk with healthy starting balance")
+	}
+
+	// Within 30 days of 2026-08-14 (up to 2026-09-13):
+	// - msi-phone installment on 2026-09-01 (1500000 cents)
+	// - rec-netflix occurrence on 2026-09-05 (21900 cents)
+	if payload.ScheduledPaymentsCount != 2 {
+		t.Fatalf("payments count = %d, want 2 (%+v)", payload.ScheduledPaymentsCount, payload.UpcomingPayments)
+	}
+	if payload.TotalMSIOutflowCents != 1500000 {
+		t.Fatalf("total msi outflow = %d, want 1500000", payload.TotalMSIOutflowCents)
+	}
+	if payload.TotalRecurringOutflowCents != 21900 {
+		t.Fatalf("total recurring outflow = %d, want 21900", payload.TotalRecurringOutflowCents)
+	}
+
+	wantEndBalance := int64(2540050 - 1500000 - 21900)
+	if payload.ProjectedBalanceCents != wantEndBalance {
+		t.Fatalf("projected balance = %d, want %d", payload.ProjectedBalanceCents, wantEndBalance)
+	}
+}
+
+func TestCashFlowForecastToolRejectsInvalidDaysAhead(t *testing.T) {
+	registry := mustRegistry(t, sampleStore())
+	tool, _ := registry.lookup("get_cash_flow_forecast")
+
+	for _, invalid := range []string{`{"daysAhead":15}`, `{"daysAhead":45}`, `{"daysAhead":120}`} {
+		result, err := tool.Handler(context.Background(), json.RawMessage(invalid))
+		if err != nil {
+			t.Fatalf("handler err: %v", err)
+		}
+		if result.Status != ToolStatusError {
+			t.Fatalf("daysAhead %s: status = %q, want error", invalid, result.Status)
+		}
 	}
 }

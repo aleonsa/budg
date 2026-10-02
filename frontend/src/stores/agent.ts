@@ -32,6 +32,7 @@ interface AgentState {
   loading: boolean
   confirmationInFlight: boolean
   pendingConfirmation: PendingConfirmation | null
+  mutationExecutionCount: number
   error: string | null
 
   setOpen: (open: boolean) => void
@@ -64,6 +65,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   loading: false,
   confirmationInFlight: false,
   pendingConfirmation: null,
+  mutationExecutionCount: 0,
   error: null,
 
   setOpen: (open) => set({ open }),
@@ -80,6 +82,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       loading: false,
       confirmationInFlight: false,
       pendingConfirmation: null,
+      mutationExecutionCount: 0,
       error: null,
     })
   },
@@ -175,13 +178,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           },
           onCompleted: (data) => {
             if (!isCurrentRun()) return
+            const wasConfirmation = get().confirmationInFlight
+            settleToolActivity(set, assistantTurn.id, 'done')
             updateTurn(set, assistantTurn.id, {
               status: 'done',
               content: data.message,
             })
-            set({
+            set((state) => ({
               loading: false,
               confirmationInFlight: false,
+              mutationExecutionCount:
+                wasConfirmation && data.status === 'completed'
+                  ? state.mutationExecutionCount + 1
+                  : state.mutationExecutionCount,
               pendingConfirmation: data.confirmationToken
                 ? {
                     toolName: data.confirmationTool ?? '',
@@ -191,7 +200,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
                       : null,
                   }
                 : null,
-            })
+            }))
           },
         },
       )

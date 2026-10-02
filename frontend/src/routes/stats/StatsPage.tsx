@@ -15,8 +15,16 @@ import {
   type RangePreset,
 } from '@/lib/stats-range'
 import { netWorthTimeline } from '@/lib/net-worth-timeline'
+import { computeCashFlowForecast, sampleForecastTimeline } from '@/lib/cash-flow-forecast'
 import { cn } from '@/lib/utils'
-import { useTransactions, useCategories, useAccounts, useBudgets } from '@/hooks/useQueries'
+import {
+  useTransactions,
+  useCategories,
+  useAccounts,
+  useBudgets,
+  useRecurringTransactions,
+  useMSIPurchases,
+} from '@/hooks/useQueries'
 import type { Transaction, Category, Cents, AccentColor } from '@/types'
 
 // ── Local helpers ────────────────────────────────────────────
@@ -253,6 +261,8 @@ export default function StatsPage() {
   const catQ = useCategories()
   const accQ = useAccounts()
   const budQ = useBudgets()
+  const recQ = useRecurringTransactions()
+  const msiQ = useMSIPurchases()
   const currentDate = today()
   const currentMonthKey = currentDate.slice(0, 7)
   const [preset, setPreset] = useState<RangePreset>('month')
@@ -265,6 +275,9 @@ export default function StatsPage() {
     ).padStart(2, '0')}`
   })
   const [customEnd, setCustomEnd] = useState(currentDate)
+  const [forecastHorizon, setForecastHorizon] = useState<30 | 60 | 90>(30)
+  const [includeDiscretionary, setIncludeDiscretionary] = useState(false)
+  const [showAllEvents, setShowAllEvents] = useState(false)
   const previousCurrentMonth = useRef(currentMonthKey)
 
   useEffect(() => {
@@ -357,6 +370,20 @@ export default function StatsPage() {
 
   // Net worth timeline
   const worthPoints = netWorthTimeline(accounts, transactions, snapshotDates(range))
+
+  // Cash flow forecast
+  const recurring = recQ.data ?? []
+  const msi = msiQ.data ?? []
+  const dailyBurnRate = elapsedDays > 0 ? Math.round(expense / elapsedDays) : 0
+  const forecast = computeCashFlowForecast({
+    accounts,
+    recurringTransactions: recurring,
+    msiPurchases: msi,
+    currentDate,
+    horizonDays: forecastHorizon,
+    discretionaryDailyBurnRateCents: includeDiscretionary ? dailyBurnRate : 0,
+  })
+  const forecastChartPoints = sampleForecastTimeline(forecast.timeline, 11)
 
   // Insights
   const topCat = expenseDist[0]
@@ -541,6 +568,207 @@ export default function StatsPage() {
             </Card>
           </div>
         )}
+
+        {/* Cash flow forecast */}
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Proyección de liquidez
+              </h2>
+              {forecast.isLiquidityRisk && (
+                <Badge variant="destructive" className="h-5 px-1.5 text-[10px] font-semibold">
+                  Riesgo de liquidez
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              {([30, 60, 90] as const).map((h) => (
+                <Button
+                  key={h}
+                  variant={forecastHorizon === h ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-6 px-2 text-[10px]"
+                  aria-pressed={forecastHorizon === h}
+                  onClick={() => setForecastHorizon(h)}
+                >
+                  {h}D
+                </Button>
+              ))}
+              <Button
+                variant={includeDiscretionary ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-6 px-2 text-[10px]"
+                aria-pressed={includeDiscretionary}
+                onClick={() => setIncludeDiscretionary((v) => !v)}
+                title="Simular ritmo de gasto diario habitual"
+              >
+                + Gasto habitual
+              </Button>
+            </div>
+          </div>
+
+          <Card className="space-y-3 p-3">
+            {/* Forecast KPIs */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="rounded-lg bg-muted/40 p-2">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Saldo actual
+                </span>
+                <p className="text-xs font-semibold tabular-nums text-foreground">
+                  {formatMoney(forecast.startingLiquidBalanceCents)}
+                </p>
+                <span className="text-[10px] text-muted-foreground">Cuentas de débito</span>
+              </div>
+              <div className="rounded-lg bg-muted/40 p-2">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Compromisos {forecastHorizon}d
+                </span>
+                <p className="text-xs font-semibold tabular-nums text-[hsl(var(--color-red))]">
+                  -{formatMoney(forecast.totalScheduledOutflowCents)}
+                </p>
+                <span className="text-[10px] text-muted-foreground">
+                  {forecast.events.length} pagos programados
+                </span>
+              </div>
+              <div className="rounded-lg bg-muted/40 p-2">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Punto más bajo
+                </span>
+                <p
+                  className={cn(
+                    'text-xs font-semibold tabular-nums',
+                    (includeDiscretionary
+                      ? forecast.minRealisticBalanceCents
+                      : forecast.minScheduledBalanceCents) < 0
+                      ? 'text-destructive'
+                      : 'text-[hsl(var(--color-blue))]',
+                  )}
+                >
+                  {formatMoney(
+                    includeDiscretionary
+                      ? forecast.minRealisticBalanceCents
+                      : forecast.minScheduledBalanceCents,
+                  )}
+                </p>
+                <span className="text-[10px] text-muted-foreground">
+                  el{' '}
+                  {formatDate(
+                    includeDiscretionary ? forecast.minRealisticDate : forecast.minScheduledDate,
+                  )}
+                </span>
+              </div>
+              <div className="rounded-lg bg-muted/40 p-2">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Saldo final {forecastHorizon}d
+                </span>
+                <p
+                  className={cn(
+                    'text-xs font-semibold tabular-nums',
+                    (includeDiscretionary
+                      ? forecast.projectedRealisticBalanceCents
+                      : forecast.projectedScheduledBalanceCents) < 0
+                      ? 'text-destructive'
+                      : 'text-foreground',
+                  )}
+                >
+                  {formatMoney(
+                    includeDiscretionary
+                      ? forecast.projectedRealisticBalanceCents
+                      : forecast.projectedScheduledBalanceCents,
+                  )}
+                </p>
+                <span className="text-[10px] text-muted-foreground">
+                  {includeDiscretionary
+                    ? `con ${formatMoney(dailyBurnRate)}/día`
+                    : 'solo fijos y MSI'}
+                </span>
+              </div>
+            </div>
+
+            {/* Projection Chart */}
+            <div className="pt-1">
+              <TrendChart
+                labels={forecastChartPoints.map((p) => p.label)}
+                series={[
+                  {
+                    name: 'Compromisos fijos',
+                    color: 'blue',
+                    filled: !includeDiscretionary,
+                    values: forecastChartPoints.map((p) => p.scheduledBalanceCents),
+                  },
+                  ...(includeDiscretionary
+                    ? [
+                        {
+                          name: 'Con gasto habitual',
+                          color: 'yellow' as const,
+                          filled: true,
+                          values: forecastChartPoints.map((p) => p.discretionaryBalanceCents),
+                        },
+                      ]
+                    : []),
+                ]}
+                formatValue={formatMoneyCompact}
+                ariaLabel={`Proyección de saldo a ${forecastHorizon} días`}
+                height={180}
+              />
+            </div>
+
+            {/* Upcoming payments timeline */}
+            {forecast.events.length > 0 && (
+              <div className="border-t border-border pt-2.5">
+                <div className="flex items-center justify-between pb-1.5">
+                  <span className="text-[11px] font-medium text-muted-foreground">
+                    Calendario de pagos ({forecast.events.length})
+                  </span>
+                  {forecast.events.length > 5 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 px-1.5 text-[10px]"
+                      onClick={() => setShowAllEvents((v) => !v)}
+                    >
+                      {showAllEvents ? 'Ver menos' : `Ver todos (${forecast.events.length})`}
+                    </Button>
+                  )}
+                </div>
+                <div className="divide-y divide-border/60">
+                  {(showAllEvents ? forecast.events : forecast.events.slice(0, 5)).map((ev) => (
+                    <div key={ev.id} className="flex items-center justify-between gap-2 py-1.5">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'h-5 px-1.5 text-[10px] font-normal tabular-nums',
+                            ev.type === 'msi'
+                              ? 'border-purple-500/30 text-purple-600 dark:text-purple-400'
+                              : 'border-orange-500/30 text-orange-600 dark:text-orange-400',
+                          )}
+                        >
+                          {ev.type === 'msi' ? 'MSI' : 'Recurrente'}
+                        </Badge>
+                        <div className="min-w-0 truncate">
+                          <p className="truncate text-xs font-medium">{ev.description}</p>
+                          <span className="text-[10px] text-muted-foreground">
+                            {formatDate(ev.date)} · {ev.accountName}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-xs font-medium tabular-nums text-[hsl(var(--color-red))]">
+                          -{formatMoney(ev.amountCents)}
+                        </p>
+                        <span className="text-[10px] tabular-nums text-muted-foreground">
+                          Queda {formatMoney(ev.projectedBalanceAfterCents)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
 
         {/* Expense distribution */}
         {expenseDist.length > 0 && (

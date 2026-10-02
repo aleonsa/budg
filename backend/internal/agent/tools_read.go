@@ -62,6 +62,7 @@ func RegisterReadOnlyTools(registry *ToolRegistry, data ReadStore, userID, curre
 		newListSavingsGoalsTool(data, userID),
 		newListRecurringTransactionsTool(data, userID),
 		newListMSIPurchasesTool(data, userID),
+		newCashFlowForecastTool(data, userID, currentDate),
 	}
 	for _, tool := range tools {
 		if err := registry.Register(tool); err != nil {
@@ -861,4 +862,273 @@ func newListMSIPurchasesTool(data ReadStore, userID string) Tool {
 			)
 		},
 	}
+}
+
+type cashFlowForecastArgs struct {
+	DaysAhead int `json:"daysAhead"`
+}
+
+type scheduledForecastPayment struct {
+	Date                       string  `json:"date"`
+	Type                       string  `json:"type"`
+	Description                string  `json:"description"`
+	Merchant                   *string `json:"merchant"`
+	AmountCents                int64   `json:"amountCents"`
+	AccountID                  string  `json:"accountId"`
+	ProjectedBalanceAfterCents int64   `json:"projectedBalanceAfterCents"`
+}
+
+type scheduledMSIInstallment struct {
+	date              string
+	installmentNumber int
+}
+
+func newCashFlowForecastTool(data ReadStore, userID, currentDate string) Tool {
+	return Tool{
+		Definition: ToolDefinition{
+			Name:        "get_cash_flow_forecast",
+			Description: "Proyecta el flujo de caja y liquidez del usuario a 30, 60 o 90 días considerando saldos en débito y compromisos programados (gastos recurrentes y cuotas MSI). Identifica el punto de saldo mínimo y si existe riesgo de liquidez.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"additionalProperties": false,
+				"required": ["daysAhead"],
+				"properties": {
+					"daysAhead": {
+						"type": "integer",
+						"enum": [30, 60, 90],
+						"description": "Horizonte de proyección en días (30, 60 o 90)"
+					}
+				}
+			}`),
+		},
+		Handler: func(ctx context.Context, raw json.RawMessage) (ToolResult, error) {
+			args, bad := decodeToolArgs[cashFlowForecastArgs](raw)
+			if bad != nil {
+				return *bad, nil
+			}
+			if args.DaysAhead != 30 && args.DaysAhead != 60 && args.DaysAhead != 90 {
+				return errorResult("daysAhead debe ser 30, 60 o 90.", false), nil
+			}
+
+			accounts, err := data.ListAccounts(ctx, userID)
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ToolResult{}, ctxErr
+				}
+				return storeError(), nil
+			}
+			recurring, err := data.ListRecurringTransactions(ctx, userID)
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ToolResult{}, ctxErr
+				}
+				return storeError(), nil
+			}
+			msi, err := data.ListMSIPurchases(ctx, userID)
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ToolResult{}, ctxErr
+				}
+				return storeError(), nil
+			}
+
+			var startingLiquidBalance int64
+			for _, acc := range accounts {
+				if acc.IsActive && acc.Type == "debit" && acc.BalanceCents != nil {
+					startingLiquidBalance += *acc.BalanceCents
+				}
+			}
+
+			const layout = "2006-01-02"
+			currTime, err := time.Parse(layout, currentDate)
+			if err != nil {
+				return errorResult("currentDate inválida", false), nil
+			}
+			endDate := currTime.AddDate(0, 0, args.DaysAhead).Format(layout)
+
+			type rawPayment struct {
+				date        string
+				kind        string
+				description string
+				merchant    *string
+				amount      int64
+				accountID   string
+			}
+			var rawList []rawPayment
+
+			var totalRecurringOutflow int64
+			for _, rec := range recurring {
+				if !rec.IsActive || rec.Amount <= 0 {
+					continue
+				}
+				dates := projectRecurringDates(rec.StartDate, rec.NextDate, rec.Frequency, currentDate, endDate)
+				for _, d := range dates {
+					rawList = append(rawList, rawPayment{
+						date:        d,
+						kind:        "recurring",
+						description: rec.Description,
+						merchant:    rec.Merchant,
+						amount:      rec.Amount,
+						accountID:   rec.AccountID,
+					})
+					totalRecurringOutflow += rec.Amount
+				}
+			}
+
+			var totalMSIOutflow int64
+			for _, p := range msi {
+				if p.Status != "active" {
+					continue
+				}
+				nextDate := ""
+				if p.NextInstallmentDate != nil {
+					nextDate = *p.NextInstallmentDate
+				}
+				installments := projectMSIInstallmentDates(p.StartDate, nextDate, p.InstallmentCount, p.InstallmentsPaid, currentDate, endDate)
+				for _, inst := range installments {
+					desc := fmt.Sprintf("%s (%d/%d)", p.Description, inst.installmentNumber, p.InstallmentCount)
+					rawList = append(rawList, rawPayment{
+						date:        inst.date,
+						kind:        "msi",
+						description: desc,
+						merchant:    p.Merchant,
+						amount:      p.InstallmentAmount,
+						accountID:   p.AccountID,
+					})
+					totalMSIOutflow += p.InstallmentAmount
+				}
+			}
+
+			sort.SliceStable(rawList, func(i, j int) bool {
+				return rawList[i].date < rawList[j].date
+			})
+
+			runningBalance := startingLiquidBalance
+			minBalance := startingLiquidBalance
+			minBalanceDate := currentDate
+
+			payments := make([]scheduledForecastPayment, 0, len(rawList))
+			for _, item := range rawList {
+				runningBalance -= item.amount
+				if runningBalance < minBalance {
+					minBalance = runningBalance
+					minBalanceDate = item.date
+				}
+				payments = append(payments, scheduledForecastPayment{
+					Date:                       item.date,
+					Type:                       item.kind,
+					Description:                item.description,
+					Merchant:                   item.merchant,
+					AmountCents:                item.amount,
+					AccountID:                  item.accountID,
+					ProjectedBalanceAfterCents: runningBalance,
+				})
+			}
+
+			totalScheduledOutflow := totalRecurringOutflow + totalMSIOutflow
+			isRisk := minBalance < 0 || startingLiquidBalance < 0
+
+			summary := fmt.Sprintf("Proyección a %d días: saldo final %d centavos, mínimo %d centavos (el %s), %d pagos programados",
+				args.DaysAhead, runningBalance, minBalance, minBalanceDate, len(payments))
+
+			return successResult(summary, map[string]any{
+				"startingLiquidBalanceCents": startingLiquidBalance,
+				"horizonDays":                args.DaysAhead,
+				"endDate":                    endDate,
+				"projectedBalanceCents":      runningBalance,
+				"minBalanceCents":            minBalance,
+				"minBalanceDate":             minBalanceDate,
+				"isLiquidityRisk":            isRisk,
+				"totalRecurringOutflowCents": totalRecurringOutflow,
+				"totalMSIOutflowCents":       totalMSIOutflow,
+				"totalScheduledOutflowCents": totalScheduledOutflow,
+				"scheduledPaymentsCount":     len(payments),
+				"upcomingPayments":           payments,
+			})
+		},
+	}
+}
+
+func projectRecurringDates(startDate, nextDate, frequency, fromDate, toDate string) []string {
+	const layout = "2006-01-02"
+	start, err := time.Parse(layout, startDate)
+	if err != nil {
+		return nil
+	}
+	cursorDate := nextDate
+	if cursorDate == "" {
+		cursorDate = startDate
+	}
+	cursor, err := time.Parse(layout, cursorDate)
+	if err != nil {
+		return nil
+	}
+	from, err := time.Parse(layout, fromDate)
+	if err != nil {
+		return nil
+	}
+	to, err := time.Parse(layout, toDate)
+	if err != nil {
+		return nil
+	}
+
+	intervalMonths := 1
+	if frequency == "yearly" {
+		intervalMonths = 12
+	}
+
+	if cursor.Before(from) {
+		k := 0
+		for cursor.Before(from) && k < 1200 {
+			k++
+			cursor = addMonthsClamped(start, k*intervalMonths)
+		}
+	}
+
+	var dates []string
+	guard := 0
+	for !cursor.After(to) && guard < 120 {
+		if !cursor.Before(from) {
+			dates = append(dates, cursor.Format(layout))
+		}
+		cursor = addMonthsClamped(cursor, intervalMonths)
+		guard++
+	}
+	return dates
+}
+
+func projectMSIInstallmentDates(startDate, nextDate string, count, paid int, fromDate, toDate string) []scheduledMSIInstallment {
+	const layout = "2006-01-02"
+	remaining := count - paid
+	if remaining <= 0 {
+		return nil
+	}
+	baseDateStr := nextDate
+	if baseDateStr == "" {
+		baseDateStr = startDate
+	}
+	baseDate, err := time.Parse(layout, baseDateStr)
+	if err != nil {
+		return nil
+	}
+	from, err := time.Parse(layout, fromDate)
+	if err != nil {
+		return nil
+	}
+	to, err := time.Parse(layout, toDate)
+	if err != nil {
+		return nil
+	}
+
+	var result []scheduledMSIInstallment
+	for i := 0; i < remaining; i++ {
+		installmentDate := addMonthsClamped(baseDate, i)
+		if !installmentDate.Before(from) && !installmentDate.After(to) {
+			result = append(result, scheduledMSIInstallment{
+				date:              installmentDate.Format(layout),
+				installmentNumber: paid + i + 1,
+			})
+		}
+	}
+	return result
 }

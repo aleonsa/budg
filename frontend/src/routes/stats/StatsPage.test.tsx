@@ -1,8 +1,22 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useAccounts, useBudgets, useCategories, useTransactions } from '@/hooks/useQueries'
-import type { Account, Budget, Category, Transaction } from '@/types'
+import {
+  useAccounts,
+  useBudgets,
+  useCategories,
+  useTransactions,
+  useRecurringTransactions,
+  useMSIPurchases,
+} from '@/hooks/useQueries'
+import type {
+  Account,
+  Budget,
+  Category,
+  MSIPurchase,
+  RecurringTransaction,
+  Transaction,
+} from '@/types'
 import StatsPage from './StatsPage'
 
 vi.mock('@/hooks/useQueries', () => ({
@@ -10,6 +24,8 @@ vi.mock('@/hooks/useQueries', () => ({
   useBudgets: vi.fn(),
   useCategories: vi.fn(),
   useTransactions: vi.fn(),
+  useRecurringTransactions: vi.fn(),
+  useMSIPurchases: vi.fn(),
 }))
 
 const categories: Category[] = [
@@ -136,12 +152,16 @@ function setQueries({
   categoryData = categories,
   accountData = accounts,
   budgetData = budgets,
+  recurringData = [],
+  msiData = [],
   loading = false,
 }: {
   transactionData?: Transaction[]
   categoryData?: Category[]
   accountData?: Account[]
   budgetData?: Budget[]
+  recurringData?: RecurringTransaction[]
+  msiData?: MSIPurchase[]
   loading?: boolean
 } = {}) {
   vi.mocked(useTransactions).mockReturnValue({
@@ -157,6 +177,14 @@ function setQueries({
   vi.mocked(useBudgets).mockReturnValue({ data: budgetData, isLoading: loading } as ReturnType<
     typeof useBudgets
   >)
+  vi.mocked(useRecurringTransactions).mockReturnValue({
+    data: recurringData,
+    isLoading: loading,
+  } as ReturnType<typeof useRecurringTransactions>)
+  vi.mocked(useMSIPurchases).mockReturnValue({
+    data: msiData,
+    isLoading: loading,
+  } as ReturnType<typeof useMSIPurchases>)
 }
 
 function renderPage() {
@@ -654,5 +682,87 @@ describe('StatsPage', () => {
   it('hides the merchants section when no expenses carry a merchant', () => {
     renderPage()
     expect(screen.queryByText('Top comercios')).not.toBeInTheDocument()
+  })
+
+  it('renders the cash flow forecast section with horizon controls and schedule', () => {
+    const recurringData: RecurringTransaction[] = [
+      {
+        id: 'rec-1',
+        accountId: 'checking',
+        description: 'Internet Fibra',
+        amount: 50000,
+        frequency: 'monthly',
+        startDate: '2026-07-01',
+        nextDate: '2026-08-05',
+        isActive: true,
+      },
+    ]
+    const msiData: MSIPurchase[] = [
+      {
+        id: 'msi-1',
+        accountId: 'card',
+        description: 'Laptop Trabajo',
+        totalAmount: 1200000,
+        installmentAmount: 100000,
+        installmentCount: 12,
+        installmentsPaid: 2,
+        startDate: '2026-05-15',
+        nextInstallmentDate: '2026-08-15',
+        status: 'active',
+      },
+    ]
+    setQueries({ recurringData, msiData })
+    renderPage()
+
+    expect(screen.getByRole('heading', { name: 'Proyección de liquidez' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '30D' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '60D' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: '+ Gasto habitual' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+
+    // Upcoming commitments timeline
+    expect(screen.getByText('Internet Fibra')).toBeInTheDocument()
+    expect(screen.getByText('Laptop Trabajo (3/12)')).toBeInTheDocument()
+  })
+
+  it('detects liquidity risk and highlights negative minimum balance', () => {
+    const poorAccounts: Account[] = [
+      {
+        id: 'checking',
+        name: 'Nómina',
+        type: 'debit',
+        institution: 'Banco',
+        last4: '1111',
+        currency: 'MXN',
+        balance: 10000, // $100 MXN
+        isActive: true,
+      },
+    ]
+    const recurringData: RecurringTransaction[] = [
+      {
+        id: 'rec-heavy',
+        accountId: 'checking',
+        description: 'Renta Depto',
+        amount: 1500000, // $15,000 MXN -> overdraws
+        frequency: 'monthly',
+        startDate: '2026-07-01',
+        nextDate: '2026-08-05',
+        isActive: true,
+      },
+    ]
+    setQueries({ accountData: poorAccounts, recurringData })
+    renderPage()
+
+    expect(screen.getByText('Riesgo de liquidez')).toBeInTheDocument()
+  })
+
+  it('switches forecast horizon to 60D on click', () => {
+    renderPage()
+    const btn60 = screen.getByRole('button', { name: '60D' })
+    fireEvent.click(btn60)
+    expect(btn60).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '30D' })).toHaveAttribute('aria-pressed', 'false')
   })
 })
