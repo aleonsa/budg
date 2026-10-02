@@ -31,26 +31,28 @@ type RecurringTransaction struct {
 // RecurringTransactionInput captures fields a user controls when creating a
 // recurring expense. Future occurrences are calculated by Process.
 type RecurringTransactionInput struct {
-	AccountID   string  `json:"accountId"`
-	CategoryID  *string `json:"categoryId"`
-	Description string  `json:"description"`
-	Merchant    *string `json:"merchant"`
-	Amount      int64   `json:"amount"`
-	Frequency   string  `json:"frequency"`
-	StartDate   string  `json:"startDate"`
+	AccountID      string  `json:"accountId"`
+	CategoryID     *string `json:"categoryId"`
+	Description    string  `json:"description"`
+	Merchant       *string `json:"merchant"`
+	Amount         int64   `json:"amount"`
+	Frequency      string  `json:"frequency"`
+	StartDate      string  `json:"startDate"`
+	IdempotencyKey *string `json:"-"`
 }
 
 // RecurringTransactionUpdateInput replaces every user-controlled template
 // field. Existing materialized transactions are intentionally untouched.
 type RecurringTransactionUpdateInput struct {
-	AccountID   string  `json:"accountId"`
-	CategoryID  *string `json:"categoryId"`
-	Description string  `json:"description"`
-	Merchant    *string `json:"merchant"`
-	Amount      int64   `json:"amount"`
-	Frequency   string  `json:"frequency"`
-	StartDate   string  `json:"startDate"`
-	IsActive    *bool   `json:"isActive"`
+	AccountID              string  `json:"accountId"`
+	CategoryID             *string `json:"categoryId"`
+	Description            string  `json:"description"`
+	Merchant               *string `json:"merchant"`
+	Amount                 int64   `json:"amount"`
+	Frequency              string  `json:"frequency"`
+	StartDate              string  `json:"startDate"`
+	IsActive               *bool   `json:"isActive"`
+	MaterializeOccurrences *bool   `json:"-"`
 }
 
 type dueRecurringTransaction struct {
@@ -114,7 +116,18 @@ func (r *RecurringTransactionRepository) List(ctx context.Context, userID string
 func (r *RecurringTransactionRepository) Create(ctx context.Context, userID string, in RecurringTransactionInput) (RecurringTransaction, error) {
 	var recurring RecurringTransaction
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
-		return scanRecurringTransaction(tx.QueryRow(ctx, `
+		replayID, replay, err := beginIdempotentCreate(ctx, tx, userID, in.IdempotencyKey, "recurring_transaction", in)
+		if err != nil {
+			return err
+		}
+		if replay {
+			err := scanRecurringTransaction(tx.QueryRow(ctx, `SELECT `+recurringTransactionColumns+` FROM public.recurring_transactions WHERE user_id = $1 AND id = $2`, userID, replayID), &recurring)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return newIdempotencyReplayDeletedError(replayID)
+			}
+			return err
+		}
+		if err := scanRecurringTransaction(tx.QueryRow(ctx, `
 			INSERT INTO public.recurring_transactions (
 				user_id, account_id, category_id, description, merchant, amount,
 				frequency, start_date, next_date
@@ -123,7 +136,10 @@ func (r *RecurringTransactionRepository) Create(ctx context.Context, userID stri
 			RETURNING `+recurringTransactionColumns,
 			userID, in.AccountID, in.CategoryID, in.Description, in.Merchant, in.Amount,
 			in.Frequency, in.StartDate,
-		), &recurring)
+		), &recurring); err != nil {
+			return err
+		}
+		return completeIdempotentCreate(ctx, tx, userID, in.IdempotencyKey, "recurring_transaction", recurring.ID)
 	})
 	if err != nil {
 		return RecurringTransaction{}, fmt.Errorf("create recurring transaction: %w", err)
@@ -139,6 +155,7 @@ func (r *RecurringTransactionRepository) Update(ctx context.Context, userID, id 
 		return RecurringTransaction{}, errors.New("isActive is required")
 	}
 	isActive := *in.IsActive
+	materializeOccurrences := in.MaterializeOccurrences == nil || *in.MaterializeOccurrences
 	var recurring RecurringTransaction
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
 		existing := dueRecurringTransaction{id: id}
@@ -165,7 +182,7 @@ func (r *RecurringTransactionRepository) Update(ctx context.Context, userID, id 
 		if err != nil {
 			return fmt.Errorf("parse recurring next date %q: %w", existing.nextDate, err)
 		}
-		if existingActive && !dueDate.After(today) {
+		if materializeOccurrences && existingActive && !dueDate.After(today) {
 			accounts, err := lockTransactionAccounts(ctx, tx, userID, []string{existing.accountID})
 			if err != nil {
 				return err

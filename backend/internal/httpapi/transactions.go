@@ -143,6 +143,10 @@ func writeTransactionClientError(w http.ResponseWriter, err error) bool {
 		writeJSON(w, http.StatusConflict, errorResponse{
 			Error: apiError{Code: "idempotency_conflict", Message: "Idempotency-Key was already used with different transaction data"},
 		})
+	case errors.Is(err, store.ErrIdempotencyReplayDeleted):
+		writeJSON(w, http.StatusConflict, errorResponse{
+			Error: apiError{Code: "idempotency_resource_deleted", Message: "Idempotency-Key refers to a transaction that was already deleted"},
+		})
 	case errors.Is(err, store.ErrBalanceTrackingNotEnabled):
 		writeJSON(w, http.StatusConflict, errorResponse{
 			Error: apiError{Code: "balance_tracking_conflict", Message: "statement payments require balance tracking on both accounts"},

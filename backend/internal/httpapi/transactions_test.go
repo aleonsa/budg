@@ -312,6 +312,16 @@ func TestTransactionIdempotencyConflictReturnsConflict(t *testing.T) {
 	}
 }
 
+func TestTransactionDeletedIdempotencyReplayReturnsConflict(t *testing.T) {
+	t.Parallel()
+	stub := &stubTransactionStore{createErr: &store.IdempotencyReplayDeletedError{ResourceID: "tx-deleted"}}
+	body := `{"accountId":"acc-1","type":"expense","amount":1,"date":"2026-07-20","description":"X"}`
+	rec := doRequest(newTransactionsRouter(stub), http.MethodPost, "/v1/transactions", body)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
 func TestStatementPaymentTrackingConflictsReturnConflict(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

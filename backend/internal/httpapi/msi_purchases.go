@@ -81,6 +81,10 @@ func writeMSIPurchaseError(w http.ResponseWriter, r *http.Request, err error, ac
 		writeJSON(w, http.StatusConflict, errorResponse{
 			Error: apiError{Code: "idempotency_conflict", Message: "Idempotency-Key was already used with different msi purchase data"},
 		})
+	case errors.Is(err, store.ErrIdempotencyReplayDeleted):
+		writeJSON(w, http.StatusConflict, errorResponse{
+			Error: apiError{Code: "idempotency_resource_deleted", Message: "Idempotency-Key refers to an msi purchase that was already deleted"},
+		})
 	case errors.Is(err, store.ErrMSIPurchaseHasPaidInstallments):
 		writeJSON(w, http.StatusConflict, errorResponse{
 			Error: apiError{Code: "paid_installments_conflict", Message: "msi purchases with paid installments cannot be replaced"},

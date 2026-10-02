@@ -196,6 +196,21 @@ func TestCreateMSIPurchaseReportsInternalError(t *testing.T) {
 	}
 }
 
+func TestCreateMSIPurchaseDeletedIdempotencyReplayReturnsConflict(t *testing.T) {
+	t.Parallel()
+	stub := &stubMSIPurchaseStore{createErr: &store.IdempotencyReplayDeletedError{ResourceID: "msi-deleted"}}
+	rec := doRequest(newMSIPurchasesRouter(stub), http.MethodPost, "/v1/msi-purchases", `{
+		"accountId":"credit-1",
+		"description":"Laptop",
+		"totalAmount":120000,
+		"installmentCount":12,
+		"startDate":"2026-08-15"
+	}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCreateMSIPurchaseRejectsNonCreditAccount(t *testing.T) {
 	t.Parallel()
 	stub := &stubMSIPurchaseStore{createErr: store.ErrMSIRequiresCreditAccount}

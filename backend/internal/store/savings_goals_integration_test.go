@@ -16,6 +16,7 @@ func TestSavingsGoalRepositoryCRUD(t *testing.T) {
 
 	repo := store.NewSavingsGoalRepository(pool)
 	targetDate := "2027-01-15"
+	idempotencyKey := "savings-goal-create-test"
 
 	initial, err := repo.List(ctx, userID)
 	if err != nil {
@@ -26,17 +27,32 @@ func TestSavingsGoalRepositoryCRUD(t *testing.T) {
 	}
 
 	created, err := repo.Create(ctx, userID, store.SavingsGoalInput{
-		Name:          "Trip",
-		TargetAmount:  50000,
-		CurrentAmount: 0,
-		TargetDate:    &targetDate,
-		SortOrder:     0,
+		Name:           "Trip",
+		TargetAmount:   50000,
+		CurrentAmount:  0,
+		TargetDate:     &targetDate,
+		SortOrder:      0,
+		IdempotencyKey: &idempotencyKey,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	if created.ID == "" || created.UserID != userID || created.TargetAmount != 50000 || created.TargetDate == nil || *created.TargetDate != targetDate {
 		t.Fatalf("created row = %+v", created)
+	}
+	replayed, err := repo.Create(ctx, userID, store.SavingsGoalInput{
+		Name: "Trip", TargetAmount: 50000, CurrentAmount: 0, TargetDate: &targetDate,
+		SortOrder: 0, IdempotencyKey: &idempotencyKey,
+	})
+	if err != nil || replayed.ID != created.ID {
+		t.Fatalf("idempotent replay = %+v, %v; want id %s", replayed, err, created.ID)
+	}
+	_, err = repo.Create(ctx, userID, store.SavingsGoalInput{
+		Name: "Different", TargetAmount: 50000, CurrentAmount: 0,
+		SortOrder: 0, IdempotencyKey: &idempotencyKey,
+	})
+	if !errors.Is(err, store.ErrIdempotencyConflict) {
+		t.Fatalf("conflicting replay error = %v, want ErrIdempotencyConflict", err)
 	}
 
 	got, err := repo.List(ctx, userID)
@@ -66,9 +82,24 @@ func TestSavingsGoalRepositoryCRUD(t *testing.T) {
 	if updated.Name != "Long Trip" || updated.AccountID == nil || *updated.AccountID != account.ID || updated.TargetDate != nil {
 		t.Fatalf("updated row = %+v", updated)
 	}
+	replayedAfterUpdate, err := repo.Create(ctx, userID, store.SavingsGoalInput{
+		Name: "Trip", TargetAmount: 50000, CurrentAmount: 0, TargetDate: &targetDate,
+		SortOrder: 0, IdempotencyKey: &idempotencyKey,
+	})
+	if err != nil || replayedAfterUpdate.ID != created.ID || replayedAfterUpdate.Name != "Long Trip" {
+		t.Fatalf("replay after update = %+v, %v; want current goal %s", replayedAfterUpdate, err, created.ID)
+	}
 
 	if err := repo.Delete(ctx, userID, created.ID); err != nil {
 		t.Fatalf("delete: %v", err)
+	}
+	replayedAfterDelete, err := repo.Create(ctx, userID, store.SavingsGoalInput{
+		Name: "Trip", TargetAmount: 50000, CurrentAmount: 0, TargetDate: &targetDate,
+		SortOrder: 0, IdempotencyKey: &idempotencyKey,
+	})
+	replayedID, replayedDeleted := store.IdempotencyReplayDeletedResourceID(err)
+	if !replayedDeleted || replayedID != created.ID {
+		t.Fatalf("replay after delete = %+v, %v; want typed tombstone %s", replayedAfterDelete, err, created.ID)
 	}
 	if err := accountRepo.Delete(ctx, userID, account.ID); err != nil {
 		t.Fatalf("delete linked account: %v", err)

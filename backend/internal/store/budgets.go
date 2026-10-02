@@ -25,10 +25,11 @@ type Budget struct {
 
 // BudgetInput captures user-controlled fields on create.
 type BudgetInput struct {
-	CategoryID *string `json:"categoryId"`
-	Amount     int64   `json:"amount"`
-	Period     string  `json:"period"`
-	StartDate  string  `json:"startDate"`
+	CategoryID     *string `json:"categoryId"`
+	Amount         int64   `json:"amount"`
+	Period         string  `json:"period"`
+	StartDate      string  `json:"startDate"`
+	IdempotencyKey *string `json:"-"`
 }
 
 // BudgetPatch describes a partial update. CategoryID uses Field[string] so
@@ -100,15 +101,26 @@ func (r *BudgetRepository) List(ctx context.Context, userID string) ([]Budget, e
 func (r *BudgetRepository) Create(ctx context.Context, userID string, in BudgetInput) (Budget, error) {
 	var b Budget
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
+		replayID, replay, err := beginIdempotentCreate(ctx, tx, userID, in.IdempotencyKey, "budget", in)
+		if err != nil {
+			return err
+		}
+		if replay {
+			err := scanBudget(tx.QueryRow(ctx, `SELECT `+budgetColumns+` FROM public.budgets WHERE user_id = $1 AND id = $2`, userID, replayID), &b)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return newIdempotencyReplayDeletedError(replayID)
+			}
+			return err
+		}
+		if err := scanBudget(tx.QueryRow(ctx, `
 			INSERT INTO public.budgets (user_id, category_id, amount, period, start_date)
 			VALUES ($1, $2, $3, $4, $5)
 			RETURNING `+budgetColumns,
 			userID, in.CategoryID, in.Amount, in.Period, in.StartDate,
-		).Scan(
-			&b.ID, &b.UserID, &b.CategoryID, &b.Amount, &b.Period,
-			&b.StartDate, &b.CreatedAt, &b.UpdatedAt,
-		)
+		), &b); err != nil {
+			return err
+		}
+		return completeIdempotentCreate(ctx, tx, userID, in.IdempotencyKey, "budget", b.ID)
 	})
 	if err != nil {
 		return Budget{}, fmt.Errorf("create budget: %w", err)

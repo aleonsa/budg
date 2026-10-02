@@ -15,6 +15,7 @@ func TestBudgetRepositoryCRUD(t *testing.T) {
 	defer cancel()
 
 	repo := store.NewBudgetRepository(pool)
+	idempotencyKey := "budget-create-test"
 
 	initial, err := repo.List(ctx, userID)
 	if err != nil {
@@ -25,15 +26,28 @@ func TestBudgetRepositoryCRUD(t *testing.T) {
 	}
 
 	created, err := repo.Create(ctx, userID, store.BudgetInput{
-		Amount:    15000,
-		Period:    "monthly",
-		StartDate: "2026-07-01",
+		Amount:         15000,
+		Period:         "monthly",
+		StartDate:      "2026-07-01",
+		IdempotencyKey: &idempotencyKey,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	if created.ID == "" || created.UserID != userID || created.Amount != 15000 {
 		t.Fatalf("created row = %+v", created)
+	}
+	replayed, err := repo.Create(ctx, userID, store.BudgetInput{
+		Amount: 15000, Period: "monthly", StartDate: "2026-07-01", IdempotencyKey: &idempotencyKey,
+	})
+	if err != nil || replayed.ID != created.ID {
+		t.Fatalf("idempotent replay = %+v, %v; want id %s", replayed, err, created.ID)
+	}
+	_, err = repo.Create(ctx, userID, store.BudgetInput{
+		Amount: 99999, Period: "monthly", StartDate: "2026-07-01", IdempotencyKey: &idempotencyKey,
+	})
+	if !errors.Is(err, store.ErrIdempotencyConflict) {
+		t.Fatalf("conflicting replay error = %v, want ErrIdempotencyConflict", err)
 	}
 
 	got, err := repo.List(ctx, userID)
@@ -54,9 +68,26 @@ func TestBudgetRepositoryCRUD(t *testing.T) {
 	if updated.Amount != 18000 {
 		t.Fatalf("updated amount = %d, want 18000", updated.Amount)
 	}
+	replayedAfterUpdate, err := repo.Create(ctx, userID, store.BudgetInput{
+		Amount: 15000, Period: "monthly", StartDate: "2026-07-01", IdempotencyKey: &idempotencyKey,
+	})
+	if err != nil || replayedAfterUpdate.ID != created.ID || replayedAfterUpdate.Amount != 18000 {
+		t.Fatalf("replay after update = %+v, %v; want current resource %s", replayedAfterUpdate, err, created.ID)
+	}
 
 	if err := repo.Delete(ctx, userID, created.ID); err != nil {
 		t.Fatalf("delete: %v", err)
+	}
+	replayedAfterDelete, err := repo.Create(ctx, userID, store.BudgetInput{
+		Amount: 15000, Period: "monthly", StartDate: "2026-07-01", IdempotencyKey: &idempotencyKey,
+	})
+	replayedID, replayedDeleted := store.IdempotencyReplayDeletedResourceID(err)
+	if !replayedDeleted || replayedID != created.ID {
+		t.Fatalf("replay after delete = %+v, %v; want typed tombstone %s", replayedAfterDelete, err, created.ID)
+	}
+	afterReplay, err := repo.List(ctx, userID)
+	if err != nil || len(afterReplay) != 0 {
+		t.Fatalf("list after deleted replay = %+v, %v; want no recreated budget", afterReplay, err)
 	}
 	if err := repo.Delete(ctx, userID, created.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("delete missing err = %v, want ErrNotFound", err)

@@ -77,6 +77,54 @@ func (s *agentStore) DeleteTransaction(ctx context.Context, userID, id string) e
 	return s.transactions.Delete(ctx, userID, id)
 }
 
+func (s *agentStore) CreateBudget(ctx context.Context, userID string, in store.BudgetInput) (store.Budget, error) {
+	return s.budgets.Create(ctx, userID, in)
+}
+
+func (s *agentStore) UpdateBudget(ctx context.Context, userID, id string, patch store.BudgetPatch) (store.Budget, error) {
+	return s.budgets.Update(ctx, userID, id, patch)
+}
+
+func (s *agentStore) DeleteBudget(ctx context.Context, userID, id string) error {
+	return s.budgets.Delete(ctx, userID, id)
+}
+
+func (s *agentStore) CreateSavingsGoal(ctx context.Context, userID string, in store.SavingsGoalInput) (store.SavingsGoal, error) {
+	return s.savingsGoals.Create(ctx, userID, in)
+}
+
+func (s *agentStore) UpdateSavingsGoal(ctx context.Context, userID, id string, patch store.SavingsGoalPatch) (store.SavingsGoal, error) {
+	return s.savingsGoals.Update(ctx, userID, id, patch)
+}
+
+func (s *agentStore) DeleteSavingsGoal(ctx context.Context, userID, id string) error {
+	return s.savingsGoals.Delete(ctx, userID, id)
+}
+
+func (s *agentStore) CreateRecurringTransaction(ctx context.Context, userID string, in store.RecurringTransactionInput) (store.RecurringTransaction, error) {
+	return s.recurring.Create(ctx, userID, in)
+}
+
+func (s *agentStore) UpdateRecurringTransaction(ctx context.Context, userID, id string, in store.RecurringTransactionUpdateInput) (store.RecurringTransaction, error) {
+	return s.recurring.Update(ctx, userID, id, in)
+}
+
+func (s *agentStore) DeleteRecurringTransaction(ctx context.Context, userID, id string) error {
+	return s.recurring.Delete(ctx, userID, id)
+}
+
+func (s *agentStore) CreateMSIPurchase(ctx context.Context, userID string, in store.MSIPurchaseInput) (store.MSIPurchase, error) {
+	return s.msiPurchases.Create(ctx, userID, in)
+}
+
+func (s *agentStore) UpdateMSIPurchase(ctx context.Context, userID, id string, in store.MSIPurchaseInput) (store.MSIPurchase, error) {
+	return s.msiPurchases.Update(ctx, userID, id, in)
+}
+
+func (s *agentStore) DeleteMSIPurchase(ctx context.Context, userID, id string) error {
+	return s.msiPurchases.Delete(ctx, userID, id)
+}
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {

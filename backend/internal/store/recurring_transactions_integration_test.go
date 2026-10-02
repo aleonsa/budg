@@ -30,11 +30,27 @@ func TestRecurringMaterializationAppliesBalanceExactlyOnce(t *testing.T) {
 	}
 	repository := store.NewRecurringTransactionRepository(pool)
 	today := time.Now().UTC().Format("2006-01-02")
-	if _, err := repository.Create(ctx, userID, store.RecurringTransactionInput{
+	idempotencyKey := "recurring-create-test"
+	createdRecurring, err := repository.Create(ctx, userID, store.RecurringTransactionInput{
 		AccountID: account.ID, Description: "Historical recurring test", Amount: 100,
-		Frequency: "monthly", StartDate: today,
-	}); err != nil {
+		Frequency: "monthly", StartDate: today, IdempotencyKey: &idempotencyKey,
+	})
+	if err != nil {
 		t.Fatalf("create recurring transaction: %v", err)
+	}
+	replayed, err := repository.Create(ctx, userID, store.RecurringTransactionInput{
+		AccountID: account.ID, Description: "Historical recurring test", Amount: 100,
+		Frequency: "monthly", StartDate: today, IdempotencyKey: &idempotencyKey,
+	})
+	if err != nil || replayed.ID != createdRecurring.ID {
+		t.Fatalf("idempotent replay = %+v, %v; want id %s", replayed, err, createdRecurring.ID)
+	}
+	_, err = repository.Create(ctx, userID, store.RecurringTransactionInput{
+		AccountID: account.ID, Description: "Different", Amount: 100,
+		Frequency: "monthly", StartDate: today, IdempotencyKey: &idempotencyKey,
+	})
+	if !errors.Is(err, store.ErrIdempotencyConflict) {
+		t.Fatalf("conflicting replay error = %v, want ErrIdempotencyConflict", err)
 	}
 	createdCounts := make(chan int, 2)
 	errorsChannel := make(chan error, 2)
@@ -143,5 +159,48 @@ func TestRecurringUpdateRealignsFutureScheduleAndDeleteKeepsHistory(t *testing.T
 	}
 	if historicalCount != 1 {
 		t.Fatalf("historical transaction count = %d, want 1", historicalCount)
+	}
+}
+
+func TestRecurringUpdateCanSkipOverdueMaterialization(t *testing.T) {
+	pool, userID := setupPool(t, "public.recurring_transactions")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	admin := newAdminPool(t, ctx)
+	defer admin.Close()
+
+	account, err := store.NewAccountRepository(pool).Create(ctx, userID, store.AccountInput{
+		Name: "Agent recurring account", Type: "debit", Institution: "Bank", Last4: "3003", Currency: "MXN",
+	})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	repository := store.NewRecurringTransactionRepository(pool)
+	today := time.Now().UTC().Format("2006-01-02")
+	created, err := repository.Create(ctx, userID, store.RecurringTransactionInput{
+		AccountID: account.ID, Description: "Do not materialize", Amount: 100,
+		Frequency: "monthly", StartDate: today,
+	})
+	if err != nil {
+		t.Fatalf("create recurring: %v", err)
+	}
+	active := false
+	materialize := false
+	if _, err := repository.Update(ctx, userID, created.ID, store.RecurringTransactionUpdateInput{
+		AccountID: account.ID, Description: "Do not materialize", Amount: 100,
+		Frequency: "monthly", StartDate: today, IsActive: &active, MaterializeOccurrences: &materialize,
+	}); err != nil {
+		t.Fatalf("pause recurring: %v", err)
+	}
+
+	var count int
+	if err := admin.QueryRow(ctx, `
+		SELECT count(*) FROM public.transactions
+		WHERE user_id = $1 AND description = 'Do not materialize'
+	`, userID).Scan(&count); err != nil {
+		t.Fatalf("count generated transactions: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("generated transactions = %d, want 0", count)
 	}
 }

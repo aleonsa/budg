@@ -233,6 +233,10 @@ func TestMSIPurchaseRepositoryCreateSchedulesExactInstallments(t *testing.T) {
 	if updated.Description != "Laptop Pro" || updated.InstallmentAmount != 30000 || updated.InstallmentCount != 4 {
 		t.Fatalf("updated purchase = %+v", updated)
 	}
+	replayedAfterUpdate, err := repo.Create(ctx, userID, createInput)
+	if err != nil || replayedAfterUpdate.ID != created.ID || replayedAfterUpdate.Description != "Laptop Pro" {
+		t.Fatalf("replay after update = %+v, %v; want current purchase %s", replayedAfterUpdate, err, created.ID)
+	}
 	assertAccountAmount(t, ctx, admin, account.ID, "available_credit_cents", 80000)
 	var installmentCount int
 	var installmentTotal int64
@@ -261,6 +265,12 @@ func TestMSIPurchaseRepositoryCreateSchedulesExactInstallments(t *testing.T) {
 	if installmentCount != 0 {
 		t.Fatalf("installments after delete = %d, want 0", installmentCount)
 	}
+	replayedAfterDelete, err := repo.Create(ctx, userID, createInput)
+	replayedID, replayedDeleted := store.IdempotencyReplayDeletedResourceID(err)
+	if !replayedDeleted || replayedID != created.ID {
+		t.Fatalf("replay after delete = %+v, %v; want typed tombstone %s", replayedAfterDelete, err, created.ID)
+	}
+	assertAccountAmount(t, ctx, admin, account.ID, "available_credit_cents", 200000)
 }
 
 func TestMSIPurchasesRLSDeniesUnscopedAccess(t *testing.T) {

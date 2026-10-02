@@ -62,6 +62,9 @@ func setupPool(t *testing.T, cleanupTable string) (*pgxpool.Pool, string) {
 	defer admin.Close()
 
 	userID := seedTestUser(t, ctx, admin)
+	if _, err := admin.Exec(ctx, `DELETE FROM public.create_idempotency_receipts WHERE user_id = $1`, userID); err != nil {
+		t.Fatalf("cleanup create idempotency receipts: %v", err)
+	}
 	if _, err := admin.Exec(ctx, `DELETE FROM `+cleanupTable+` WHERE user_id = $1`, userID); err != nil {
 		t.Fatalf("cleanup %s: %v", cleanupTable, err)
 	}
