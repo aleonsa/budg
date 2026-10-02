@@ -345,6 +345,79 @@ account and amount. Purchases created before tracking remain historical.
 Deletes the master purchase and generated installments. Any tracked principal
 charge is reversed atomically. Returns `204`.
 
+### `POST /v1/accounts/:id/statement-reconciliations`
+
+Compares a credit card statement PDF with the movements recorded for the
+credit account. The request is `multipart/form-data` with a single `file`
+field (PDF, at most 4 MiB). The PDF is parsed in memory by the Go backend with
+a bank-specific parser (Banamex credit cards for now); it is never stored,
+logged, or sent to an external service. The endpoint is read-only.
+
+Response `200`:
+
+```json
+{
+  "statement": {
+    "issuer": "banamex",
+    "product": "JOY BANAMEX",
+    "cardLast4": "4321",
+    "periodStart": "2026-06-08",
+    "periodEnd": "2026-07-08",
+    "paymentDueDate": "2026-08-03",
+    "paymentToAvoidInterest": 125050,
+    "minimumPayment": 15000,
+    "totalCharges": 125050,
+    "totalCredits": 90000,
+    "warnings": []
+  },
+  "movements": [
+    {
+      "line": 1,
+      "operationDate": "2026-06-15",
+      "postingDate": "2026-06-16",
+      "description": "CAFE DEMO",
+      "amount": 8550,
+      "direction": "charge",
+      "status": "matched",
+      "transactionId": "uuid"
+    }
+  ],
+  "onlyInBudg": [],
+  "summary": {
+    "matched": 1,
+    "missing": 0,
+    "installmentsMatched": 0,
+    "installmentsUnmatched": 0,
+    "onlyInBudg": 0,
+    "missingCharges": 0,
+    "missingCredits": 0
+  }
+}
+```
+
+Movement `status` is `matched`, `missing`, `installment_matched`, or
+`installment_unmatched`. Regular movements match an unused transaction with the
+same amount and direction (card expense or transfer out for charges; card
+income or transfer into the card for credits) within three days of the
+operation/posting dates. Installment lines (`002 de 006`) only match scheduled
+MSI installments within twenty days and are never proposed as new expenses.
+`warnings` can contain `charges_total_mismatch`, `credits_total_mismatch`,
+`missing_totals`, or `card_last4_mismatch`.
+
+Errors: `400 invalid_request` (not multipart, missing file, non-credit
+account), `400 invalid_file`, `404 not_found`, `413 payload_too_large`,
+`422 unreadable_statement` (no text layer), `422 unsupported_statement`,
+`429 parser_busy` (all parse workers busy), `503 statement_timeout`.
+
+Parsing is bounded: at most two concurrent parses, 40 pages, 100k text
+fragments, and an 8-second extraction budget.
+
+The client applies the result with existing endpoints: `POST /v1/transactions`
+with an `Idempotency-Key` derived from a per-upload session nonce, statement
+cut, line, and amount, and `POST /v1/accounts/:id/credit-card-statements` to
+save the cut. Card-payment credits are unchecked by default and saving or
+registering is blocked on `card_last4_mismatch` until the user confirms.
+
 ### `GET /v1/rules`
 
 Returns `Rule[]`, sorted by `priority ASC`, then `id ASC`.

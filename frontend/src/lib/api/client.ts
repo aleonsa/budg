@@ -20,6 +20,7 @@ export {
   reconcileBalance,
 } from './accounts'
 export { getCreditCardStatements, confirmCreditCardStatement } from './credit-card-statements'
+export { reconcileStatement, StatementReconciliationError } from './statement-reconciliations'
 export {
   getTransactions,
   createTransaction,
