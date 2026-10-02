@@ -18,6 +18,8 @@ import {
   toAgentImage,
   type AttachedImage,
 } from '@/lib/agent/images'
+import { useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 import { cn } from '@/lib/utils'
 import { useAgentStore, type ChatTurn } from '@/stores/agent'
 
@@ -36,7 +38,22 @@ export function FabChat() {
   const open = useAgentStore((state) => state.open)
   const toggle = useAgentStore((state) => state.toggle)
   const setOpen = useAgentStore((state) => state.setOpen)
+  const mutationExecutionCount = useAgentStore((state) => state.mutationExecutionCount)
+  const queryClient = useQueryClient()
   const launcherRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (mutationExecutionCount > 0) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.transactions })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.budgets })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.savingsGoals })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.savingsOverview })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.recurringTransactions })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.msiPurchases })
+    }
+  }, [mutationExecutionCount, queryClient])
 
   const close = () => {
     setOpen(false)
