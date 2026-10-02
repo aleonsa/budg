@@ -57,6 +57,13 @@ export function useBudgets() {
   return useQuery({ queryKey: queryKeys.budgets, queryFn: api.getBudgets })
 }
 
+export function useYieldReconciliations() {
+  return useQuery({
+    queryKey: queryKeys.yieldReconciliations,
+    queryFn: api.getYieldReconciliations,
+  })
+}
+
 export function useRules() {
   return useQuery({ queryKey: queryKeys.rules, queryFn: api.getRules })
 }

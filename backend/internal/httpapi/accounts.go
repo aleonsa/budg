@@ -249,6 +249,10 @@ func validateAccountInput(in store.AccountInput) string {
 	if in.Currency != "MXN" && in.Currency != "USD" {
 		return "currency must be 'MXN' or 'USD'"
 	}
+	if in.AnnualYieldBps != nil &&
+		(in.Type != "debit" || *in.AnnualYieldBps < 0 || *in.AnnualYieldBps > store.MaxAnnualYieldBps) {
+		return "annualYieldBps must be between 0 and 10000 and only applies to debit accounts"
+	}
 	if in.Type == "debit" {
 		if in.BalanceCents == nil {
 			return "balance is required for debit accounts"

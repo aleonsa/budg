@@ -21,7 +21,10 @@ const state = vi.hoisted(() => ({
   payloads: [] as unknown[],
 }))
 
-vi.mock('@/lib/date', () => ({ today: () => '2026-07-22' }))
+vi.mock('@/lib/date', async () => ({
+  ...(await vi.importActual<typeof import('@/lib/date')>('@/lib/date')),
+  today: () => '2026-07-22',
+}))
 
 vi.mock('@/hooks/useQueries', async () => {
   const actual = await vi.importActual<typeof import('@/hooks/useQueries')>('@/hooks/useQueries')
@@ -33,6 +36,8 @@ vi.mock('@/hooks/useQueries', async () => {
     useTransactions: () => state.transactions,
     useCreditCardStatements: (accountId: string) =>
       state.statements[accountId] ?? { data: [], isLoading: false, isError: false },
+    useYieldReconciliations: () => ({ data: [], isLoading: false, isError: false }),
+    useSavingsGoals: () => ({ data: [], isLoading: false, isError: false }),
   }
 })
 
@@ -78,6 +83,8 @@ vi.mock('@/lib/api', () => ({
     createMSIPurchase: vi.fn(),
     updateMSIPurchase: vi.fn(),
     deleteMSIPurchase: vi.fn(),
+    reconcileYield: vi.fn(),
+    undoYieldReconciliation: vi.fn(),
   },
 }))
 
@@ -686,5 +693,60 @@ describe('AccountsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Agregar' }))
 
     expect(state.reset).toHaveBeenCalledTimes(resetCount + 1)
+  })
+
+  it('saves an annual yield rate on create and clears it on edit', async () => {
+    state.accounts.data = [debit({ annualYieldBps: 1250 })]
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Agregar cuenta' }))
+    await user.type(screen.getByRole('textbox', { name: 'Nombre' }), 'Nu Cajita')
+    await user.type(screen.getByRole('textbox', { name: 'Saldo inicial' }), '1000')
+    await user.type(screen.getByRole('textbox', { name: 'Rendimiento anual % (opcional)' }), '12.5')
+    await user.click(screen.getByRole('button', { name: 'Agregar' }))
+    await flushMutation()
+    expect(state.payloads[0]).toMatchObject({ name: 'Nu Cajita', annualYieldBps: 1250 })
+
+    await user.click(screen.getByRole('button', { name: 'Editar Nómina' }))
+    const rate = screen.getByRole('textbox', { name: 'Rendimiento anual % (opcional)' })
+    expect(rate).toHaveValue('12.5')
+    await user.clear(rate)
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await flushMutation()
+    expect(state.payloads[1]).toMatchObject({ id: 'debit-1', patch: { annualYieldBps: null } })
+  })
+
+  it('rejects an invalid yield percentage', async () => {
+    state.accounts.data = [debit()]
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Agregar cuenta' }))
+    await user.type(screen.getByRole('textbox', { name: 'Nombre' }), 'Ahorro')
+    await user.type(screen.getByRole('textbox', { name: 'Rendimiento anual % (opcional)' }), '150')
+    await user.click(screen.getByRole('button', { name: 'Agregar' }))
+
+    expect(screen.getByText('Ingresa un porcentaje entre 0 y 100.')).toBeInTheDocument()
+    expect(state.payloads).toHaveLength(0)
+  })
+
+  it('shows estimated yield on savings accounts and opens reconciliation', async () => {
+    state.accounts.data = [
+      debit({
+        annualYieldBps: 1200,
+        balance: 3_650_000,
+        balanceTrackingEnabled: true,
+        balanceTrackingStartedAt: '2026-06-22T00:00:00Z',
+        yieldReconciledOn: '2026-07-12',
+      }),
+    ]
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(screen.getByText(/Rinde 12% anual/)).toBeInTheDocument()
+    expect(screen.getByText(/generados desde/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Conciliar rendimientos' }))
+    expect(screen.getByRole('dialog', { name: 'Conciliar rendimientos' })).toBeInTheDocument()
   })
 })

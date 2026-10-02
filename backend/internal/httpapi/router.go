@@ -38,6 +38,7 @@ type Options struct {
 	Rules                 RuleStore
 	MSIPurchases          MSIPurchaseStore
 	RecurringTransactions RecurringTransactionStore
+	AccountYields         AccountYieldStore
 
 	// ParseStatement overrides the credit card statement PDF parser. Nil uses
 	// statements.ParseContext; tests inject fakes so they need no real PDFs.
@@ -91,7 +92,12 @@ func NewRouter(opts Options) http.Handler {
 				})
 			}
 
-			if opts.Accounts != nil || opts.CreditCardStatements != nil {
+			if opts.AccountYields != nil {
+				h := &accountYieldsHandler{store: opts.AccountYields}
+				std.Get("/yield-reconciliations", h.list)
+			}
+
+			if opts.Accounts != nil || opts.CreditCardStatements != nil || opts.AccountYields != nil {
 				std.Route("/accounts", func(accts chi.Router) {
 					if opts.Accounts != nil {
 						h := &accountsHandler{store: opts.Accounts}
@@ -114,6 +120,11 @@ func NewRouter(opts Options) http.Handler {
 						if opts.Accounts != nil && opts.Transactions != nil {
 							h := newStatementReconciliationHandler(opts.Accounts, opts.Transactions, opts.ParseStatement)
 							item.Post("/statement-reconciliations", h.reconcile)
+						}
+						if opts.AccountYields != nil {
+							h := &accountYieldsHandler{store: opts.AccountYields}
+							item.Post("/yield-reconciliations", h.reconcile)
+							item.Delete("/yield-reconciliations/{reconciliationId}", h.undo)
 						}
 					})
 				})

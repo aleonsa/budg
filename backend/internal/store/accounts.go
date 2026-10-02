@@ -31,6 +31,8 @@ type Account struct {
 	PaymentDueDay            *int       `json:"paymentDueDay,omitempty"`
 	BalanceTrackingEnabled   bool       `json:"balanceTrackingEnabled"`
 	BalanceTrackingStartedAt *time.Time `json:"balanceTrackingStartedAt,omitempty"`
+	AnnualYieldBps           *int       `json:"annualYieldBps"`
+	YieldReconciledOn        *string    `json:"yieldReconciledOn"`
 	IsActive                 bool       `json:"isActive"`
 	CreatedAt                time.Time  `json:"-"`
 	UpdatedAt                time.Time  `json:"-"`
@@ -49,6 +51,7 @@ type AccountInput struct {
 	AvailableCreditCents *int64 `json:"availableCredit"`
 	StatementCutDay      *int   `json:"statementCutDay"`
 	PaymentDueDay        *int   `json:"paymentDueDay"`
+	AnnualYieldBps       *int   `json:"annualYieldBps"`
 	TrackBalance         bool   `json:"-"`
 }
 
@@ -70,20 +73,30 @@ type AccountPatch struct {
 	AvailableCreditCents Field[int64] `json:"availableCredit"`
 	StatementCutDay      Field[int]   `json:"statementCutDay"`
 	PaymentDueDay        Field[int]   `json:"paymentDueDay"`
+	AnnualYieldBps       Field[int]   `json:"annualYieldBps"`
 }
 
 const accountColumns = `id, user_id, name, type, institution, last4, currency,
 	balance_cents, credit_limit_cents, available_credit_cents,
 	statement_cut_day, payment_due_day, balance_tracking_enabled,
-	balance_tracking_started_at, is_active, created_at, updated_at`
+	balance_tracking_started_at, annual_yield_bps, yield_reconciled_on::text,
+	is_active, created_at, updated_at`
 
 func scanAccount(row pgx.Row, a *Account) error {
 	return row.Scan(
 		&a.ID, &a.UserID, &a.Name, &a.Type, &a.Institution, &a.Last4, &a.Currency,
 		&a.BalanceCents, &a.CreditLimitCents, &a.AvailableCreditCents,
 		&a.StatementCutDay, &a.PaymentDueDay, &a.BalanceTrackingEnabled,
-		&a.BalanceTrackingStartedAt, &a.IsActive, &a.CreatedAt, &a.UpdatedAt,
+		&a.BalanceTrackingStartedAt, &a.AnnualYieldBps, &a.YieldReconciledOn,
+		&a.IsActive, &a.CreatedAt, &a.UpdatedAt,
 	)
+}
+
+// MaxAnnualYieldBps caps a configured annual yield at 100%.
+const MaxAnnualYieldBps = 10_000
+
+func validAnnualYield(accountType string, bps *int) bool {
+	return bps == nil || (accountType == "debit" && *bps >= 0 && *bps <= MaxAnnualYieldBps)
 }
 
 // AccountRepository is the concrete pgx implementation.
@@ -128,6 +141,9 @@ func (r *AccountRepository) List(ctx context.Context, userID string) ([]Account,
 
 // Create inserts a new user-scoped account and returns the stored row.
 func (r *AccountRepository) Create(ctx context.Context, userID string, in AccountInput) (Account, error) {
+	if !validAnnualYield(in.Type, in.AnnualYieldBps) {
+		return Account{}, ErrInvalidAccountShape
+	}
 	var openingAmount int64
 	if in.TrackBalance {
 		switch in.Type {
@@ -153,14 +169,14 @@ func (r *AccountRepository) Create(ctx context.Context, userID string, in Accoun
 				user_id, name, type, institution, last4, currency,
 				balance_cents, credit_limit_cents, available_credit_cents,
 				statement_cut_day, payment_due_day,
-				balance_tracking_enabled, balance_tracking_started_at
+				balance_tracking_enabled, balance_tracking_started_at, annual_yield_bps
 			)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-				CASE WHEN $12 THEN now() ELSE NULL END)
+				CASE WHEN $12 THEN now() ELSE NULL END, $13)
 			RETURNING `+accountColumns,
 			userID, in.Name, in.Type, in.Institution, in.Last4, in.Currency,
 			in.BalanceCents, in.CreditLimitCents, in.AvailableCreditCents,
-			in.StatementCutDay, in.PaymentDueDay, in.TrackBalance,
+			in.StatementCutDay, in.PaymentDueDay, in.TrackBalance, in.AnnualYieldBps,
 		)
 		if err := scanAccount(row, &a); err != nil {
 			return err
@@ -198,6 +214,9 @@ func (r *AccountRepository) Update(ctx context.Context, userID, id string, patch
 				return ErrNotFound
 			}
 			return err
+		}
+		if patch.AnnualYieldBps.Set && !validAnnualYield(accountType, patch.AnnualYieldBps.Value) {
+			return ErrInvalidAccountShape
 		}
 		if trackingEnabled {
 			if accountType == "debit" && patch.BalanceCents.Set {
@@ -250,6 +269,7 @@ func (r *AccountRepository) Update(ctx context.Context, userID, id string, patch
 				available_credit_cents = CASE WHEN $12::boolean THEN $13 ELSE available_credit_cents END,
 				statement_cut_day       = CASE WHEN $14::boolean THEN $15 ELSE statement_cut_day END,
 				payment_due_day         = CASE WHEN $16::boolean THEN $17 ELSE payment_due_day END,
+				annual_yield_bps        = CASE WHEN $18::boolean THEN $19 ELSE annual_yield_bps END,
 				updated_at              = now()
 			WHERE user_id = $1 AND id = $2
 			RETURNING `+accountColumns,
@@ -259,6 +279,7 @@ func (r *AccountRepository) Update(ctx context.Context, userID, id string, patch
 			availableCreditSet, availableCreditValue,
 			patch.StatementCutDay.Set, patch.StatementCutDay.Value,
 			patch.PaymentDueDay.Set, patch.PaymentDueDay.Value,
+			patch.AnnualYieldBps.Set, patch.AnnualYieldBps.Value,
 		)
 		return scanAccount(row, &a)
 	})

@@ -79,6 +79,23 @@ type fakeWriteStore struct {
 	msiDeleteCalls  int
 	msiDeleteID     string
 	msiDeleteErr    error
+
+	yieldCalls     int
+	yieldAccountID string
+	yieldInput     store.YieldReconciliationInput
+	yieldErr       error
+}
+
+func (s *fakeWriteStore) ReconcileYield(_ context.Context, _, accountID string, in store.YieldReconciliationInput) (store.YieldReconciliationResult, error) {
+	s.yieldCalls++
+	s.yieldAccountID = accountID
+	s.yieldInput = in
+	if s.yieldErr != nil {
+		return store.YieldReconciliationResult{}, s.yieldErr
+	}
+	return store.YieldReconciliationResult{Reconciliation: store.YieldReconciliation{
+		ID: "yield-1", YieldCents: in.YieldCents, Allocations: []store.YieldAllocation{},
+	}}, nil
 }
 
 func (s *fakeWriteStore) CreateTransaction(_ context.Context, _ string, in store.TransactionInput) (store.Transaction, error) {
@@ -252,7 +269,7 @@ func mustMutationRegistry(t *testing.T, data Store, confirmer *Confirmer) *ToolR
 	if err := RegisterReadOnlyTools(registry, data, testUser, "2026-08-14"); err != nil {
 		t.Fatalf("register read-only tools: %v", err)
 	}
-	if err := RegisterMutationTools(registry, data, confirmer, testUser); err != nil {
+	if err := RegisterMutationTools(registry, data, confirmer, testUser, "2026-08-14"); err != nil {
 		t.Fatalf("register mutation tools: %v", err)
 	}
 	return registry

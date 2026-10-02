@@ -287,6 +287,45 @@ describe('cash-flow-forecast', () => {
     })
   })
 
+  describe('expected yield', () => {
+    it('adds daily savings yield to the projected balance', () => {
+      const accounts: Account[] = [
+        {
+          id: 'savings',
+          name: 'Ahorro',
+          type: 'debit',
+          institution: 'Nu',
+          last4: '0001',
+          currency: 'MXN',
+          balance: 3_650_000, // $36,500 at 10%, compounded daily
+          annualYieldBps: 1000,
+          isActive: true,
+        },
+      ]
+      const forecast = computeCashFlowForecast({
+        accounts,
+        recurringTransactions: [],
+        msiPurchases: [],
+        currentDate: '2026-08-01',
+        horizonDays: 30,
+      })
+      expect(forecast.totalExpectedYieldCents).toBe(30_119)
+      expect(forecast.projectedScheduledBalanceCents).toBe(3_680_119)
+      expect(forecast.minScheduledBalanceCents).toBe(3_650_000)
+
+      const withoutYield = computeCashFlowForecast({
+        accounts,
+        recurringTransactions: [],
+        msiPurchases: [],
+        currentDate: '2026-08-01',
+        horizonDays: 30,
+        includeYield: false,
+      })
+      expect(withoutYield.totalExpectedYieldCents).toBe(0)
+      expect(withoutYield.projectedScheduledBalanceCents).toBe(3_650_000)
+    })
+  })
+
   describe('sampleForecastTimeline', () => {
     it('samples timeline points down to target count including bounds', () => {
       const forecast = computeCashFlowForecast({

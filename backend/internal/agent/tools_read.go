@@ -22,6 +22,7 @@ type ReadStore interface {
 	ListSavingsGoals(ctx context.Context, userID string) ([]store.SavingsGoal, error)
 	ListRecurringTransactions(ctx context.Context, userID string) ([]store.RecurringTransaction, error)
 	ListMSIPurchases(ctx context.Context, userID string) ([]store.MSIPurchase, error)
+	ListYieldReconciliations(ctx context.Context, userID string) ([]store.YieldReconciliation, error)
 }
 
 // NewReadOnlyToolRegistry builds the registry of read tools bound to a single
@@ -63,6 +64,7 @@ func RegisterReadOnlyTools(registry *ToolRegistry, data ReadStore, userID, curre
 		newListRecurringTransactionsTool(data, userID),
 		newListMSIPurchasesTool(data, userID),
 		newCashFlowForecastTool(data, userID, currentDate),
+		newListAccountYieldsTool(data, userID, currentDate),
 	}
 	for _, tool := range tools {
 		if err := registry.Register(tool); err != nil {
@@ -1025,6 +1027,13 @@ func newCashFlowForecastTool(data ReadStore, userID, currentDate string) Tool {
 				})
 			}
 
+			var expectedYield int64
+			for _, acc := range accounts {
+				if acc.IsActive && acc.Type == "debit" && acc.BalanceCents != nil {
+					expectedYield += store.EstimateYieldCents(*acc.BalanceCents, acc.AnnualYieldBps, args.DaysAhead)
+				}
+			}
+
 			totalScheduledOutflow := totalRecurringOutflow + totalMSIOutflow
 			isRisk := minBalance < 0 || startingLiquidBalance < 0
 
@@ -1032,18 +1041,20 @@ func newCashFlowForecastTool(data ReadStore, userID, currentDate string) Tool {
 				args.DaysAhead, runningBalance, minBalance, minBalanceDate, len(payments))
 
 			return successResult(summary, map[string]any{
-				"startingLiquidBalanceCents": startingLiquidBalance,
-				"horizonDays":                args.DaysAhead,
-				"endDate":                    endDate,
-				"projectedBalanceCents":      runningBalance,
-				"minBalanceCents":            minBalance,
-				"minBalanceDate":             minBalanceDate,
-				"isLiquidityRisk":            isRisk,
-				"totalRecurringOutflowCents": totalRecurringOutflow,
-				"totalMSIOutflowCents":       totalMSIOutflow,
-				"totalScheduledOutflowCents": totalScheduledOutflow,
-				"scheduledPaymentsCount":     len(payments),
-				"upcomingPayments":           payments,
+				"startingLiquidBalanceCents":     startingLiquidBalance,
+				"horizonDays":                    args.DaysAhead,
+				"endDate":                        endDate,
+				"projectedBalanceCents":          runningBalance,
+				"minBalanceCents":                minBalance,
+				"minBalanceDate":                 minBalanceDate,
+				"isLiquidityRisk":                isRisk,
+				"totalRecurringOutflowCents":     totalRecurringOutflow,
+				"totalMSIOutflowCents":           totalMSIOutflow,
+				"totalScheduledOutflowCents":     totalScheduledOutflow,
+				"expectedYieldCents":             expectedYield,
+				"projectedBalanceWithYieldCents": runningBalance + expectedYield,
+				"scheduledPaymentsCount":         len(payments),
+				"upcomingPayments":               payments,
 			})
 		},
 	}

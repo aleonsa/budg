@@ -52,6 +52,7 @@ export function FabChat() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.savingsOverview })
       void queryClient.invalidateQueries({ queryKey: queryKeys.recurringTransactions })
       void queryClient.invalidateQueries({ queryKey: queryKeys.msiPurchases })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.yieldReconciliations })
     }
   }, [mutationExecutionCount, queryClient])
 

@@ -35,6 +35,15 @@ type agentStore struct {
 	savingsGoals *store.SavingsGoalRepository
 	recurring    *store.RecurringTransactionRepository
 	msiPurchases *store.MSIPurchaseRepository
+	yields       *store.AccountYieldRepository
+}
+
+func (s *agentStore) ListYieldReconciliations(ctx context.Context, userID string) ([]store.YieldReconciliation, error) {
+	return s.yields.List(ctx, userID)
+}
+
+func (s *agentStore) ReconcileYield(ctx context.Context, userID, accountID string, in store.YieldReconciliationInput) (store.YieldReconciliationResult, error) {
+	return s.yields.Reconcile(ctx, userID, accountID, in)
 }
 
 func (s *agentStore) ListAccounts(ctx context.Context, userID string) ([]store.Account, error) {
@@ -185,6 +194,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			savingsGoals: store.NewSavingsGoalRepository(pool),
 			recurring:    store.NewRecurringTransactionRepository(pool),
 			msiPurchases: store.NewMSIPurchaseRepository(pool),
+			yields:       store.NewAccountYieldRepository(pool),
 		}
 		agentService, err = agent.NewService(provider, combinedStore, confirmer, cfg.Agent)
 		if err != nil {
@@ -217,6 +227,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		Rules:                 store.NewRuleRepository(pool),
 		MSIPurchases:          store.NewMSIPurchaseRepository(pool),
 		RecurringTransactions: store.NewRecurringTransactionRepository(pool),
+		AccountYields:         store.NewAccountYieldRepository(pool),
 	}
 	// Assigning agentService to the Agent interface field only when it is
 	// genuinely non-nil avoids Go's classic typed-nil-in-interface trap: a

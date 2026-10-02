@@ -83,6 +83,8 @@ describe('accounts api client', () => {
         availableCredit: undefined,
         statementCutDay: undefined,
         paymentDueDay: undefined,
+        annualYieldBps: null,
+        yieldReconciledOn: null,
         isActive: true,
       },
       {
@@ -97,6 +99,8 @@ describe('accounts api client', () => {
         availableCredit: 5340000,
         statementCutDay: 15,
         paymentDueDay: 5,
+        annualYieldBps: null,
+        yieldReconciledOn: null,
         isActive: true,
       },
     ])

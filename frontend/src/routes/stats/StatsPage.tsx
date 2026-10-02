@@ -17,6 +17,7 @@ import {
 import { netWorthTimeline } from '@/lib/net-worth-timeline'
 import { computeCashFlowForecast, sampleForecastTimeline } from '@/lib/cash-flow-forecast'
 import { cn } from '@/lib/utils'
+import { effectiveAnnualRateBps, estimateAccountYield, formatBps, sumYield } from '@/lib/yield'
 import {
   useTransactions,
   useCategories,
@@ -24,6 +25,7 @@ import {
   useBudgets,
   useRecurringTransactions,
   useMSIPurchases,
+  useYieldReconciliations,
 } from '@/hooks/useQueries'
 import type { Transaction, Category, Cents, AccentColor } from '@/types'
 
@@ -263,6 +265,7 @@ export default function StatsPage() {
   const budQ = useBudgets()
   const recQ = useRecurringTransactions()
   const msiQ = useMSIPurchases()
+  const yieldsQ = useYieldReconciliations()
   const currentDate = today()
   const currentMonthKey = currentDate.slice(0, 7)
   const [preset, setPreset] = useState<RangePreset>('month')
@@ -384,6 +387,30 @@ export default function StatsPage() {
     discretionaryDailyBurnRateCents: includeDiscretionary ? dailyBurnRate : 0,
   })
   const forecastChartPoints = sampleForecastTimeline(forecast.timeline, 11)
+
+  // Savings yields
+  const yieldReconciliations = yieldsQ.data ?? []
+  const yieldAccounts = accounts.filter(
+    (account) =>
+      account.type === 'debit' &&
+      account.isActive &&
+      ((account.annualYieldBps ?? 0) > 0 ||
+        yieldReconciliations.some((rec) => rec.accountId === account.id)),
+  )
+  const yearStart = `${currentDate.slice(0, 4)}-01-01`
+  const monthStart = `${currentDate.slice(0, 7)}-01`
+  // Totals stay in MXN; other currencies are shown per account only.
+  const mxnYieldAccountIds = new Set(
+    yieldAccounts.filter((account) => account.currency === 'MXN').map((account) => account.id),
+  )
+  const mxnYieldReconciliations = yieldReconciliations.filter((rec) =>
+    mxnYieldAccountIds.has(rec.accountId),
+  )
+  const yieldYearToDate = sumYield(mxnYieldReconciliations, yearStart, currentDate)
+  const yieldThisMonth = sumYield(mxnYieldReconciliations, monthStart, currentDate)
+  const yieldMonthlyEstimate = yieldAccounts
+    .filter((account) => account.currency === 'MXN')
+    .reduce((sum, account) => sum + estimateAccountYield(account, currentDate).monthly, 0)
 
   // Insights
   const topCat = expenseDist[0]
@@ -685,6 +712,8 @@ export default function StatsPage() {
                   {includeDiscretionary
                     ? `con ${formatMoney(dailyBurnRate)}/día`
                     : 'solo fijos y MSI'}
+                  {forecast.totalExpectedYieldCents > 0 &&
+                    ` · +${formatMoney(forecast.totalExpectedYieldCents)} rendimientos`}
                 </span>
               </div>
             </div>
@@ -772,6 +801,51 @@ export default function StatsPage() {
             )}
           </Card>
         </div>
+
+        {/* Savings yields */}
+        {yieldAccounts.length > 0 && (
+          <div className="space-y-2">
+            <h2 className="px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Rendimientos
+            </h2>
+            <Card className="space-y-3 p-3">
+              <div className="grid grid-cols-3 gap-2">
+                <MetricCard label="Este año" value={formatMoney(yieldYearToDate)} accent="green" />
+                <MetricCard label="Este mes" value={formatMoney(yieldThisMonth)} accent="green" />
+                <MetricCard
+                  label="Estimado mensual"
+                  value={formatMoney(yieldMonthlyEstimate)}
+                  sub="a tasas configuradas"
+                />
+              </div>
+              <div className="divide-y divide-border">
+                <div className="grid grid-cols-4 gap-2 pb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <span>Cuenta</span>
+                  <span className="text-right">Tasa</span>
+                  <span className="text-right">Real 12m</span>
+                  <span className="text-right">Año</span>
+                </div>
+                {yieldAccounts.map((account) => {
+                  const history = yieldReconciliations.filter((rec) => rec.accountId === account.id)
+                  return (
+                    <div key={account.id} className="grid grid-cols-4 gap-2 py-1.5 text-[11px]">
+                      <span className="truncate font-medium">{account.name}</span>
+                      <span className="text-right tabular-nums">
+                        {formatBps(account.annualYieldBps)}
+                      </span>
+                      <span className="text-right tabular-nums">
+                        {formatBps(effectiveAnnualRateBps(history, currentDate))}
+                      </span>
+                      <span className="text-right tabular-nums text-[hsl(var(--color-green))]">
+                        {formatMoney(sumYield(history, yearStart, currentDate), account.currency)}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </Card>
+          </div>
+        )}
 
         {/* Expense distribution */}
         {expenseDist.length > 0 && (

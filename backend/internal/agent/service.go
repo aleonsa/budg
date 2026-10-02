@@ -67,7 +67,7 @@ func (s *Service) Chat(
 	if err := RegisterReadOnlyTools(registry, s.data, userID, currentDate); err != nil {
 		return Result{}, err
 	}
-	if err := RegisterMutationTools(registry, s.data, s.confirmer, userID); err != nil {
+	if err := RegisterMutationTools(registry, s.data, s.confirmer, userID, currentDate); err != nil {
 		return Result{}, err
 	}
 	runner, err := NewRunner(s.provider, registry, BuildSystemPrompt(view, currentDate), s.limits)

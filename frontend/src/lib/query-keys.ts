@@ -13,6 +13,7 @@ export const queryKeys = {
   savingsOverview: ['goals', 'overview'] as const,
   budgets: ['budgets'] as const,
   rules: ['rules'] as const,
+  yieldReconciliations: ['yield-reconciliations'] as const,
 
   // Dashboard composed query (uses the above, but cached separately)
   dashboard: ['dashboard'] as const,

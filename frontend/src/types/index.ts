@@ -49,6 +49,10 @@ export interface Account {
   balanceTrackingEnabled?: boolean
   balanceTrackingStartedAt?: string
 
+  // savings yield (debit only)
+  annualYieldBps?: number | null // 1200 = 12% anual
+  yieldReconciledOn?: ISODate | null
+
   isActive: boolean
 }
 
@@ -94,6 +98,29 @@ export interface CreditCardStatementInput {
   paymentDueDate: ISODate
   statementBalance: Cents
   minimumPayment?: Cents
+}
+
+// ── Savings yield reconciliation ───────────────────────────
+export interface YieldReconciliation {
+  id: ID
+  accountId: ID
+  transactionId: ID | null
+  date: ISODate
+  periodStart: ISODate
+  balanceBefore: Cents
+  balanceAfter: Cents
+  yield: Cents
+  adjustment: Cents
+  estimatedYield: Cents
+  annualYieldBps: number | null
+  allocations: Array<{ goalId: ID; amount: Cents }>
+}
+
+export interface YieldReconciliationInput {
+  currentBalance: Cents
+  yieldAmount: Cents
+  categoryId: ID | null
+  date: ISODate
 }
 
 // ── Statement reconciliation (PDF) ─────────────────────────
