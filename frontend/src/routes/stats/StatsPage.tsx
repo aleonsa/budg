@@ -1,20 +1,27 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
-import { Card, Badge, Button, Progress } from '@/components/ui'
+import { Card, Badge, Button, Input, Progress } from '@/components/ui'
 import { EmptyState } from '@/components/common/EmptyState'
+import { TrendChart } from '@/components/common/TrendChart'
 import { formatMoney, formatMoneyCompact } from '@/lib/format'
-import { today } from '@/lib/date'
+import { formatDate, today } from '@/lib/date'
 import { deriveBudgetProgressForDate, selectApplicableBudgets } from '@/lib/budget-period'
+import {
+  previousRange,
+  rangeDays,
+  resolveRange,
+  snapshotDates,
+  type RangePreset,
+} from '@/lib/stats-range'
+import { netWorthTimeline } from '@/lib/net-worth-timeline'
 import { cn } from '@/lib/utils'
 import { useTransactions, useCategories, useAccounts, useBudgets } from '@/hooks/useQueries'
 import type { Transaction, Category, Cents, AccentColor } from '@/types'
 
 // ── Local helpers ────────────────────────────────────────────
 
-interface MonthData {
-  key: string
-  label: string
+interface PeriodData {
   income: Cents
   expense: Cents
   net: Cents
@@ -29,14 +36,8 @@ function shiftMonth(monthKey: string, delta: number): string {
   return monthKeyForDate(new Date(year, month - 1 + delta, 1))
 }
 
-function monthEnd(monthKey: string): string {
-  const [year, month] = monthKey.split('-').map(Number)
-  const day = new Date(year, month, 0).getDate()
-  return `${monthKey}-${String(day).padStart(2, '0')}`
-}
-
 /** Group transactions by month and compute income/expense/net per month. */
-function monthlyBreakdown(txs: Transaction[]): MonthData[] {
+function monthlyBreakdown(txs: Transaction[]): Array<PeriodData & { key: string; label: string }> {
   const months = new Map<string, { income: Cents; expense: Cents }>()
 
   for (const t of txs) {
@@ -59,22 +60,35 @@ function monthlyBreakdown(txs: Transaction[]): MonthData[] {
     })
 }
 
+function inRange(txs: Transaction[], start: string, end: string): Transaction[] {
+  return txs.filter((t) => t.date >= start && t.date <= end)
+}
+
+function sumPeriod(txs: Transaction[]): PeriodData {
+  let income = 0
+  let expense = 0
+  for (const t of txs) {
+    if (t.type === 'income') income += t.amount
+    else if (t.type === 'expense') expense += t.amount
+  }
+  return { income, expense, net: income - expense }
+}
+
 interface CatBreakdown {
   category: Category
   amount: Cents
   pct: number
 }
 
-/** Spending per category in a given month key, sorted desc. */
+/** Spending per category inside a date range, sorted desc. */
 function spendingByCategory(
   txs: Transaction[],
   categories: Category[],
-  monthKey: string,
   type: 'expense' | 'income',
 ): CatBreakdown[] {
   const totals = new Map<string, Cents>()
-  for (const t of transactions_filter(txs, type, monthKey)) {
-    if (!t.categoryId) continue
+  for (const t of txs) {
+    if (t.type !== type || !t.categoryId) continue
     totals.set(t.categoryId, (totals.get(t.categoryId) ?? 0) + t.amount)
   }
 
@@ -89,12 +103,38 @@ function spendingByCategory(
     .sort((a, b) => b.amount - a.amount)
 }
 
-function transactions_filter(
-  txs: Transaction[],
-  type: 'expense' | 'income',
-  monthKey: string,
-): Transaction[] {
-  return txs.filter((t) => t.type === type && t.date.startsWith(monthKey))
+interface MerchantTotal {
+  merchant: string
+  amount: Cents
+  pct: number
+}
+
+/** Expenses grouped by merchant inside a date range, sorted desc. */
+function topMerchants(txs: Transaction[], limit = 5): MerchantTotal[] {
+  const totals = new Map<string, Cents>()
+  let total = 0
+  for (const t of txs) {
+    const merchant = t.merchant?.trim()
+    if (t.type !== 'expense' || !merchant) continue
+    totals.set(merchant, (totals.get(merchant) ?? 0) + t.amount)
+    total += t.amount
+  }
+  return Array.from(totals.entries())
+    .map(([merchant, amount]) => ({ merchant, amount, pct: total > 0 ? amount / total : 0 }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, limit)
+}
+
+/** Signed percentage change between two amounts, null when not comparable. */
+function deltaPct(current: number, previous: number): number | null {
+  if (previous === 0) return current === 0 ? 0 : null
+  return (current - previous) / Math.abs(previous)
+}
+
+function formatDelta(pct: number | null): string {
+  if (pct === null) return '—'
+  const sign = pct > 0 ? '+' : ''
+  return `${sign}${Math.round(pct * 100)}%`
 }
 
 // ── Sub-components ───────────────────────────────────────────
@@ -197,6 +237,15 @@ function InsightRow({
   )
 }
 
+const PRESETS: Array<{ id: RangePreset; label: string }> = [
+  { id: 'month', label: 'Mes' },
+  { id: '3m', label: '3M' },
+  { id: '6m', label: '6M' },
+  { id: '12m', label: '12M' },
+  { id: 'ytd', label: 'Año' },
+  { id: 'custom', label: 'Personalizado' },
+]
+
 // ── Page ─────────────────────────────────────────────────────
 
 export default function StatsPage() {
@@ -206,7 +255,16 @@ export default function StatsPage() {
   const budQ = useBudgets()
   const currentDate = today()
   const currentMonthKey = currentDate.slice(0, 7)
+  const [preset, setPreset] = useState<RangePreset>('month')
   const [monthKey, setMonthKey] = useState(currentMonthKey)
+  const [customStart, setCustomStart] = useState(() => {
+    const [y, m] = currentMonthKey.split('-').map(Number)
+    const start = new Date(y, m - 3, 1)
+    return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(
+      start.getDate(),
+    ).padStart(2, '0')}`
+  })
+  const [customEnd, setCustomEnd] = useState(currentDate)
   const previousCurrentMonth = useRef(currentMonthKey)
 
   useEffect(() => {
@@ -215,6 +273,18 @@ export default function StatsPage() {
     previousCurrentMonth.current = currentMonthKey
     setMonthKey((selected) => (selected === previous ? currentMonthKey : selected))
   }, [currentMonthKey])
+
+  const range = useMemo(() => {
+    try {
+      return resolveRange(preset, {
+        anchor: currentDate,
+        monthKey,
+        custom: { start: customStart, end: customEnd },
+      })
+    } catch {
+      return resolveRange('month', { anchor: currentDate })
+    }
+  }, [preset, monthKey, customStart, customEnd, currentDate])
 
   const isLoading = txQ.isLoading || catQ.isLoading || accQ.isLoading || budQ.isLoading
 
@@ -263,29 +333,36 @@ export default function StatsPage() {
     (transaction) => transaction.date <= currentDate,
   )
   const monthsData = monthlyBreakdown(historicalTransactions)
-  const currentMonth = monthsData.find((month) => month.key === monthKey)
-  const monthTxs = historicalTransactions.filter((transaction) =>
-    transaction.date.startsWith(monthKey),
+  const rangeTxs = inRange(historicalTransactions, range.start, range.end)
+  const prev = previousRange(range)
+  const prevTxs = inRange(historicalTransactions, prev.start, prev.end)
+
+  const { income, expense, net } = sumPeriod(rangeTxs)
+  const prevPeriod = sumPeriod(prevTxs)
+  const savingsRate = income > 0 ? net / income : 0
+  const txCount = rangeTxs.filter((t) => t.type !== 'transfer').length
+  const expenseTxCount = rangeTxs.filter((t) => t.type === 'expense').length
+  // Average daily spend uses elapsed days only — no credit for future days.
+  const elapsedDays = Math.max(
+    1,
+    rangeDays({ start: range.start, end: range.end < currentDate ? range.end : currentDate }),
   )
 
-  const income = currentMonth?.income ?? 0
-  const expense = currentMonth?.expense ?? 0
-  const net = currentMonth?.net ?? 0
-  const savingsRate = income > 0 ? net / income : 0
-  const txCount = monthTxs.filter((t) => t.type !== 'transfer').length
-  const expenseTxCount = monthTxs.filter((t) => t.type === 'expense').length
-
   // Distributions
-  const expenseDist = spendingByCategory(historicalTransactions, categories, monthKey, 'expense')
-  const incomeDist = spendingByCategory(historicalTransactions, categories, monthKey, 'income')
+  const expenseDist = spendingByCategory(rangeTxs, categories, 'expense')
+  const incomeDist = spendingByCategory(rangeTxs, categories, 'income')
   const maxExpense = expenseDist[0]?.amount ?? 1
   const maxIncome = incomeDist[0]?.amount ?? 1
+  const merchants = topMerchants(rangeTxs)
+
+  // Net worth timeline
+  const worthPoints = netWorthTimeline(accounts, transactions, snapshotDates(range))
 
   // Insights
   const topCat = expenseDist[0]
   const accountMap = new Map(accounts.map((a) => [a.id, a]))
   const accountUsage = new Map<string, number>()
-  for (const t of monthTxs) {
+  for (const t of rangeTxs) {
     if (t.type === 'transfer') continue
     accountUsage.set(t.accountId, (accountUsage.get(t.accountId) ?? 0) + 1)
   }
@@ -294,9 +371,9 @@ export default function StatsPage() {
 
   // Budget exceeded
   const catMap = new Map(categories.map((c) => [c.id, c]))
-  const referenceDate = monthKey === currentMonthKey ? currentDate : monthEnd(monthKey)
+  const referenceDate = range.end < currentDate ? range.end : currentDate
   const exceededBudgets =
-    monthKey > currentMonthKey
+    range.start > currentDate
       ? []
       : selectApplicableBudgets(
           deriveBudgetProgressForDate(budgets, historicalTransactions, referenceDate),
@@ -310,45 +387,113 @@ export default function StatsPage() {
     <>
       <Header title="Estadísticas" subtitle="Análisis financiero" />
       <div className="space-y-3.5 py-3">
-        {/* Period selector */}
-        <div className="flex items-center justify-between px-1">
-          <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Periodo
-          </h2>
-          <div className="flex items-center gap-1">
+        {/* Preset filter */}
+        <div
+          className="flex flex-wrap items-center gap-1"
+          role="group"
+          aria-label="Periodo de análisis"
+        >
+          {PRESETS.map((option) => (
             <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              aria-label="Mes anterior"
-              onClick={() => setMonthKey((month) => shiftMonth(month, -1))}
+              key={option.id}
+              variant={preset === option.id ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 px-2.5 text-[11px]"
+              aria-pressed={preset === option.id}
+              onClick={() => setPreset(option.id)}
             >
-              <ChevronLeft />
+              {option.label}
             </Button>
-            <Badge variant="outline" className="min-w-32 justify-center capitalize">
-              <time dateTime={`${monthKey}-01`} aria-live="polite">
-                {new Date(monthKey + '-01T00:00:00').toLocaleDateString('es-MX', {
-                  month: 'long',
-                  year: 'numeric',
-                })}
+          ))}
+        </div>
+
+        {/* Period selector */}
+        {preset === 'month' ? (
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Periodo
+            </h2>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                aria-label="Mes anterior"
+                onClick={() => setMonthKey((month) => shiftMonth(month, -1))}
+              >
+                <ChevronLeft />
+              </Button>
+              <Badge variant="outline" className="min-w-32 justify-center capitalize">
+                <time dateTime={`${monthKey}-01`} aria-live="polite">
+                  {new Date(monthKey + '-01T00:00:00').toLocaleDateString('es-MX', {
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                </time>
+              </Badge>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                aria-label="Mes siguiente"
+                onClick={() => setMonthKey((month) => shiftMonth(month, 1))}
+              >
+                <ChevronRight />
+              </Button>
+            </div>
+          </div>
+        ) : preset === 'custom' ? (
+          <div className="flex items-center justify-between gap-2 px-1">
+            <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Rango
+            </h2>
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="date"
+                aria-label="Inicio del rango"
+                className="h-7 w-[130px] text-[11px]"
+                value={customStart}
+                max={customEnd}
+                onChange={(e) => setCustomStart(e.target.value)}
+              />
+              <span className="text-xs text-muted-foreground">a</span>
+              <Input
+                type="date"
+                aria-label="Fin del rango"
+                className="h-7 w-[130px] text-[11px]"
+                value={customEnd}
+                min={customStart}
+                onChange={(e) => setCustomEnd(e.target.value)}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Periodo
+            </h2>
+            <Badge variant="outline" className="capitalize">
+              <time dateTime={range.start} aria-live="polite">
+                {formatDate(range.start)} – {formatDate(range.end)}
               </time>
             </Badge>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              aria-label="Mes siguiente"
-              onClick={() => setMonthKey((month) => shiftMonth(month, 1))}
-            >
-              <ChevronRight />
-            </Button>
           </div>
-        </div>
+        )}
 
         {/* Key metrics */}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <MetricCard label="Ingresos" value={formatMoney(income)} accent="green" />
-          <MetricCard label="Gastos" value={formatMoney(expense)} accent="red" />
+          <MetricCard
+            label="Ingresos"
+            value={formatMoney(income)}
+            accent="green"
+            sub={`vs anterior ${formatDelta(deltaPct(income, prevPeriod.income))}`}
+          />
+          <MetricCard
+            label="Gastos"
+            value={formatMoney(expense)}
+            accent="red"
+            sub={`vs anterior ${formatDelta(deltaPct(expense, prevPeriod.expense))}`}
+          />
           <MetricCard
             label="Ahorro neto"
             value={formatMoney(net)}
@@ -360,12 +505,42 @@ export default function StatsPage() {
             value={`${Math.round(savingsRate * 100)}%`}
             accent={savingsRate >= 0.1 ? 'green' : savingsRate >= 0 ? 'yellow' : 'red'}
           />
-          <MetricCard label="Promedio diario" value={formatMoney(Math.round(expense / 30))} />
+          <MetricCard
+            label="Promedio diario"
+            value={formatMoney(Math.round(expense / elapsedDays))}
+          />
           <MetricCard
             label="Gasto por mov."
             value={formatMoney(expenseTxCount > 0 ? Math.round(expense / expenseTxCount) : 0)}
           />
         </div>
+
+        {/* Net worth timeline */}
+        {worthPoints.length >= 2 && (
+          <div className="space-y-2">
+            <h2 className="px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Patrimonio
+            </h2>
+            <Card className="p-3">
+              <TrendChart
+                labels={worthPoints.map((p) => formatDate(p.date))}
+                series={[
+                  { name: 'Activos', color: 'green', values: worthPoints.map((p) => p.assets) },
+                  { name: 'Deuda', color: 'red', values: worthPoints.map((p) => p.debt) },
+                  {
+                    name: 'Patrimonio',
+                    color: 'blue',
+                    filled: true,
+                    values: worthPoints.map((p) => p.net),
+                  },
+                ]}
+                formatValue={formatMoneyCompact}
+                ariaLabel="Evolución del patrimonio: activos, deuda y patrimonio neto en el tiempo"
+                height={190}
+              />
+            </Card>
+          </div>
+        )}
 
         {/* Expense distribution */}
         {expenseDist.length > 0 && (
@@ -406,6 +581,35 @@ export default function StatsPage() {
                   pct={item.pct}
                   maxAmount={maxIncome}
                 />
+              ))}
+            </Card>
+          </div>
+        )}
+
+        {/* Top merchants */}
+        {merchants.length > 0 && (
+          <div className="space-y-2">
+            <h2 className="px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Top comercios
+            </h2>
+            <Card className="divide-y divide-border px-3">
+              {merchants.map((item, index) => (
+                <div key={item.merchant} className="flex items-center justify-between gap-2 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="w-4 shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                      {index + 1}
+                    </span>
+                    <span className="truncate text-xs font-medium">{item.merchant}</span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-[11px] tabular-nums text-muted-foreground">
+                      {Math.round(item.pct * 100)}%
+                    </span>
+                    <span className="text-xs font-medium tabular-nums">
+                      {formatMoney(item.amount)}
+                    </span>
+                  </div>
+                </div>
               ))}
             </Card>
           </div>
@@ -482,11 +686,9 @@ export default function StatsPage() {
               />
             )}
             <InsightRow
-              label="Carga MSI mensual"
+              label={preset === 'month' ? 'Carga MSI mensual' : 'Carga MSI del periodo'}
               value={formatMoney(
-                historicalTransactions
-                  .filter((t) => t.msiPurchaseId && t.date.startsWith(monthKey))
-                  .reduce((s, t) => s + t.amount, 0),
+                rangeTxs.filter((t) => t.msiPurchaseId).reduce((s, t) => s + t.amount, 0),
               )}
               accent="purple"
             />

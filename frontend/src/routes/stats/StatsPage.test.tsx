@@ -247,7 +247,7 @@ describe('StatsPage', () => {
     expect(metric('Ahorro neto')).toHaveTextContent('$200.00')
     expect(metric('Ahorro neto')).toHaveTextContent('5 movimientos')
     expect(metric('Tasa de ahorro')).toHaveTextContent('20%')
-    expect(metric('Promedio diario')).toHaveTextContent('$26.67')
+    expect(metric('Promedio diario')).toHaveTextContent('$40.00')
     expect(metric('Gasto por mov.')).toHaveTextContent('$200.00')
   })
 
@@ -563,5 +563,96 @@ describe('StatsPage', () => {
     expect(screen.queryByText('Gastos por categoría')).not.toBeInTheDocument()
     expect(screen.queryByText('Ingresos por categoría')).not.toBeInTheDocument()
     expect(screen.queryByText('Cuenta más usada')).not.toBeInTheDocument()
+  })
+
+  it('renders the net worth timeline chart with reconstructed values', () => {
+    renderPage()
+
+    expect(
+      screen.getByRole('img', {
+        name: 'Evolución del patrimonio: activos, deuda y patrimonio neto en el tiempo',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Patrimonio' })).toBeInTheDocument()
+    // Chart legend series names.
+    expect(screen.getByText('Activos')).toBeInTheDocument()
+    expect(screen.getByText('Deuda')).toBeInTheDocument()
+  })
+
+  it('switches to the 3M preset and aggregates the whole window', () => {
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: '3M' }))
+
+    // May 1 – Jul 20: incomes 1500, expenses 1400.
+    expect(metric('Ingresos')).toHaveTextContent('$1,500.00')
+    expect(metric('Gastos')).toHaveTextContent('$1,400.00')
+    expect(metric('Ahorro neto')).toHaveTextContent('7 movimientos')
+    expect(screen.getByText('Carga MSI del periodo').parentElement).toHaveTextContent('$300.00')
+    expect(screen.queryByText('Carga MSI mensual')).not.toBeInTheDocument()
+  })
+
+  it('shows period-over-period deltas on the key metric cards', () => {
+    renderPage()
+
+    // July income 1000 vs June income 500 → +100%; expense 800 vs 600 → +33%.
+    expect(metric('Ingresos')).toHaveTextContent('vs anterior +100%')
+    expect(metric('Gastos')).toHaveTextContent('vs anterior +33%')
+  })
+
+  it('supports a custom date range', () => {
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Personalizado' }))
+    fireEvent.change(screen.getByLabelText('Inicio del rango'), {
+      target: { value: '2026-06-01' },
+    })
+    fireEvent.change(screen.getByLabelText('Fin del rango'), {
+      target: { value: '2026-06-30' },
+    })
+
+    expect(metric('Ingresos')).toHaveTextContent('$500.00')
+    expect(metric('Gastos')).toHaveTextContent('$600.00')
+  })
+
+  it('ranks top merchants by expense volume inside the range', () => {
+    setQueries({
+      transactionData: [
+        tx('oxxo-1', {
+          type: 'expense',
+          amount: 5000,
+          date: '2026-07-05',
+          categoryId: 'food',
+          merchant: 'OXXO',
+        }),
+        tx('oxxo-2', {
+          type: 'expense',
+          amount: 3000,
+          date: '2026-07-12',
+          categoryId: 'food',
+          merchant: 'OXXO',
+        }),
+        tx('uber', {
+          type: 'expense',
+          amount: 2000,
+          date: '2026-07-15',
+          categoryId: 'transport' as unknown as string,
+          merchant: 'Uber',
+        }),
+      ],
+      budgetData: [],
+    })
+    renderPage()
+
+    const section = screen.getByRole('heading', { name: 'Top comercios' }).parentElement!
+    expect(within(section).getByText('OXXO')).toBeInTheDocument()
+    expect(within(section).getByText('$80.00')).toBeInTheDocument()
+    expect(within(section).getByText('80%')).toBeInTheDocument()
+    expect(within(section).getByText('Uber')).toBeInTheDocument()
+  })
+
+  it('hides the merchants section when no expenses carry a merchant', () => {
+    renderPage()
+    expect(screen.queryByText('Top comercios')).not.toBeInTheDocument()
   })
 })
