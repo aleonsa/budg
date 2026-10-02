@@ -388,4 +388,13 @@ describe('CreditCardDetailPage', () => {
 
     expect(api.reconcileBalance).toHaveBeenCalledWith('credit-1', -25_000)
   })
+
+  it('opens PDF statement reconciliation even before balance tracking is enabled', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Conciliar con PDF' }))
+    const dialog = screen.getByRole('dialog', { name: 'Conciliar estado de cuenta' })
+    expect(within(dialog).getByLabelText('Estado de cuenta (PDF)')).toBeInTheDocument()
+  })
 })

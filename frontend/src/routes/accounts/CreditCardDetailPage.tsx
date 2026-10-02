@@ -14,6 +14,7 @@ import { Header, PageSection, SectionTitle } from '@/components/layout/Header'
 import { MockActionPanel } from '@/components/common/MockActionPanel'
 import { Badge, Button, Card, Input, Label, Progress, Separator } from '@/components/ui'
 import { TransactionRow } from '@/features/transactions/TransactionRow'
+import { StatementReconciliationPanel } from '@/features/statements/StatementReconciliationPanel'
 import {
   useAccounts,
   useCategories,
@@ -98,6 +99,7 @@ export default function CreditCardDetailPage() {
   const [reconcileDebt, setReconcileDebt] = useState('')
   const [formError, setFormError] = useState('')
   const [msiOpen, setMsiOpen] = useState(false)
+  const [statementPdfOpen, setStatementPdfOpen] = useState(false)
 
   const account = accountsQ.data?.find((item) => item.id === accountId)
   const transactions = transactionsQ.data ?? []
@@ -429,8 +431,11 @@ export default function CreditCardDetailPage() {
           </Card>
         )}
 
-        {account.balanceTrackingEnabled && (
-          <div className="flex justify-end">
+        <div className="flex justify-end gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => setStatementPdfOpen(true)}>
+            Conciliar con PDF
+          </Button>
+          {account.balanceTrackingEnabled && (
             <Button
               variant="outline"
               size="sm"
@@ -443,8 +448,8 @@ export default function CreditCardDetailPage() {
             >
               Conciliar deuda
             </Button>
-          </div>
-        )}
+          )}
+        </div>
 
         <PageSection>
           <SectionTitle>Ciclo abierto</SectionTitle>
@@ -783,6 +788,14 @@ export default function CreditCardDetailPage() {
           </p>
         )}
       </MockActionPanel>
+
+      <StatementReconciliationPanel
+        open={statementPdfOpen}
+        onClose={() => setStatementPdfOpen(false)}
+        account={account}
+        debitAccounts={debitAccounts}
+        categories={categories}
+      />
 
       <MockActionPanel
         open={reconcileOpen}

@@ -1,11 +1,14 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/aleonsa/budg/backend/internal/statements"
 )
 
 // defaultRouteTimeout bounds every standard (non-agent) /v1 request. It is
@@ -35,6 +38,10 @@ type Options struct {
 	Rules                 RuleStore
 	MSIPurchases          MSIPurchaseStore
 	RecurringTransactions RecurringTransactionStore
+
+	// ParseStatement overrides the credit card statement PDF parser. Nil uses
+	// statements.ParseContext; tests inject fakes so they need no real PDFs.
+	ParseStatement func(context.Context, []byte) (statements.Statement, error)
 
 	// Agent, if non-nil, mounts POST /v1/agent/chat. It is nil whenever the
 	// agent is disabled (no OPENAI_API_KEY configured; see
@@ -103,6 +110,10 @@ func NewRouter(opts Options) http.Handler {
 							h := &creditCardStatementsHandler{store: opts.CreditCardStatements}
 							item.Get("/credit-card-statements", h.list)
 							item.Post("/credit-card-statements", h.confirm)
+						}
+						if opts.Accounts != nil && opts.Transactions != nil {
+							h := newStatementReconciliationHandler(opts.Accounts, opts.Transactions, opts.ParseStatement)
+							item.Post("/statement-reconciliations", h.reconcile)
 						}
 					})
 				})

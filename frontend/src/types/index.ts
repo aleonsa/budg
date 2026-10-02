@@ -96,6 +96,58 @@ export interface CreditCardStatementInput {
   minimumPayment?: Cents
 }
 
+// ── Statement reconciliation (PDF) ─────────────────────────
+export type StatementMovementStatus =
+  'matched' | 'missing' | 'installment_matched' | 'installment_unmatched'
+
+export interface StatementMovement {
+  line: number
+  operationDate: ISODate
+  postingDate: ISODate
+  description: string
+  amount: Cents
+  direction: 'charge' | 'credit'
+  installment?: { number: number; total: number }
+  status: StatementMovementStatus
+  transactionId: ID | null
+}
+
+export interface StatementHeader {
+  issuer: string
+  product: string
+  cardLast4: string
+  periodStart: ISODate
+  periodEnd: ISODate
+  paymentDueDate: ISODate
+  paymentToAvoidInterest: Cents
+  minimumPayment: Cents | null
+  totalCharges: Cents
+  totalCredits: Cents
+  warnings: string[]
+}
+
+export interface StatementReconciliation {
+  statement: StatementHeader
+  movements: StatementMovement[]
+  onlyInBudg: Array<{
+    id: ID
+    date: ISODate
+    type: TransactionType
+    description: string
+    amount: Cents
+    msiPurchaseId?: ID
+  }>
+  summary: {
+    matched: number
+    missing: number
+    installmentsMatched: number
+    installmentsUnmatched: number
+    onlyInBudg: number
+    missingCharges: Cents
+    missingCredits: Cents
+  }
+}
+
 // ── MSI Purchase (meses sin intereses) ─────────────────────
 export interface MSIPurchase {
   id: ID
