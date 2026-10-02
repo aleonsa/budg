@@ -22,6 +22,7 @@ describe('cash-flow-forecast', () => {
       const item: RecurringTransaction = {
         id: 'rec-1',
         accountId: 'acc-1',
+        categoryId: null,
         description: 'Netflix',
         amount: 21900,
         frequency: 'monthly',
@@ -37,6 +38,7 @@ describe('cash-flow-forecast', () => {
       const item: RecurringTransaction = {
         id: 'rec-rent',
         accountId: 'acc-1',
+        categoryId: null,
         description: 'Renta',
         amount: 500000,
         frequency: 'monthly',
@@ -52,6 +54,7 @@ describe('cash-flow-forecast', () => {
       const item: RecurringTransaction = {
         id: 'rec-old',
         accountId: 'acc-1',
+        categoryId: null,
         description: 'Gym',
         amount: 50000,
         frequency: 'monthly',
@@ -68,6 +71,7 @@ describe('cash-flow-forecast', () => {
       const msi: MSIPurchase = {
         id: 'msi-laptop',
         accountId: 'acc-card',
+        categoryId: null,
         description: 'Laptop',
         totalAmount: 1200000,
         installmentAmount: 100000,
@@ -89,6 +93,7 @@ describe('cash-flow-forecast', () => {
       const msi: MSIPurchase = {
         id: 'msi-done',
         accountId: 'acc-card',
+        categoryId: null,
         description: 'Phone',
         totalAmount: 600000,
         installmentAmount: 100000,
@@ -110,7 +115,7 @@ describe('cash-flow-forecast', () => {
         institution: 'BBVA',
         last4: '1234',
         currency: 'MXN',
-        balanceCents: 5000000, // $50,000 MXN
+        balance: 5000000, // $50,000 MXN
         isActive: true,
       },
       {
@@ -120,7 +125,7 @@ describe('cash-flow-forecast', () => {
         institution: 'Santander',
         last4: '0000',
         currency: 'MXN',
-        balanceCents: 1000000, // $10,000 MXN (inactive, should be excluded)
+        balance: 1000000, // $10,000 MXN (inactive, should be excluded)
         isActive: false,
       },
       {
@@ -130,8 +135,8 @@ describe('cash-flow-forecast', () => {
         institution: 'Banamex',
         last4: '8890',
         currency: 'MXN',
-        creditLimitCents: 8000000,
-        availableCreditCents: 6000000,
+        creditLimit: 8000000,
+        availableCredit: 6000000,
         isActive: true,
       },
     ]
@@ -140,6 +145,7 @@ describe('cash-flow-forecast', () => {
       {
         id: 'rec-rent',
         accountId: 'acc-checking',
+        categoryId: null,
         description: 'Renta Depto',
         merchant: 'Inmobiliaria',
         amount: 1500000, // $15,000 MXN
@@ -151,6 +157,7 @@ describe('cash-flow-forecast', () => {
       {
         id: 'rec-netflix',
         accountId: 'acc-credit',
+        categoryId: null,
         description: 'Netflix',
         merchant: 'Netflix',
         amount: 24900, // $249 MXN
@@ -165,6 +172,7 @@ describe('cash-flow-forecast', () => {
       {
         id: 'msi-fridge',
         accountId: 'acc-credit',
+        categoryId: null,
         description: 'Refrigerador',
         merchant: 'Liverpool',
         totalAmount: 1800000,
@@ -242,7 +250,7 @@ describe('cash-flow-forecast', () => {
           institution: 'BBVA',
           last4: '1111',
           currency: 'MXN',
-          balanceCents: 1000000, // $10,000 MXN
+          balance: 1000000, // $10,000 MXN
           isActive: true,
         },
       ]
@@ -290,7 +298,7 @@ describe('cash-flow-forecast', () => {
             institution: 'BBVA',
             last4: '1',
             currency: 'MXN',
-            balanceCents: 1000,
+            balance: 1000,
             isActive: true,
           },
         ],

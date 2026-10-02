@@ -577,7 +577,10 @@ export default function StatsPage() {
                 Proyección de liquidez
               </h2>
               {forecast.isLiquidityRisk && (
-                <Badge variant="destructive" className="h-5 px-1.5 text-[10px] font-semibold">
+                <Badge
+                  variant="outline"
+                  className="h-5 border-destructive/40 px-1.5 text-[10px] font-semibold text-destructive"
+                >
                   Riesgo de liquidez
                 </Badge>
               )}

@@ -179,7 +179,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           onCompleted: (data) => {
             if (!isCurrentRun()) return
             const wasConfirmation = get().confirmationInFlight
-            settleToolActivity(set, assistantTurn.id, 'done')
             updateTurn(set, assistantTurn.id, {
               status: 'done',
               content: data.message,

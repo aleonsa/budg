@@ -213,7 +213,7 @@ describe('agent store', () => {
     expect(useAgentStore.getState().mutationExecutionCount).toBe(0)
 
     // Ordinary message without confirmationToken -> count remains 0
-    await useAgentStore.getState().send('Hola')
+    await useAgentStore.getState().send('Hola', null)
     expect(useAgentStore.getState().mutationExecutionCount).toBe(0)
 
     // Confirmed request with confirmationToken -> count increments

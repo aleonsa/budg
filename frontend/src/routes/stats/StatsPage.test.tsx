@@ -689,6 +689,7 @@ describe('StatsPage', () => {
       {
         id: 'rec-1',
         accountId: 'checking',
+        categoryId: null,
         description: 'Internet Fibra',
         amount: 50000,
         frequency: 'monthly',
@@ -701,6 +702,7 @@ describe('StatsPage', () => {
       {
         id: 'msi-1',
         accountId: 'card',
+        categoryId: null,
         description: 'Laptop Trabajo',
         totalAmount: 1200000,
         installmentAmount: 100000,
@@ -744,6 +746,7 @@ describe('StatsPage', () => {
       {
         id: 'rec-heavy',
         accountId: 'checking',
+        categoryId: null,
         description: 'Renta Depto',
         amount: 1500000, // $15,000 MXN -> overdraws
         frequency: 'monthly',
