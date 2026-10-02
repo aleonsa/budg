@@ -461,6 +461,7 @@ type budgetView struct {
 	CategoryName   string  `json:"categoryName"`
 	AmountCents    int64   `json:"amountCents"`
 	Period         string  `json:"period"`
+	StartDate      string  `json:"startDate"`
 	WindowStart    string  `json:"windowStart"`
 	WindowEnd      string  `json:"windowEnd"`
 	SpentCents     int64   `json:"spentCents"`
@@ -535,6 +536,7 @@ func newListBudgetsTool(data ReadStore, userID, currentDate string) Tool {
 					CategoryName:   name,
 					AmountCents:    budget.Amount,
 					Period:         budget.Period,
+					StartDate:      budget.StartDate,
 					WindowStart:    start,
 					WindowEnd:      end,
 					SpentCents:     spent,
@@ -616,6 +618,7 @@ type savingsGoalView struct {
 	TargetDate         *string `json:"targetDate"`
 	AccountID          *string `json:"accountId"`
 	IsCompleted        bool    `json:"isCompleted"`
+	SortOrder          int     `json:"order"`
 }
 
 type listSavingsGoalsArgs struct {
@@ -672,6 +675,7 @@ func newListSavingsGoalsTool(data ReadStore, userID string) Tool {
 					TargetDate:         goal.TargetDate,
 					AccountID:          goal.AccountID,
 					IsCompleted:        goal.IsCompleted,
+					SortOrder:          goal.SortOrder,
 				})
 			}
 			return successResult(
@@ -685,9 +689,10 @@ func newListSavingsGoalsTool(data ReadStore, userID string) Tool {
 type recurringTransactionView struct {
 	ID          string  `json:"id"`
 	Description string  `json:"description"`
-	Merchant    *string `json:"merchant,omitempty"`
+	Merchant    *string `json:"merchant"`
 	AmountCents int64   `json:"amountCents"`
 	Frequency   string  `json:"frequency"`
+	StartDate   string  `json:"startDate"`
 	NextDate    string  `json:"nextDate"`
 	AccountID   string  `json:"accountId"`
 	CategoryID  *string `json:"categoryId"`
@@ -737,6 +742,7 @@ func newListRecurringTransactionsTool(data ReadStore, userID string) Tool {
 					Merchant:    item.Merchant,
 					AmountCents: item.Amount,
 					Frequency:   item.Frequency,
+					StartDate:   item.StartDate,
 					NextDate:    item.NextDate,
 					AccountID:   item.AccountID,
 					CategoryID:  item.CategoryID,
@@ -770,12 +776,14 @@ func recurringMonthlyAmount(frequency string, amount int64) int64 {
 type msiPurchaseView struct {
 	ID                     string  `json:"id"`
 	Description            string  `json:"description"`
-	Merchant               *string `json:"merchant,omitempty"`
+	Merchant               *string `json:"merchant"`
 	AccountID              string  `json:"accountId"`
+	CategoryID             *string `json:"categoryId"`
 	TotalAmountCents       int64   `json:"totalAmountCents"`
 	InstallmentAmountCents int64   `json:"installmentAmountCents"`
 	InstallmentCount       int     `json:"installmentCount"`
 	InstallmentsPaid       int     `json:"installmentsPaid"`
+	StartDate              string  `json:"startDate"`
 	InstallmentsRemaining  int     `json:"installmentsRemaining"`
 	NextInstallmentDate    *string `json:"nextInstallmentDate"`
 	Status                 string  `json:"status"`
@@ -832,10 +840,12 @@ func newListMSIPurchasesTool(data ReadStore, userID string) Tool {
 					Description:            purchase.Description,
 					Merchant:               purchase.Merchant,
 					AccountID:              purchase.AccountID,
+					CategoryID:             purchase.CategoryID,
 					TotalAmountCents:       purchase.TotalAmount,
 					InstallmentAmountCents: purchase.InstallmentAmount,
 					InstallmentCount:       purchase.InstallmentCount,
 					InstallmentsPaid:       purchase.InstallmentsPaid,
+					StartDate:              purchase.StartDate,
 					InstallmentsRemaining:  remaining,
 					NextInstallmentDate:    purchase.NextInstallmentDate,
 					Status:                 purchase.Status,

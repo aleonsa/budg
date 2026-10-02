@@ -157,12 +157,26 @@ func (r *TransactionRepository) Create(ctx context.Context, userID string, in Tr
 	}
 
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
+		replayID, replay, err := beginIdempotentCreate(ctx, tx, userID, in.IdempotencyKey, "transaction", in)
+		if err != nil {
+			return err
+		}
+		if replay {
+			err := scanTransaction(tx.QueryRow(ctx, `SELECT `+transactionColumns+` FROM public.transactions WHERE user_id = $1 AND id = $2`, userID, replayID), &transaction)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return newIdempotencyReplayDeletedError(replayID)
+			}
+			return err
+		}
 		accounts, err := lockTransactionAccounts(ctx, tx, userID, transactionAccountIDs(transaction))
 		if err != nil {
 			return err
 		}
 		transaction, _, err = createTransactionWithLockedAccounts(ctx, tx, userID, in, accounts)
-		return err
+		if err != nil {
+			return err
+		}
+		return completeIdempotentCreate(ctx, tx, userID, in.IdempotencyKey, "transaction", transaction.ID)
 	})
 	if err != nil {
 		return Transaction{}, fmt.Errorf("create transaction: %w", err)

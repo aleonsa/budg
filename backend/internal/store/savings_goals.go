@@ -28,12 +28,13 @@ type SavingsGoal struct {
 
 // SavingsGoalInput captures user-controlled fields on create.
 type SavingsGoalInput struct {
-	Name          string  `json:"name"`
-	TargetAmount  int64   `json:"targetAmount"`
-	CurrentAmount int64   `json:"currentAmount"`
-	TargetDate    *string `json:"targetDate"`
-	AccountID     *string `json:"accountId"`
-	SortOrder     int     `json:"order"`
+	Name           string  `json:"name"`
+	TargetAmount   int64   `json:"targetAmount"`
+	CurrentAmount  int64   `json:"currentAmount"`
+	TargetDate     *string `json:"targetDate"`
+	AccountID      *string `json:"accountId"`
+	SortOrder      int     `json:"order"`
+	IdempotencyKey *string `json:"-"`
 }
 
 // SavingsGoalPatch describes a partial update. Nullable fields use Field[string]
@@ -102,18 +103,26 @@ func (r *SavingsGoalRepository) Create(ctx context.Context, userID string, in Sa
 	}
 	var g SavingsGoal
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
-		if err := tx.QueryRow(ctx, `
+		replayID, replay, err := beginIdempotentCreate(ctx, tx, userID, in.IdempotencyKey, "savings_goal", in)
+		if err != nil {
+			return err
+		}
+		if replay {
+			err := scanSavingsGoal(tx.QueryRow(ctx, `SELECT `+savingsGoalColumns+` FROM public.savings_goals WHERE user_id = $1 AND id = $2`, userID, replayID), &g)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return newIdempotencyReplayDeletedError(replayID)
+			}
+			return err
+		}
+		if err := scanSavingsGoal(tx.QueryRow(ctx, `
 			INSERT INTO public.savings_goals (user_id, name, target_amount, current_amount, target_date, account_id, is_completed, sort_order)
 			VALUES ($1, $2, $3, $4, $5, $6, $4 >= $3, $7)
 			RETURNING `+savingsGoalColumns,
 			userID, in.Name, in.TargetAmount, in.CurrentAmount, in.TargetDate, in.AccountID, in.SortOrder,
-		).Scan(
-			&g.ID, &g.UserID, &g.Name, &g.TargetAmount, &g.CurrentAmount,
-			&g.TargetDate, &g.AccountID, &g.IsCompleted, &g.SortOrder, &g.CreatedAt, &g.UpdatedAt,
-		); err != nil {
+		), &g); err != nil {
 			return err
 		}
-		return nil
+		return completeIdempotentCreate(ctx, tx, userID, in.IdempotencyKey, "savings_goal", g.ID)
 	})
 	if err != nil {
 		return SavingsGoal{}, fmt.Errorf("create savings goal: %w", err)

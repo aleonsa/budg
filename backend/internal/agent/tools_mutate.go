@@ -20,6 +20,18 @@ type WriteStore interface {
 	CreateTransaction(ctx context.Context, userID string, in store.TransactionInput) (store.Transaction, error)
 	UpdateTransaction(ctx context.Context, userID, id string, patch store.TransactionPatch) (store.Transaction, error)
 	DeleteTransaction(ctx context.Context, userID, id string) error
+	CreateBudget(ctx context.Context, userID string, in store.BudgetInput) (store.Budget, error)
+	UpdateBudget(ctx context.Context, userID, id string, patch store.BudgetPatch) (store.Budget, error)
+	DeleteBudget(ctx context.Context, userID, id string) error
+	CreateSavingsGoal(ctx context.Context, userID string, in store.SavingsGoalInput) (store.SavingsGoal, error)
+	UpdateSavingsGoal(ctx context.Context, userID, id string, patch store.SavingsGoalPatch) (store.SavingsGoal, error)
+	DeleteSavingsGoal(ctx context.Context, userID, id string) error
+	CreateRecurringTransaction(ctx context.Context, userID string, in store.RecurringTransactionInput) (store.RecurringTransaction, error)
+	UpdateRecurringTransaction(ctx context.Context, userID, id string, in store.RecurringTransactionUpdateInput) (store.RecurringTransaction, error)
+	DeleteRecurringTransaction(ctx context.Context, userID, id string) error
+	CreateMSIPurchase(ctx context.Context, userID string, in store.MSIPurchaseInput) (store.MSIPurchase, error)
+	UpdateMSIPurchase(ctx context.Context, userID, id string, in store.MSIPurchaseInput) (store.MSIPurchase, error)
+	DeleteMSIPurchase(ctx context.Context, userID, id string) error
 }
 
 // Store is everything the full (read + mutation) tool set needs.
@@ -28,8 +40,8 @@ type Store interface {
 	WriteStore
 }
 
-// RegisterMutationTools adds create_transaction, update_transaction, and
-// delete_transaction to an existing registry. Every one of them requires
+// RegisterMutationTools adds the supported transaction and planning-resource
+// mutations to an existing registry. Every one of them requires
 // explicit confirmation before it ever writes to the store -- see the
 // "Política de mutaciones" section of docs/agentic/phase-2-backend-agent.md.
 func RegisterMutationTools(registry *ToolRegistry, data Store, confirmer *Confirmer, userID string) error {
@@ -50,6 +62,18 @@ func RegisterMutationTools(registry *ToolRegistry, data Store, confirmer *Confir
 		newCreateTransactionTool(data, confirmer, userID),
 		newUpdateTransactionTool(data, confirmer, userID),
 		newDeleteTransactionTool(data, confirmer, userID),
+		newCreateBudgetTool(data, confirmer, userID),
+		newUpdateBudgetTool(data, confirmer, userID),
+		newDeleteBudgetTool(data, confirmer, userID),
+		newCreateSavingsGoalTool(data, confirmer, userID),
+		newUpdateSavingsGoalTool(data, confirmer, userID),
+		newDeleteSavingsGoalTool(data, confirmer, userID),
+		newCreateRecurringTransactionTool(data, confirmer, userID),
+		newUpdateRecurringTransactionTool(data, confirmer, userID),
+		newDeleteRecurringTransactionTool(data, confirmer, userID),
+		newCreateMSIPurchaseTool(data, confirmer, userID),
+		newUpdateMSIPurchaseTool(data, confirmer, userID),
+		newDeleteMSIPurchaseTool(data, confirmer, userID),
 	}
 	for _, tool := range tools {
 		if err := registry.Register(tool); err != nil {
@@ -62,7 +86,7 @@ func RegisterMutationTools(registry *ToolRegistry, data Store, confirmer *Confir
 // proposalResult builds the uniform "pending confirmation" tool result every
 // mutation tool returns when it has not executed. extractPendingConfirmation
 // (loop.go) recognizes the confirmationToken key by convention -- this is
-// the one place that shape is assembled, so all three mutation tools stay
+// the one place that shape is assembled, so all mutation tools stay
 // consistent.
 func proposalResult(summary string, proposal any, token string, expiresAt time.Time) (ToolResult, error) {
 	payload, err := json.Marshal(map[string]any{
@@ -95,9 +119,29 @@ func mutationStoreError(err error) ToolResult {
 		return errorResult("La confirmación ya se usó con datos distintos; pide una nueva propuesta.", false)
 	case errors.Is(err, store.ErrBalanceTrackingNotEnabled):
 		return errorResult("Esta operación requiere seguimiento de saldo habilitado en la cuenta.", false)
+	case errors.Is(err, store.ErrMSIRequiresCreditAccount):
+		return errorResult("La compra MSI requiere una cuenta de crédito.", false)
+	case errors.Is(err, store.ErrMSIPurchaseHasPaidInstallments):
+		return errorResult("No se puede reemplazar una compra MSI que ya tiene mensualidades pagadas.", false)
+	case errors.Is(err, store.ErrMSILegacyBalanceChange):
+		return errorResult("La compra MSI usa datos heredados que requieren conciliación manual.", false)
 	default:
 		return storeError()
 	}
+}
+
+func idempotentDeletedReplayResult(err error, summary, idField string) (ToolResult, error, bool) {
+	resourceID, ok := store.IdempotencyReplayDeletedResourceID(err)
+	if !ok {
+		return ToolResult{}, nil, false
+	}
+	result, resultErr := successResult(summary, map[string]any{
+		"executed":        false,
+		"alreadyExecuted": true,
+		"resourceDeleted": true,
+		idField:           resourceID,
+	})
+	return result, resultErr, true
 }
 
 // stableIdempotencyKey derives a deterministic key from the confirmation
@@ -270,6 +314,9 @@ func newCreateTransactionTool(data Store, confirmer *Confirmer, userID string) T
 						IdempotencyKey:    &idempotencyKey,
 					})
 					if err != nil {
+						if result, resultErr, ok := idempotentDeletedReplayResult(err, "El movimiento ya se había registrado y después fue eliminado; no se recreó.", "transactionId"); ok {
+							return result, resultErr
+						}
 						if ctxErr := ctx.Err(); ctxErr != nil {
 							return ToolResult{}, ctxErr
 						}

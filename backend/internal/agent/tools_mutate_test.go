@@ -27,6 +27,58 @@ type fakeWriteStore struct {
 	deleteCalls int
 	deleteID    string
 	deleteErr   error
+
+	budgetCreateCalls  int
+	budgetCreateInput  store.BudgetInput
+	budgetCreateResult store.Budget
+	budgetCreateErr    error
+	budgetUpdateCalls  int
+	budgetUpdateID     string
+	budgetUpdatePatch  store.BudgetPatch
+	budgetUpdateResult store.Budget
+	budgetUpdateErr    error
+	budgetDeleteCalls  int
+	budgetDeleteID     string
+	budgetDeleteErr    error
+
+	goalCreateCalls  int
+	goalCreateInput  store.SavingsGoalInput
+	goalCreateResult store.SavingsGoal
+	goalCreateErr    error
+	goalUpdateCalls  int
+	goalUpdateID     string
+	goalUpdatePatch  store.SavingsGoalPatch
+	goalUpdateResult store.SavingsGoal
+	goalUpdateErr    error
+	goalDeleteCalls  int
+	goalDeleteID     string
+	goalDeleteErr    error
+
+	recurringCreateCalls  int
+	recurringCreateInput  store.RecurringTransactionInput
+	recurringCreateResult store.RecurringTransaction
+	recurringCreateErr    error
+	recurringUpdateCalls  int
+	recurringUpdateID     string
+	recurringUpdateInput  store.RecurringTransactionUpdateInput
+	recurringUpdateResult store.RecurringTransaction
+	recurringUpdateErr    error
+	recurringDeleteCalls  int
+	recurringDeleteID     string
+	recurringDeleteErr    error
+
+	msiCreateCalls  int
+	msiCreateInput  store.MSIPurchaseInput
+	msiCreateResult store.MSIPurchase
+	msiCreateErr    error
+	msiUpdateCalls  int
+	msiUpdateID     string
+	msiUpdateInput  store.MSIPurchaseInput
+	msiUpdateResult store.MSIPurchase
+	msiUpdateErr    error
+	msiDeleteCalls  int
+	msiDeleteID     string
+	msiDeleteErr    error
 }
 
 func (s *fakeWriteStore) CreateTransaction(_ context.Context, _ string, in store.TransactionInput) (store.Transaction, error) {
@@ -56,6 +108,138 @@ func (s *fakeWriteStore) DeleteTransaction(_ context.Context, _, id string) erro
 	s.deleteCalls++
 	s.deleteID = id
 	return s.deleteErr
+}
+
+func (s *fakeWriteStore) CreateBudget(_ context.Context, _ string, in store.BudgetInput) (store.Budget, error) {
+	s.budgetCreateCalls++
+	s.budgetCreateInput = in
+	if s.budgetCreateErr != nil {
+		return store.Budget{}, s.budgetCreateErr
+	}
+	result := s.budgetCreateResult
+	if result.ID == "" {
+		result.ID = "new-budget-id"
+	}
+	return result, nil
+}
+
+func (s *fakeWriteStore) UpdateBudget(_ context.Context, _, id string, patch store.BudgetPatch) (store.Budget, error) {
+	s.budgetUpdateCalls++
+	s.budgetUpdateID = id
+	s.budgetUpdatePatch = patch
+	if s.budgetUpdateErr != nil {
+		return store.Budget{}, s.budgetUpdateErr
+	}
+	result := s.budgetUpdateResult
+	if result.ID == "" {
+		result.ID = id
+	}
+	return result, nil
+}
+
+func (s *fakeWriteStore) DeleteBudget(_ context.Context, _ string, id string) error {
+	s.budgetDeleteCalls++
+	s.budgetDeleteID = id
+	return s.budgetDeleteErr
+}
+
+func (s *fakeWriteStore) CreateSavingsGoal(_ context.Context, _ string, in store.SavingsGoalInput) (store.SavingsGoal, error) {
+	s.goalCreateCalls++
+	s.goalCreateInput = in
+	if s.goalCreateErr != nil {
+		return store.SavingsGoal{}, s.goalCreateErr
+	}
+	result := s.goalCreateResult
+	if result.ID == "" {
+		result.ID = "new-goal-id"
+	}
+	return result, nil
+}
+
+func (s *fakeWriteStore) UpdateSavingsGoal(_ context.Context, _ string, id string, patch store.SavingsGoalPatch) (store.SavingsGoal, error) {
+	s.goalUpdateCalls++
+	s.goalUpdateID = id
+	s.goalUpdatePatch = patch
+	if s.goalUpdateErr != nil {
+		return store.SavingsGoal{}, s.goalUpdateErr
+	}
+	result := s.goalUpdateResult
+	if result.ID == "" {
+		result.ID = id
+	}
+	return result, nil
+}
+
+func (s *fakeWriteStore) DeleteSavingsGoal(_ context.Context, _ string, id string) error {
+	s.goalDeleteCalls++
+	s.goalDeleteID = id
+	return s.goalDeleteErr
+}
+
+func (s *fakeWriteStore) CreateRecurringTransaction(_ context.Context, _ string, in store.RecurringTransactionInput) (store.RecurringTransaction, error) {
+	s.recurringCreateCalls++
+	s.recurringCreateInput = in
+	if s.recurringCreateErr != nil {
+		return store.RecurringTransaction{}, s.recurringCreateErr
+	}
+	result := s.recurringCreateResult
+	if result.ID == "" {
+		result.ID = "new-recurring-id"
+	}
+	return result, nil
+}
+
+func (s *fakeWriteStore) UpdateRecurringTransaction(_ context.Context, _ string, id string, in store.RecurringTransactionUpdateInput) (store.RecurringTransaction, error) {
+	s.recurringUpdateCalls++
+	s.recurringUpdateID = id
+	s.recurringUpdateInput = in
+	if s.recurringUpdateErr != nil {
+		return store.RecurringTransaction{}, s.recurringUpdateErr
+	}
+	result := s.recurringUpdateResult
+	if result.ID == "" {
+		result.ID = id
+	}
+	return result, nil
+}
+
+func (s *fakeWriteStore) DeleteRecurringTransaction(_ context.Context, _ string, id string) error {
+	s.recurringDeleteCalls++
+	s.recurringDeleteID = id
+	return s.recurringDeleteErr
+}
+
+func (s *fakeWriteStore) CreateMSIPurchase(_ context.Context, _ string, in store.MSIPurchaseInput) (store.MSIPurchase, error) {
+	s.msiCreateCalls++
+	s.msiCreateInput = in
+	if s.msiCreateErr != nil {
+		return store.MSIPurchase{}, s.msiCreateErr
+	}
+	result := s.msiCreateResult
+	if result.ID == "" {
+		result.ID = "new-msi-id"
+	}
+	return result, nil
+}
+
+func (s *fakeWriteStore) UpdateMSIPurchase(_ context.Context, _ string, id string, in store.MSIPurchaseInput) (store.MSIPurchase, error) {
+	s.msiUpdateCalls++
+	s.msiUpdateID = id
+	s.msiUpdateInput = in
+	if s.msiUpdateErr != nil {
+		return store.MSIPurchase{}, s.msiUpdateErr
+	}
+	result := s.msiUpdateResult
+	if result.ID == "" {
+		result.ID = id
+	}
+	return result, nil
+}
+
+func (s *fakeWriteStore) DeleteMSIPurchase(_ context.Context, _ string, id string) error {
+	s.msiDeleteCalls++
+	s.msiDeleteID = id
+	return s.msiDeleteErr
 }
 
 func sampleWriteStore() *fakeWriteStore {

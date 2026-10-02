@@ -44,12 +44,12 @@ func (f *fakeReadStore) ListMSIPurchases(context.Context, string) ([]store.MSIPu
 	return f.msiPurchases, f.err
 }
 
-// The three methods below let *fakeReadStore satisfy Store (ReadStore +
+// The methods below let *fakeReadStore satisfy Store (ReadStore +
 // WriteStore) so tests that only care about read behavior can still pass it
 // to NewService without constructing a full fakeWriteStore. They fail loudly
 // rather than silently succeeding: a scripted eval accidentally exercising a
 // mutation path against a read-only fixture is a test bug worth surfacing,
-// not masking. fakeWriteStore (tools_mutate_test.go) overrides all three with
+// not masking. fakeWriteStore (tools_mutate_test.go) overrides them with
 // real, assertable behavior for tests that actually exercise mutations.
 func (f *fakeReadStore) CreateTransaction(context.Context, string, store.TransactionInput) (store.Transaction, error) {
 	return store.Transaction{}, errors.New("fakeReadStore does not support mutations; use fakeWriteStore")
@@ -63,13 +63,55 @@ func (f *fakeReadStore) DeleteTransaction(context.Context, string, string) error
 	return errors.New("fakeReadStore does not support mutations; use fakeWriteStore")
 }
 
+func unsupportedMutation[T any]() (T, error) {
+	var zero T
+	return zero, errors.New("fakeReadStore does not support mutations; use fakeWriteStore")
+}
+
+func (f *fakeReadStore) CreateBudget(context.Context, string, store.BudgetInput) (store.Budget, error) {
+	return unsupportedMutation[store.Budget]()
+}
+func (f *fakeReadStore) UpdateBudget(context.Context, string, string, store.BudgetPatch) (store.Budget, error) {
+	return unsupportedMutation[store.Budget]()
+}
+func (f *fakeReadStore) DeleteBudget(context.Context, string, string) error {
+	return errors.New("fakeReadStore does not support mutations; use fakeWriteStore")
+}
+func (f *fakeReadStore) CreateSavingsGoal(context.Context, string, store.SavingsGoalInput) (store.SavingsGoal, error) {
+	return unsupportedMutation[store.SavingsGoal]()
+}
+func (f *fakeReadStore) UpdateSavingsGoal(context.Context, string, string, store.SavingsGoalPatch) (store.SavingsGoal, error) {
+	return unsupportedMutation[store.SavingsGoal]()
+}
+func (f *fakeReadStore) DeleteSavingsGoal(context.Context, string, string) error {
+	return errors.New("fakeReadStore does not support mutations; use fakeWriteStore")
+}
+func (f *fakeReadStore) CreateRecurringTransaction(context.Context, string, store.RecurringTransactionInput) (store.RecurringTransaction, error) {
+	return unsupportedMutation[store.RecurringTransaction]()
+}
+func (f *fakeReadStore) UpdateRecurringTransaction(context.Context, string, string, store.RecurringTransactionUpdateInput) (store.RecurringTransaction, error) {
+	return unsupportedMutation[store.RecurringTransaction]()
+}
+func (f *fakeReadStore) DeleteRecurringTransaction(context.Context, string, string) error {
+	return errors.New("fakeReadStore does not support mutations; use fakeWriteStore")
+}
+func (f *fakeReadStore) CreateMSIPurchase(context.Context, string, store.MSIPurchaseInput) (store.MSIPurchase, error) {
+	return unsupportedMutation[store.MSIPurchase]()
+}
+func (f *fakeReadStore) UpdateMSIPurchase(context.Context, string, string, store.MSIPurchaseInput) (store.MSIPurchase, error) {
+	return unsupportedMutation[store.MSIPurchase]()
+}
+func (f *fakeReadStore) DeleteMSIPurchase(context.Context, string, string) error {
+	return errors.New("fakeReadStore does not support mutations; use fakeWriteStore")
+}
+
 func cents(v int64) *int64 { return &v }
 
 func sampleStore() *fakeReadStore {
 	return &fakeReadStore{
 		accounts: []store.Account{
 			{ID: "acc-bbva", Name: "Nómina BBVA", Type: "debit", Institution: "BBVA", Last4: "4321", Currency: "MXN", BalanceCents: cents(2540050), IsActive: true},
-			{ID: "acc-banamex", Name: "Tarjeta Banamex", Type: "credit", Institution: "Banamex", Last4: "8890", Currency: "MXN", CreditLimitCents: cents(5000000), AvailableCreditCents: cents(3820000), IsActive: true},
+			{ID: "acc-banamex", Name: "Tarjeta Banamex", Type: "credit", Institution: "Banamex", Last4: "8890", Currency: "MXN", CreditLimitCents: cents(5000000), AvailableCreditCents: cents(3820000), BalanceTrackingEnabled: true, IsActive: true},
 			{ID: "acc-old", Name: "Cuenta Vieja", Type: "debit", Institution: "Otro", Last4: "0000", Currency: "MXN", BalanceCents: cents(0), IsActive: false},
 		},
 		categories: []store.Category{
@@ -506,5 +548,39 @@ func TestListMSIPurchasesToolAggregatesActiveDebt(t *testing.T) {
 	}
 	if len(activePayload.MSIPurchases) != 1 || activePayload.MSIPurchases[0].Description != "Celular" {
 		t.Fatalf("expected only the active purchase, got %+v", activePayload.MSIPurchases)
+	}
+}
+
+func TestPlanningListToolsExposeEveryFullUpdateField(t *testing.T) {
+	registry := mustRegistry(t, sampleStore())
+	tests := []struct {
+		name      string
+		arguments string
+		arrayKey  string
+		fields    []string
+	}{
+		{name: "list_budgets", arguments: `{}`, arrayKey: "budgets", fields: []string{"id", "categoryId", "amountCents", "period", "startDate"}},
+		{name: "list_savings_goals", arguments: `{"includeCompleted":true}`, arrayKey: "savingsGoals", fields: []string{"id", "name", "targetAmountCents", "targetDate", "accountId", "order"}},
+		{name: "list_recurring_transactions", arguments: `{"includeInactive":true}`, arrayKey: "recurringTransactions", fields: []string{"id", "accountId", "categoryId", "description", "merchant", "amountCents", "frequency", "startDate", "isActive"}},
+		{name: "list_msi_purchases", arguments: `{"status":null}`, arrayKey: "msiPurchases", fields: []string{"id", "accountId", "categoryId", "description", "merchant", "totalAmountCents", "installmentCount", "startDate"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := callTool(t, registry, tt.name, tt.arguments)
+			var payload map[string]json.RawMessage
+			if err := json.Unmarshal(result.Data, &payload); err != nil {
+				t.Fatalf("decode payload: %v", err)
+			}
+			var rows []map[string]json.RawMessage
+			if err := json.Unmarshal(payload[tt.arrayKey], &rows); err != nil || len(rows) == 0 {
+				t.Fatalf("decode %s rows: %v, count=%d", tt.arrayKey, err, len(rows))
+			}
+			for _, field := range tt.fields {
+				if _, ok := rows[0][field]; !ok {
+					t.Errorf("first row missing %q: %s", field, payload[tt.arrayKey])
+				}
+			}
+		})
 	}
 }

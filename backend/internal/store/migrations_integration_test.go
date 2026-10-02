@@ -37,3 +37,23 @@ func TestTransactionMoneyIntegrityMigrationDefaults(t *testing.T) {
 		t.Fatalf("idempotency_key is_nullable = %q, want YES", idempotencyNullable)
 	}
 }
+
+func TestPlanningResourceIdempotencyMigration(t *testing.T) {
+	_, _ = setupPool(t, "public.budgets")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	admin := newAdminPool(t, ctx)
+	defer admin.Close()
+
+	var rowSecurity, forceRowSecurity bool
+	if err := admin.QueryRow(ctx, `
+		SELECT relrowsecurity, relforcerowsecurity
+		FROM pg_class
+		WHERE oid = 'public.create_idempotency_receipts'::regclass
+	`).Scan(&rowSecurity, &forceRowSecurity); err != nil {
+		t.Fatalf("query create_idempotency_receipts security: %v", err)
+	}
+	if !rowSecurity || !forceRowSecurity {
+		t.Fatalf("create_idempotency_receipts RLS = %t/%t, want true/true", rowSecurity, forceRowSecurity)
+	}
+}

@@ -116,6 +116,17 @@ func (r *MSIPurchaseRepository) List(ctx context.Context, userID string) ([]MSIP
 func (r *MSIPurchaseRepository) Create(ctx context.Context, userID string, in MSIPurchaseInput) (MSIPurchase, error) {
 	var m MSIPurchase
 	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
+		replayID, replay, err := beginIdempotentCreate(ctx, tx, userID, in.IdempotencyKey, "msi_purchase", in)
+		if err != nil {
+			return err
+		}
+		if replay {
+			err := scanMSIPurchase(tx.QueryRow(ctx, `SELECT `+msiPurchaseColumns+` FROM public.msi_purchases WHERE user_id = $1 AND id = $2`, userID, replayID), &m)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return newIdempotencyReplayDeletedError(replayID)
+			}
+			return err
+		}
 		accounts, err := lockTransactionAccounts(ctx, tx, userID, []string{in.AccountID})
 		if err != nil {
 			return err
@@ -162,13 +173,16 @@ func (r *MSIPurchaseRepository) Create(ctx context.Context, userID string, in MS
 			return err
 		}
 		if !inserted {
-			return nil
+			return completeIdempotentCreate(ctx, tx, userID, in.IdempotencyKey, "msi_purchase", m.ID)
 		}
 
 		if err := applyMSIPurchaseBalance(ctx, tx, userID, m.ID, in.TotalAmount, account); err != nil {
 			return err
 		}
-		return insertMSIInstallments(ctx, tx, userID, m.ID, in)
+		if err := insertMSIInstallments(ctx, tx, userID, m.ID, in); err != nil {
+			return err
+		}
+		return completeIdempotentCreate(ctx, tx, userID, in.IdempotencyKey, "msi_purchase", m.ID)
 	})
 	if err != nil {
 		return MSIPurchase{}, fmt.Errorf("create msi purchase: %w", err)

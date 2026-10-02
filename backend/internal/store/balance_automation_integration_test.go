@@ -370,6 +370,24 @@ func TestTransactionCreateIdempotency(t *testing.T) {
 	}
 	assertAccountAmount(t, ctx, admin, account.ID, "balance_cents", 9000)
 	assertTransactionLedger(t, ctx, admin, concurrentID, map[string]int64{account.ID: -300})
+
+	renamed := "Sequential payment renamed"
+	if _, err := repository.Update(ctx, userID, first.ID, store.TransactionPatch{Description: &renamed}); err != nil {
+		t.Fatalf("update idempotent transaction: %v", err)
+	}
+	replayedAfterUpdate, err := repository.Create(ctx, userID, input)
+	if err != nil || replayedAfterUpdate.ID != first.ID || replayedAfterUpdate.Description != renamed {
+		t.Fatalf("replay after update = %+v, %v; want current transaction %s", replayedAfterUpdate, err, first.ID)
+	}
+	if err := repository.Delete(ctx, userID, first.ID); err != nil {
+		t.Fatalf("delete idempotent transaction: %v", err)
+	}
+	replayedAfterDelete, err := repository.Create(ctx, userID, input)
+	replayedID, replayedDeleted := store.IdempotencyReplayDeletedResourceID(err)
+	if !replayedDeleted || replayedID != first.ID {
+		t.Fatalf("replay after delete = %+v, %v; want typed tombstone %s", replayedAfterDelete, err, first.ID)
+	}
+	assertAccountAmount(t, ctx, admin, account.ID, "balance_cents", 9700)
 }
 
 func TestConcurrentOppositeTransfers(t *testing.T) {

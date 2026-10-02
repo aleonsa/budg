@@ -15,7 +15,8 @@ Incluye:
 - Responses API con tool calling y structured outputs estrictos.
 - Endpoint autenticado `POST /v1/agent/chat` con streaming SSE.
 - Contexto de ruta y entidad visible proporcionado por frontend.
-- Tools de lectura y movimientos financieros.
+- Tools de lectura y mutación para movimientos, presupuestos, metas de ahorro,
+  gastos recurrentes y compras MSI.
 - Confirmación explícita para operaciones mutables durante el MVP.
 - Evals deterministas contra datos sintéticos de development.
 
@@ -177,6 +178,10 @@ Errores internos, SQL y secretos nunca llegan al modelo.
 | `list_categories` | Resolver categorías por tipo y nombre |
 | `search_transactions` | Buscar por periodo, cuenta, categoría, texto y monto |
 | `get_financial_summary` | Resumen de ingresos, gastos, deuda y presupuestos |
+| `list_budgets` | Consultar presupuestos y progreso del ciclo actual |
+| `list_savings_goals` | Consultar metas, avance y monto restante |
+| `list_recurring_transactions` | Consultar gastos recurrentes y carga mensual |
+| `list_msi_purchases` | Consultar planes MSI, deuda restante y mensualidades |
 
 ### Mutación
 
@@ -185,6 +190,18 @@ Errores internos, SQL y secretos nunca llegan al modelo.
 | `create_transaction` | Crear gasto, ingreso o transferencia |
 | `update_transaction` | Corregir campos de un movimiento |
 | `delete_transaction` | Eliminar un movimiento |
+| `create_budget` | Crear un presupuesto general o por categoría |
+| `update_budget` | Reemplazar monto, periodo, fecha y categoría de un presupuesto |
+| `delete_budget` | Eliminar un presupuesto |
+| `create_savings_goal` | Crear una meta con ahorro inicial cero |
+| `update_savings_goal` | Reemplazar datos de una meta sin alterar su ahorro acumulado |
+| `delete_savings_goal` | Eliminar una meta |
+| `create_recurring_transaction` | Crear una plantilla de gasto recurrente |
+| `update_recurring_transaction` | Reemplazar y activar/pausar una plantilla recurrente |
+| `delete_recurring_transaction` | Eliminar una plantilla sin borrar movimientos históricos |
+| `create_msi_purchase` | Crear compra MSI y su calendario de mensualidades |
+| `update_msi_purchase` | Reemplazar una compra MSI sin mensualidades pagadas |
+| `delete_msi_purchase` | Eliminar una compra MSI y revertir efectos de saldo |
 
 Las tools llaman servicios/repositorios Go directamente. No hacen HTTP contra
 el mismo backend. El `user_id` siempre viene del JWT y nunca de argumentos del
@@ -201,8 +218,14 @@ Reglas:
 
 - Token ligado a usuario, tool, argumentos y expiración.
 - Cambio de argumentos invalida el token.
-- `create_transaction` usa `idempotency_key` estable por confirmación.
-- Update y delete verifican que el recurso siga en el estado esperado.
+- Cada create usa `idempotency_key` estable por confirmación. Repetir la misma
+  confirmación consulta un recibo durable y devuelve el recurso actual (o su
+  ID tombstone si ya fue eliminado); nunca lo recrea. Reutilizar la clave con
+  datos distintos falla con conflicto.
+- `update_recurring_transaction` no materializa ocurrencias vencidas como
+  efecto lateral; solo reemplaza o pausa la plantilla confirmada.
+- Update y delete verifican nuevamente que el recurso pertenezca al usuario;
+  delete trata como éxito un recurso que desapareció después de la propuesta.
 - Nunca se reintenta automáticamente una mutación después de enviar SQL.
 - Operaciones ambiguas regresan `needs_input`, no eligen silenciosamente.
 
@@ -288,6 +311,10 @@ Casos mínimos contra development:
 12. No acceder a recursos de otro usuario.
 13. No ejecutar tool si structured output es inválido.
 14. Cancelar toda ejecución al expirar deadline.
+15. Exigir confirmación para CRUD de presupuestos, metas, recurrentes y MSI.
+16. Repetir confirmación de cada create sin duplicar recursos.
+17. Rechazar cuentas, categorías y recursos fuera del scope del usuario.
+18. Rechazar update MSI cuando ya existen mensualidades pagadas.
 
 Métricas iniciales:
 
