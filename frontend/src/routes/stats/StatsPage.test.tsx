@@ -728,10 +728,20 @@ describe('StatsPage', () => {
     expect(screen.getByRole('heading', { name: 'Proyección de liquidez' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '30D' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: '60D' })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: '+ Gasto habitual' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: '+ Ritmo habitual' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.getByText('Ingreso promedio (90d): $16.67/día')).toBeInTheDocument()
+    expect(screen.getByText('Gasto promedio (90d): $15.56/día')).toBeInTheDocument()
+    expect(screen.getByText(/Gasto adicional a compromisos:/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Ritmo habitual' }))
+    expect(screen.getByRole('button', { name: '+ Ritmo habitual' })).toHaveAttribute(
       'aria-pressed',
       'false',
     )
+    expect(screen.queryByText(/Gasto adicional a compromisos:/)).not.toBeInTheDocument()
 
     // Upcoming commitments timeline
     expect(screen.getByText('Internet Fibra')).toBeInTheDocument()
