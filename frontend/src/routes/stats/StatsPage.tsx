@@ -15,7 +15,11 @@ import {
   type RangePreset,
 } from '@/lib/stats-range'
 import { netWorthTimeline } from '@/lib/net-worth-timeline'
-import { computeCashFlowForecast, sampleForecastTimeline } from '@/lib/cash-flow-forecast'
+import {
+  computeCashFlowForecast,
+  historicalDailyCashFlow,
+  sampleForecastTimeline,
+} from '@/lib/cash-flow-forecast'
 import { cn } from '@/lib/utils'
 import {
   blendedAnnualYieldBps,
@@ -285,7 +289,7 @@ export default function StatsPage() {
   })
   const [customEnd, setCustomEnd] = useState(currentDate)
   const [forecastHorizon, setForecastHorizon] = useState<30 | 60 | 90>(30)
-  const [includeDiscretionary, setIncludeDiscretionary] = useState(false)
+  const [includeDiscretionary, setIncludeDiscretionary] = useState(true)
   const [showAllEvents, setShowAllEvents] = useState(false)
   const previousCurrentMonth = useRef(currentMonthKey)
 
@@ -383,19 +387,30 @@ export default function StatsPage() {
   // Cash flow forecast
   const recurring = recQ.data ?? []
   const msi = msiQ.data ?? []
-  const dailyBurnRate = elapsedDays > 0 ? Math.round(expense / elapsedDays) : 0
+  const yieldReconciliations = yieldsQ.data ?? []
+  const { dailyIncomeCents: dailyIncomeRate, dailyExpenseCents: dailyBurnRate } =
+    historicalDailyCashFlow(
+      historicalTransactions,
+      accounts,
+      currentDate,
+      new Set(
+        yieldReconciliations
+          .map((rec) => rec.transactionId)
+          .filter((id): id is string => id !== null),
+      ),
+    )
   const forecast = computeCashFlowForecast({
     accounts,
     recurringTransactions: recurring,
     msiPurchases: msi,
     currentDate,
     horizonDays: forecastHorizon,
-    discretionaryDailyBurnRateCents: includeDiscretionary ? dailyBurnRate : 0,
+    averageDailyExpenseCents: includeDiscretionary ? dailyBurnRate : undefined,
+    discretionaryDailyIncomeRateCents: includeDiscretionary ? dailyIncomeRate : 0,
   })
   const forecastChartPoints = sampleForecastTimeline(forecast.timeline, 11)
 
   // Savings yields
-  const yieldReconciliations = yieldsQ.data ?? []
   const yieldAccounts = accounts.filter(
     (account) =>
       account.type === 'debit' &&
@@ -610,7 +625,9 @@ export default function StatsPage() {
               <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Proyección de liquidez
               </h2>
-              {forecast.isLiquidityRisk && (
+              {(includeDiscretionary
+                ? forecast.minRealisticBalanceCents < 0
+                : forecast.minScheduledBalanceCents < 0) && (
                 <Badge
                   variant="outline"
                   className="h-5 border-destructive/40 px-1.5 text-[10px] font-semibold text-destructive"
@@ -638,9 +655,9 @@ export default function StatsPage() {
                 className="h-6 px-2 text-[10px]"
                 aria-pressed={includeDiscretionary}
                 onClick={() => setIncludeDiscretionary((v) => !v)}
-                title="Simular ritmo de gasto diario habitual"
+                title="Comparar compromisos con ingreso y gasto promedio de los últimos 90 días"
               >
-                + Gasto habitual
+                + Ritmo habitual
               </Button>
             </div>
           </div>
@@ -717,13 +734,28 @@ export default function StatsPage() {
                 </p>
                 <span className="text-[10px] text-muted-foreground">
                   {includeDiscretionary
-                    ? `con ${formatMoney(dailyBurnRate)}/día`
+                    ? `+${formatMoney(dailyIncomeRate)} ingreso · -${formatMoney(forecast.additionalDailyExpenseCents)} gasto adicional/día`
                     : 'solo fijos y MSI'}
                   {forecast.totalExpectedYieldCents > 0 &&
                     ` · +${formatMoney(forecast.totalExpectedYieldCents)} rendimientos`}
                 </span>
               </div>
             </div>
+
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+              <span>Ingreso promedio (90d): {formatMoney(dailyIncomeRate)}/día</span>
+              <span>Gasto promedio (90d): {formatMoney(dailyBurnRate)}/día</span>
+              {includeDiscretionary && (
+                <span>
+                  Gasto adicional a compromisos: {formatMoney(forecast.additionalDailyExpenseCents)}
+                  /día
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Promedios de últimos 90 días distribuidos diariamente; pagos comprometidos conservan
+              sus fechas.
+            </p>
 
             {/* Projection Chart */}
             <div className="pt-1">
@@ -739,7 +771,7 @@ export default function StatsPage() {
                   ...(includeDiscretionary
                     ? [
                         {
-                          name: 'Con gasto habitual',
+                          name: 'Con ingreso y gasto habitual',
                           color: 'yellow' as const,
                           filled: true,
                           values: forecastChartPoints.map((p) => p.discretionaryBalanceCents),

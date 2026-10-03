@@ -1,4 +1,4 @@
-import type { Account, Cents, MSIPurchase, RecurringTransaction } from '@/types'
+import type { Account, Cents, MSIPurchase, RecurringTransaction, Transaction } from '@/types'
 import { estimateYieldCents } from '@/lib/yield'
 
 export interface ForecastParams {
@@ -8,6 +8,10 @@ export interface ForecastParams {
   currentDate: string // YYYY-MM-DD
   horizonDays: 30 | 60 | 90
   discretionaryDailyBurnRateCents?: number
+  /** Historical daily spending, including payments already represented by scheduled events. */
+  averageDailyExpenseCents?: number
+  /** Average historical daily income, added to the realistic trajectory. */
+  discretionaryDailyIncomeRateCents?: number
   /** Add expected flat or tiered savings yield as daily inflow. */
   includeYield?: boolean
 }
@@ -46,6 +50,8 @@ export interface CashFlowForecast {
   totalMSIOutflowCents: Cents
   totalScheduledOutflowCents: Cents
   totalDiscretionaryBurnCents: Cents
+  totalDiscretionaryIncomeCents: Cents
+  additionalDailyExpenseCents: Cents
   totalExpectedYieldCents: Cents
   events: ScheduledForecastEvent[]
   timeline: ForecastTimelinePoint[]
@@ -75,6 +81,43 @@ export function addDaysISO(iso: string, days: number): string {
   const [y, m, d] = parseISODateParts(iso)
   const date = new Date(Date.UTC(y, m, d + days))
   return formatISODateParts(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+}
+
+/** Recent cash-flow averages independent of the stats page's selected date range. */
+export function historicalDailyCashFlow(
+  transactions: Transaction[],
+  accounts: Account[],
+  currentDate: string,
+  yieldTransactionIds: Set<string> = new Set(),
+): { dailyIncomeCents: Cents; dailyExpenseCents: Cents } {
+  const from = addDaysISO(currentDate, -89)
+  const activeDebitIds = new Set(
+    accounts.filter((account) => account.isActive && account.type === 'debit').map((a) => a.id),
+  )
+  let income = 0
+  let expense = 0
+  for (const transaction of transactions) {
+    if (
+      transaction.date < from ||
+      transaction.date > currentDate ||
+      transaction.affectsBalance === false
+    ) {
+      continue
+    }
+    if (
+      transaction.type === 'income' &&
+      activeDebitIds.has(transaction.accountId) &&
+      !yieldTransactionIds.has(transaction.id)
+    ) {
+      income += transaction.amount
+    } else if (transaction.type === 'expense') {
+      expense += transaction.amount
+    }
+  }
+  return {
+    dailyIncomeCents: Math.round(income / 90),
+    dailyExpenseCents: Math.round(expense / 90),
+  }
 }
 
 /** Add whole months clamped to anchor day of month. */
@@ -175,6 +218,8 @@ export function computeCashFlowForecast({
   currentDate,
   horizonDays,
   discretionaryDailyBurnRateCents = 0,
+  averageDailyExpenseCents,
+  discretionaryDailyIncomeRateCents = 0,
   includeYield = true,
 }: ForecastParams): CashFlowForecast {
   const accountMap = new Map(accounts.map((a) => [a.id, a.name]))
@@ -254,7 +299,14 @@ export function computeCashFlowForecast({
   let minRealisticBalanceCents = startingLiquidBalanceCents
   let minRealisticDate = currentDate
 
-  const normalizedBurnRate = Math.max(0, discretionaryDailyBurnRateCents)
+  // Historical spending already includes bills and installments. Only add
+  // spending beyond the scheduled amount, never subtract the same bill twice.
+  const scheduledDailyAverage = (totalRecurringOutflowCents + totalMSIOutflowCents) / horizonDays
+  const normalizedBurnRate =
+    averageDailyExpenseCents === undefined
+      ? Math.max(0, discretionaryDailyBurnRateCents)
+      : Math.max(0, Math.round(averageDailyExpenseCents - scheduledDailyAverage))
+  const normalizedIncomeRate = Math.max(0, discretionaryDailyIncomeRateCents)
   const yieldAccounts = includeYield
     ? accounts.filter(
         (a) =>
@@ -281,6 +333,7 @@ export function computeCashFlowForecast({
     realisticBalance -= outflow
     if (day > 0) {
       realisticBalance -= normalizedBurnRate
+      realisticBalance += normalizedIncomeRate
       const total = yieldThrough(day)
       const yieldToday = total - accruedYield
       accruedYield = total
@@ -326,6 +379,7 @@ export function computeCashFlowForecast({
 
   const totalScheduledOutflowCents = totalRecurringOutflowCents + totalMSIOutflowCents
   const totalDiscretionaryBurnCents = normalizedBurnRate * horizonDays
+  const totalDiscretionaryIncomeCents = normalizedIncomeRate * horizonDays
 
   return {
     currentDate,
@@ -342,6 +396,8 @@ export function computeCashFlowForecast({
     totalMSIOutflowCents,
     totalScheduledOutflowCents,
     totalDiscretionaryBurnCents,
+    totalDiscretionaryIncomeCents,
+    additionalDailyExpenseCents: normalizedBurnRate,
     totalExpectedYieldCents: accruedYield,
     events,
     timeline,

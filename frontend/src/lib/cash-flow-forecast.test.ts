@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { Account, MSIPurchase, RecurringTransaction } from '@/types'
+import type { Account, MSIPurchase, RecurringTransaction, Transaction } from '@/types'
 import {
   addDaysISO,
   computeCashFlowForecast,
+  historicalDailyCashFlow,
   projectMSIOccurrences,
   projectRecurringOccurrences,
   sampleForecastTimeline,
@@ -10,6 +11,62 @@ import {
 import { estimateYieldCents } from './yield'
 
 describe('cash-flow-forecast', () => {
+  it('uses only recent posted cash-flow, excluding future, historical-only and reconciled yields', () => {
+    const accounts: Account[] = [
+      {
+        id: 'cash',
+        name: 'Cash',
+        type: 'debit',
+        institution: 'Bank',
+        last4: '1234',
+        currency: 'MXN',
+        isActive: true,
+      },
+      {
+        id: 'card',
+        name: 'Card',
+        type: 'credit',
+        institution: 'Bank',
+        last4: '5678',
+        currency: 'MXN',
+        isActive: true,
+      },
+    ]
+    const tx = (
+      id: string,
+      type: Transaction['type'],
+      amount: number,
+      date: string,
+      accountId = 'cash',
+      affectsBalance = true,
+    ): Transaction => ({
+      id,
+      type,
+      amount,
+      date,
+      accountId,
+      affectsBalance,
+      categoryId: null,
+      description: id,
+      isReconciled: true,
+      createdAt: date,
+    })
+    const history = [
+      tx('salary', 'income', 900_000, '2026-08-14'),
+      tx('yield', 'income', 90_000, '2026-08-14'),
+      tx('card-refund', 'income', 90_000, '2026-08-14', 'card'),
+      tx('expense', 'expense', 450_000, '2026-08-14'),
+      tx('old', 'income', 900_000, '2026-05-01'),
+      tx('future', 'income', 900_000, '2026-08-16'),
+      tx('historical-only', 'expense', 900_000, '2026-08-14', 'cash', false),
+      tx('transfer', 'transfer', 900_000, '2026-08-14'),
+    ]
+    expect(historicalDailyCashFlow(history, accounts, '2026-08-14', new Set(['yield']))).toEqual({
+      dailyIncomeCents: 10_000,
+      dailyExpenseCents: 5_000,
+    })
+  })
+
   describe('addDaysISO', () => {
     it('adds days across month boundaries', () => {
       expect(addDaysISO('2026-08-15', 5)).toBe('2026-08-20')
@@ -285,6 +342,81 @@ describe('cash-flow-forecast', () => {
       expect(forecast.projectedRealisticBalanceCents).toBe(3500000)
       expect(forecast.minRealisticBalanceCents).toBe(3500000)
       expect(forecast.minRealisticDate).toBe('2026-08-31')
+    })
+
+    it('adds daily average income to the realistic trajectory, netting against burn', () => {
+      const forecast = computeCashFlowForecast({
+        accounts: mockAccounts,
+        recurringTransactions: [],
+        msiPurchases: [],
+        currentDate: '2026-08-01',
+        horizonDays: 30,
+        discretionaryDailyBurnRateCents: 50000, // $500/day expense
+        discretionaryDailyIncomeRateCents: 80000, // $800/day income
+      })
+
+      // 30 days * ($800 - $500) = +$9,000 net
+      expect(forecast.totalDiscretionaryIncomeCents).toBe(2400000)
+      expect(forecast.totalDiscretionaryBurnCents).toBe(1500000)
+      expect(forecast.projectedScheduledBalanceCents).toBe(5000000)
+      expect(forecast.projectedRealisticBalanceCents).toBe(5900000)
+      // Net inflow is positive, so the trajectory only rises from day 0.
+      expect(forecast.minRealisticBalanceCents).toBe(5000000)
+      expect(forecast.minRealisticDate).toBe('2026-08-01')
+    })
+
+    it('subtracts committed payments from projected average spending before adding daily burn', () => {
+      const scheduled: RecurringTransaction = {
+        id: 'rent',
+        accountId: 'acc-checking',
+        categoryId: null,
+        description: 'Renta',
+        amount: 90_000,
+        frequency: 'monthly',
+        startDate: '2026-07-10',
+        nextDate: '2026-08-10',
+        isActive: true,
+      }
+      const forecast = computeCashFlowForecast({
+        accounts: mockAccounts,
+        recurringTransactions: [scheduled],
+        msiPurchases: [],
+        currentDate: '2026-08-01',
+        horizonDays: 30,
+        averageDailyExpenseCents: 5_000,
+        discretionaryDailyIncomeRateCents: 10_000,
+      })
+      expect(forecast.totalScheduledOutflowCents).toBe(90_000)
+      expect(forecast.additionalDailyExpenseCents).toBe(2_000)
+      expect(forecast.totalDiscretionaryBurnCents).toBe(60_000)
+      expect(forecast.projectedRealisticBalanceCents).toBe(5_150_000)
+
+      const fullyCommitted = computeCashFlowForecast({
+        accounts: mockAccounts,
+        recurringTransactions: [scheduled],
+        msiPurchases: [],
+        currentDate: '2026-08-01',
+        horizonDays: 30,
+        averageDailyExpenseCents: 1_000,
+      })
+      expect(fullyCommitted.additionalDailyExpenseCents).toBe(0)
+      expect(fullyCommitted.projectedRealisticBalanceCents).toBe(
+        fullyCommitted.projectedScheduledBalanceCents,
+      )
+    })
+
+    it('ignores negative discretionary income rates', () => {
+      const forecast = computeCashFlowForecast({
+        accounts: mockAccounts,
+        recurringTransactions: [],
+        msiPurchases: [],
+        currentDate: '2026-08-01',
+        horizonDays: 30,
+        discretionaryDailyIncomeRateCents: -1000,
+      })
+
+      expect(forecast.totalDiscretionaryIncomeCents).toBe(0)
+      expect(forecast.projectedRealisticBalanceCents).toBe(forecast.projectedScheduledBalanceCents)
     })
   })
 
