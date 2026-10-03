@@ -83,6 +83,9 @@ describe('accounts api client', () => {
         availableCredit: undefined,
         statementCutDay: undefined,
         paymentDueDay: undefined,
+        annualYieldBps: null,
+        annualYieldTiers: null,
+        yieldReconciledOn: null,
         isActive: true,
       },
       {
@@ -97,6 +100,9 @@ describe('accounts api client', () => {
         availableCredit: 5340000,
         statementCutDay: 15,
         paymentDueDay: 5,
+        annualYieldBps: null,
+        annualYieldTiers: null,
+        yieldReconciledOn: null,
         isActive: true,
       },
     ])
@@ -132,6 +138,10 @@ describe('accounts api client', () => {
       last4: '8830',
       currency: 'MXN',
       balance: 0,
+      annualYieldTiers: [
+        { upToCents: 2_500_000, annualYieldBps: 1500 },
+        { upToCents: null, annualYieldBps: 700 },
+      ],
     })
 
     const [url, init] = fetchMock.mock.calls[0]
@@ -145,6 +155,10 @@ describe('accounts api client', () => {
       last4: '8830',
       currency: 'MXN',
       balance: 0,
+      annualYieldTiers: [
+        { upToCents: 2_500_000, annualYieldBps: 1500 },
+        { upToCents: null, annualYieldBps: 700 },
+      ],
     })
     expect(created.id).toBe('acc-new')
   })

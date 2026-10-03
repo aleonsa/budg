@@ -7,6 +7,7 @@ import {
   projectRecurringOccurrences,
   sampleForecastTimeline,
 } from './cash-flow-forecast'
+import { estimateYieldCents } from './yield'
 
 describe('cash-flow-forecast', () => {
   describe('addDaysISO', () => {
@@ -284,6 +285,49 @@ describe('cash-flow-forecast', () => {
       expect(forecast.projectedRealisticBalanceCents).toBe(3500000)
       expect(forecast.minRealisticBalanceCents).toBe(3500000)
       expect(forecast.minRealisticDate).toBe('2026-08-31')
+    })
+  })
+
+  describe('expected yield', () => {
+    it('adds daily savings yield to the projected balance', () => {
+      const accounts: Account[] = [
+        {
+          id: 'savings',
+          name: 'Ahorro',
+          type: 'debit',
+          institution: 'Nu',
+          last4: '0001',
+          currency: 'MXN',
+          balance: 3_650_000,
+          annualYieldTiers: [
+            { upToCents: 2_500_000, annualYieldBps: 1500 },
+            { upToCents: null, annualYieldBps: 700 },
+          ],
+          isActive: true,
+        },
+      ]
+      const forecast = computeCashFlowForecast({
+        accounts,
+        recurringTransactions: [],
+        msiPurchases: [],
+        currentDate: '2026-08-01',
+        horizonDays: 30,
+      })
+      const expectedYield = estimateYieldCents(3_650_000, null, 30, accounts[0].annualYieldTiers)
+      expect(forecast.totalExpectedYieldCents).toBe(expectedYield)
+      expect(forecast.projectedScheduledBalanceCents).toBe(3_650_000 + expectedYield)
+      expect(forecast.minScheduledBalanceCents).toBe(3_650_000)
+
+      const withoutYield = computeCashFlowForecast({
+        accounts,
+        recurringTransactions: [],
+        msiPurchases: [],
+        currentDate: '2026-08-01',
+        horizonDays: 30,
+        includeYield: false,
+      })
+      expect(withoutYield.totalExpectedYieldCents).toBe(0)
+      expect(withoutYield.projectedScheduledBalanceCents).toBe(3_650_000)
     })
   })
 

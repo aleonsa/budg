@@ -22,6 +22,12 @@ export {
 export { getCreditCardStatements, confirmCreditCardStatement } from './credit-card-statements'
 export { reconcileStatement, StatementReconciliationError } from './statement-reconciliations'
 export {
+  getYieldReconciliations,
+  reconcileYield,
+  undoYieldReconciliation,
+  YieldReconciliationError,
+} from './yield-reconciliations'
+export {
   getTransactions,
   createTransaction,
   updateTransaction,

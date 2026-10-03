@@ -20,6 +20,9 @@ var (
 	ErrInsufficientGoalAllocation     = errors.New("insufficient goal allocation")
 	ErrSavingsTransactionManaged      = errors.New("transaction is managed by a savings allocation")
 	ErrSavingsAccountCurrencyManaged  = errors.New("currency cannot change after savings allocations exist")
+	ErrYieldTransactionManaged        = errors.New("transaction is managed by a yield reconciliation")
+	ErrYieldReconciliationNotLatest   = errors.New("only the latest yield reconciliation of an account can be undone")
+	ErrYieldDateBeforeMovements       = errors.New("account has balance movements dated after the reconciliation date")
 )
 
 // AccountDelta represents the signed change to an account's materialized balance

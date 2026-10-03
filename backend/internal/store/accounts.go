@@ -1,7 +1,9 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -17,39 +19,44 @@ import (
 // reverse (see the accounts_type_fields CHECK constraint in
 // migrations/00003_create_accounts.sql).
 type Account struct {
-	ID                       string     `json:"id"`
-	UserID                   string     `json:"-"`
-	Name                     string     `json:"name"`
-	Type                     string     `json:"type"`
-	Institution              string     `json:"institution"`
-	Last4                    string     `json:"last4"`
-	Currency                 string     `json:"currency"`
-	BalanceCents             *int64     `json:"balance,omitempty"`
-	CreditLimitCents         *int64     `json:"creditLimit,omitempty"`
-	AvailableCreditCents     *int64     `json:"availableCredit,omitempty"`
-	StatementCutDay          *int       `json:"statementCutDay,omitempty"`
-	PaymentDueDay            *int       `json:"paymentDueDay,omitempty"`
-	BalanceTrackingEnabled   bool       `json:"balanceTrackingEnabled"`
-	BalanceTrackingStartedAt *time.Time `json:"balanceTrackingStartedAt,omitempty"`
-	IsActive                 bool       `json:"isActive"`
-	CreatedAt                time.Time  `json:"-"`
-	UpdatedAt                time.Time  `json:"-"`
+	ID                       string      `json:"id"`
+	UserID                   string      `json:"-"`
+	Name                     string      `json:"name"`
+	Type                     string      `json:"type"`
+	Institution              string      `json:"institution"`
+	Last4                    string      `json:"last4"`
+	Currency                 string      `json:"currency"`
+	BalanceCents             *int64      `json:"balance,omitempty"`
+	CreditLimitCents         *int64      `json:"creditLimit,omitempty"`
+	AvailableCreditCents     *int64      `json:"availableCredit,omitempty"`
+	StatementCutDay          *int        `json:"statementCutDay,omitempty"`
+	PaymentDueDay            *int        `json:"paymentDueDay,omitempty"`
+	BalanceTrackingEnabled   bool        `json:"balanceTrackingEnabled"`
+	BalanceTrackingStartedAt *time.Time  `json:"balanceTrackingStartedAt,omitempty"`
+	AnnualYieldBps           *int        `json:"annualYieldBps"`
+	AnnualYieldTiers         []YieldTier `json:"annualYieldTiers"`
+	YieldReconciledOn        *string     `json:"yieldReconciledOn"`
+	IsActive                 bool        `json:"isActive"`
+	CreatedAt                time.Time   `json:"-"`
+	UpdatedAt                time.Time   `json:"-"`
 }
 
 // AccountInput captures create fields. TrackBalance is server-controlled and
 // omitted from JSON; IsActive always starts true.
 type AccountInput struct {
-	Name                 string `json:"name"`
-	Type                 string `json:"type"`
-	Institution          string `json:"institution"`
-	Last4                string `json:"last4"`
-	Currency             string `json:"currency"`
-	BalanceCents         *int64 `json:"balance"`
-	CreditLimitCents     *int64 `json:"creditLimit"`
-	AvailableCreditCents *int64 `json:"availableCredit"`
-	StatementCutDay      *int   `json:"statementCutDay"`
-	PaymentDueDay        *int   `json:"paymentDueDay"`
-	TrackBalance         bool   `json:"-"`
+	Name                 string      `json:"name"`
+	Type                 string      `json:"type"`
+	Institution          string      `json:"institution"`
+	Last4                string      `json:"last4"`
+	Currency             string      `json:"currency"`
+	BalanceCents         *int64      `json:"balance"`
+	CreditLimitCents     *int64      `json:"creditLimit"`
+	AvailableCreditCents *int64      `json:"availableCredit"`
+	StatementCutDay      *int        `json:"statementCutDay"`
+	PaymentDueDay        *int        `json:"paymentDueDay"`
+	AnnualYieldBps       *int        `json:"annualYieldBps"`
+	AnnualYieldTiers     []YieldTier `json:"annualYieldTiers"`
+	TrackBalance         bool        `json:"-"`
 }
 
 // AccountPatch describes a partial update. Type is intentionally not
@@ -60,30 +67,119 @@ type AccountInput struct {
 // "explicitly cleared to null" -- see field.go for why a plain double
 // pointer cannot actually express that with encoding/json.
 type AccountPatch struct {
-	Name                 *string      `json:"name"`
-	Institution          *string      `json:"institution"`
-	Last4                *string      `json:"last4"`
-	Currency             *string      `json:"currency"`
-	IsActive             *bool        `json:"isActive"`
-	BalanceCents         Field[int64] `json:"balance"`
-	CreditLimitCents     Field[int64] `json:"creditLimit"`
-	AvailableCreditCents Field[int64] `json:"availableCredit"`
-	StatementCutDay      Field[int]   `json:"statementCutDay"`
-	PaymentDueDay        Field[int]   `json:"paymentDueDay"`
+	Name                 *string            `json:"name"`
+	Institution          *string            `json:"institution"`
+	Last4                *string            `json:"last4"`
+	Currency             *string            `json:"currency"`
+	IsActive             *bool              `json:"isActive"`
+	BalanceCents         Field[int64]       `json:"balance"`
+	CreditLimitCents     Field[int64]       `json:"creditLimit"`
+	AvailableCreditCents Field[int64]       `json:"availableCredit"`
+	StatementCutDay      Field[int]         `json:"statementCutDay"`
+	PaymentDueDay        Field[int]         `json:"paymentDueDay"`
+	AnnualYieldBps       Field[int]         `json:"annualYieldBps"`
+	AnnualYieldTiers     Field[[]YieldTier] `json:"annualYieldTiers"`
 }
 
 const accountColumns = `id, user_id, name, type, institution, last4, currency,
 	balance_cents, credit_limit_cents, available_credit_cents,
 	statement_cut_day, payment_due_day, balance_tracking_enabled,
-	balance_tracking_started_at, is_active, created_at, updated_at`
+	balance_tracking_started_at, annual_yield_bps, annual_yield_tiers, yield_reconciled_on::text,
+	is_active, created_at, updated_at`
 
 func scanAccount(row pgx.Row, a *Account) error {
 	return row.Scan(
 		&a.ID, &a.UserID, &a.Name, &a.Type, &a.Institution, &a.Last4, &a.Currency,
 		&a.BalanceCents, &a.CreditLimitCents, &a.AvailableCreditCents,
 		&a.StatementCutDay, &a.PaymentDueDay, &a.BalanceTrackingEnabled,
-		&a.BalanceTrackingStartedAt, &a.IsActive, &a.CreatedAt, &a.UpdatedAt,
+		&a.BalanceTrackingStartedAt, &a.AnnualYieldBps, &a.AnnualYieldTiers, &a.YieldReconciledOn,
+		&a.IsActive, &a.CreatedAt, &a.UpdatedAt,
 	)
+}
+
+// MaxAnnualYieldBps caps a configured annual yield at 100%.
+const MaxAnnualYieldBps = 10_000
+
+// YieldTier is one band of a tiered rate: the portion of the balance between
+// the previous tier's cap and UpToCents earns AnnualYieldBps. The final tier
+// has a nil cap.
+type YieldTier struct {
+	UpToCents      *int64 `json:"upToCents"`
+	AnnualYieldBps int    `json:"annualYieldBps"`
+}
+
+func (tier *YieldTier) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		UpToCents      json.RawMessage `json:"upToCents"`
+		AnnualYieldBps *int            `json:"annualYieldBps"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&wire); err != nil {
+		return err
+	}
+	if len(wire.UpToCents) == 0 {
+		return errors.New("upToCents is required")
+	}
+	if wire.AnnualYieldBps == nil {
+		return errors.New("annualYieldBps is required")
+	}
+	if string(wire.UpToCents) == "null" {
+		tier.UpToCents = nil
+	} else {
+		var cap int64
+		if err := json.Unmarshal(wire.UpToCents, &cap); err != nil {
+			return fmt.Errorf("decode upToCents: %w", err)
+		}
+		tier.UpToCents = &cap
+	}
+	tier.AnnualYieldBps = *wire.AnnualYieldBps
+	return nil
+}
+
+func validAnnualYield(accountType string, bps *int) bool {
+	return bps == nil || (accountType == "debit" && *bps >= 0 && *bps <= MaxAnnualYieldBps)
+}
+
+// validYieldTiers reports whether tiers are absent or form a valid ladder: 1
+// to 8 bands, strictly increasing positive caps, and one final uncapped band.
+func validYieldTiers(accountType string, tiers []YieldTier) bool {
+	if accountType != "debit" {
+		return len(tiers) == 0
+	}
+	if len(tiers) == 0 {
+		return true
+	}
+	if len(tiers) > 8 {
+		return false
+	}
+	var previous int64
+	for i, tier := range tiers {
+		if tier.AnnualYieldBps < 0 || tier.AnnualYieldBps > MaxAnnualYieldBps {
+			return false
+		}
+		if tier.UpToCents == nil {
+			return i == len(tiers)-1 // only the last band may be uncapped
+		}
+		if *tier.UpToCents <= previous {
+			return false
+		}
+		previous = *tier.UpToCents
+	}
+	return false // a ladder must end with an uncapped band
+}
+
+// yieldTiersDBValue serializes the ladder because this package uses pgx's
+// simple protocol, which cannot infer how to encode a slice of structs.
+func yieldTiersDBValue(tiers []YieldTier) (any, error) {
+	if len(tiers) == 0 {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(tiers)
+	if err != nil {
+		return nil, fmt.Errorf("marshal annual yield tiers: %w", err)
+	}
+	return string(encoded), nil
 }
 
 // AccountRepository is the concrete pgx implementation.
@@ -128,6 +224,14 @@ func (r *AccountRepository) List(ctx context.Context, userID string) ([]Account,
 
 // Create inserts a new user-scoped account and returns the stored row.
 func (r *AccountRepository) Create(ctx context.Context, userID string, in AccountInput) (Account, error) {
+	if !validAnnualYield(in.Type, in.AnnualYieldBps) ||
+		!validYieldTiers(in.Type, in.AnnualYieldTiers) {
+		return Account{}, ErrInvalidAccountShape
+	}
+	tiersDBValue, err := yieldTiersDBValue(in.AnnualYieldTiers)
+	if err != nil {
+		return Account{}, err
+	}
 	var openingAmount int64
 	if in.TrackBalance {
 		switch in.Type {
@@ -147,20 +251,22 @@ func (r *AccountRepository) Create(ctx context.Context, userID string, in Accoun
 	}
 
 	var a Account
-	err := RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
+	err = RunScoped(ctx, r.pool, userID, func(ctx context.Context, tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			INSERT INTO public.accounts (
 				user_id, name, type, institution, last4, currency,
 				balance_cents, credit_limit_cents, available_credit_cents,
 				statement_cut_day, payment_due_day,
-				balance_tracking_enabled, balance_tracking_started_at
+				balance_tracking_enabled, balance_tracking_started_at, annual_yield_bps,
+				annual_yield_tiers
 			)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-				CASE WHEN $12 THEN now() ELSE NULL END)
+				CASE WHEN $12 THEN now() ELSE NULL END, $13, $14::jsonb)
 			RETURNING `+accountColumns,
 			userID, in.Name, in.Type, in.Institution, in.Last4, in.Currency,
 			in.BalanceCents, in.CreditLimitCents, in.AvailableCreditCents,
-			in.StatementCutDay, in.PaymentDueDay, in.TrackBalance,
+			in.StatementCutDay, in.PaymentDueDay, in.TrackBalance, in.AnnualYieldBps,
+			tiersDBValue,
 		)
 		if err := scanAccount(row, &a); err != nil {
 			return err
@@ -197,6 +303,22 @@ func (r *AccountRepository) Update(ctx context.Context, userID, id string, patch
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrNotFound
 			}
+			return err
+		}
+		if patch.AnnualYieldBps.Set && !validAnnualYield(accountType, patch.AnnualYieldBps.Value) {
+			return ErrInvalidAccountShape
+		}
+		if patch.AnnualYieldTiers.Set {
+			var tiers []YieldTier
+			if patch.AnnualYieldTiers.Value != nil {
+				tiers = *patch.AnnualYieldTiers.Value
+			}
+			if !validYieldTiers(accountType, tiers) {
+				return ErrInvalidAccountShape
+			}
+		}
+		tiersDBValue, err := normalizePatchTiers(patch.AnnualYieldTiers)
+		if err != nil {
 			return err
 		}
 		if trackingEnabled {
@@ -250,6 +372,8 @@ func (r *AccountRepository) Update(ctx context.Context, userID, id string, patch
 				available_credit_cents = CASE WHEN $12::boolean THEN $13 ELSE available_credit_cents END,
 				statement_cut_day       = CASE WHEN $14::boolean THEN $15 ELSE statement_cut_day END,
 				payment_due_day         = CASE WHEN $16::boolean THEN $17 ELSE payment_due_day END,
+				annual_yield_bps        = CASE WHEN $18::boolean THEN $19 ELSE annual_yield_bps END,
+				annual_yield_tiers      = CASE WHEN $20::boolean THEN $21::jsonb ELSE annual_yield_tiers END,
 				updated_at              = now()
 			WHERE user_id = $1 AND id = $2
 			RETURNING `+accountColumns,
@@ -259,6 +383,8 @@ func (r *AccountRepository) Update(ctx context.Context, userID, id string, patch
 			availableCreditSet, availableCreditValue,
 			patch.StatementCutDay.Set, patch.StatementCutDay.Value,
 			patch.PaymentDueDay.Set, patch.PaymentDueDay.Value,
+			patch.AnnualYieldBps.Set, patch.AnnualYieldBps.Value,
+			patch.AnnualYieldTiers.Set, tiersDBValue,
 		)
 		return scanAccount(row, &a)
 	})
@@ -266,6 +392,13 @@ func (r *AccountRepository) Update(ctx context.Context, userID, id string, patch
 		return Account{}, fmt.Errorf("update account: %w", err)
 	}
 	return a, nil
+}
+
+func normalizePatchTiers(field Field[[]YieldTier]) (any, error) {
+	if !field.Set || field.Value == nil {
+		return nil, nil
+	}
+	return yieldTiersDBValue(*field.Value)
 }
 
 func adjustedAvailableCredit(oldLimit, oldAvailable, newLimit int64) (int64, error) {

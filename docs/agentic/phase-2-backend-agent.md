@@ -182,7 +182,8 @@ Errores internos, SQL y secretos nunca llegan al modelo.
 | `list_savings_goals` | Consultar metas, avance y monto restante |
 | `list_recurring_transactions` | Consultar gastos recurrentes y carga mensual |
 | `list_msi_purchases` | Consultar planes MSI, deuda restante y mensualidades |
-| `get_cash_flow_forecast` | Proyección de saldo y liquidez a 30, 60 o 90 días |
+| `get_cash_flow_forecast` | Proyección de saldo y liquidez a 30, 60 o 90 días, con rendimientos esperados |
+| `list_account_yields` | Rendimientos de cuentas de ahorro: estimado, tasa configurada vs efectiva, acumulado anual |
 
 ### Mutación
 
@@ -203,6 +204,7 @@ Errores internos, SQL y secretos nunca llegan al modelo.
 | `create_msi_purchase` | Crear compra MSI y su calendario de mensualidades |
 | `update_msi_purchase` | Reemplazar una compra MSI sin mensualidades pagadas |
 | `delete_msi_purchase` | Eliminar una compra MSI y revertir efectos de saldo |
+| `reconcile_account_yield` | Conciliar saldo de ahorro registrando rendimiento y ajuste |
 
 Las tools llaman servicios/repositorios Go directamente. No hacen HTTP contra
 el mismo backend. El `user_id` siempre viene del JWT y nunca de argumentos del

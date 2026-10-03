@@ -8,6 +8,7 @@ import {
   useTransactions,
   useRecurringTransactions,
   useMSIPurchases,
+  useYieldReconciliations,
 } from '@/hooks/useQueries'
 import type {
   Account,
@@ -16,6 +17,7 @@ import type {
   MSIPurchase,
   RecurringTransaction,
   Transaction,
+  YieldReconciliation,
 } from '@/types'
 import StatsPage from './StatsPage'
 
@@ -26,6 +28,7 @@ vi.mock('@/hooks/useQueries', () => ({
   useTransactions: vi.fn(),
   useRecurringTransactions: vi.fn(),
   useMSIPurchases: vi.fn(),
+  useYieldReconciliations: vi.fn(),
 }))
 
 const categories: Category[] = [
@@ -154,6 +157,7 @@ function setQueries({
   budgetData = budgets,
   recurringData = [],
   msiData = [],
+  yieldData = [],
   loading = false,
 }: {
   transactionData?: Transaction[]
@@ -162,6 +166,7 @@ function setQueries({
   budgetData?: Budget[]
   recurringData?: RecurringTransaction[]
   msiData?: MSIPurchase[]
+  yieldData?: YieldReconciliation[]
   loading?: boolean
 } = {}) {
   vi.mocked(useTransactions).mockReturnValue({
@@ -185,6 +190,10 @@ function setQueries({
     data: msiData,
     isLoading: loading,
   } as ReturnType<typeof useMSIPurchases>)
+  vi.mocked(useYieldReconciliations).mockReturnValue({
+    data: yieldData,
+    isLoading: loading,
+  } as ReturnType<typeof useYieldReconciliations>)
 }
 
 function renderPage() {
@@ -767,5 +776,53 @@ describe('StatsPage', () => {
     fireEvent.click(btn60)
     expect(btn60).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: '30D' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('summarizes savings yields with configured and realized rates', () => {
+    const savings: Account = {
+      id: 'savings',
+      name: 'Nu Cajita',
+      type: 'debit',
+      institution: 'Nu',
+      last4: '0001',
+      currency: 'MXN',
+      balance: 10_000_000,
+      annualYieldTiers: [
+        { upToCents: 5_000_000, annualYieldBps: 1500 },
+        { upToCents: null, annualYieldBps: 700 },
+      ],
+      balanceTrackingEnabled: true,
+      isActive: true,
+    }
+    const yieldData: YieldReconciliation[] = [
+      {
+        id: 'r1',
+        accountId: 'savings',
+        transactionId: 'tx',
+        date: '2026-07-15',
+        periodStart: '2026-06-15',
+        balanceBefore: 10_000_000,
+        balanceAfter: 10_100_000,
+        yield: 100_000,
+        adjustment: 0,
+        estimatedYield: 98_000,
+        annualYieldBps: 1200,
+        annualYieldTiers: null,
+        allocations: [],
+      },
+    ]
+    setQueries({ accountData: [...accounts, savings], yieldData })
+    renderPage()
+
+    const section = screen.getByRole('heading', { name: 'Rendimientos' }).parentElement!
+    expect(within(section).getByText('Nu Cajita')).toBeInTheDocument()
+    expect(within(section).getByText('11%')).toBeInTheDocument()
+    expect(within(section).getByText('12.17%')).toBeInTheDocument()
+    expect(within(section).getAllByText('$1,000.00').length).toBeGreaterThan(0)
+  })
+
+  it('hides the yields section without yield accounts', () => {
+    renderPage()
+    expect(screen.queryByRole('heading', { name: 'Rendimientos' })).not.toBeInTheDocument()
   })
 })

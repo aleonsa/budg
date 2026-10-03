@@ -214,6 +214,13 @@ func (r *TransactionRepository) Update(ctx context.Context, userID, id string, p
 		if managed {
 			return ErrSavingsTransactionManaged
 		}
+		yieldManaged, yieldErr := transactionHasYieldReconciliation(ctx, tx, userID, id)
+		if yieldErr != nil {
+			return yieldErr
+		}
+		if yieldManaged {
+			return ErrYieldTransactionManaged
+		}
 
 		updated = applyTransactionPatch(existing, patch)
 		if err := validateTransactionShape(updated); err != nil {
@@ -419,6 +426,13 @@ func (r *TransactionRepository) Delete(ctx context.Context, userID, id string) e
 		if managed {
 			return ErrSavingsTransactionManaged
 		}
+		yieldManaged, yieldErr := transactionHasYieldReconciliation(ctx, tx, userID, id)
+		if yieldErr != nil {
+			return yieldErr
+		}
+		if yieldManaged {
+			return ErrYieldTransactionManaged
+		}
 		entries, err := loadTransactionBalanceEntries(ctx, tx, userID, id)
 		if err != nil {
 			return err
@@ -449,6 +463,18 @@ func transactionHasSavingsAllocation(ctx context.Context, tx pgx.Tx, userID, tra
 		SELECT EXISTS (
 			SELECT 1
 			FROM public.savings_goal_allocations
+			WHERE user_id = $1 AND transaction_id = $2
+		)
+	`, userID, transactionID).Scan(&managed)
+	return managed, err
+}
+
+func transactionHasYieldReconciliation(ctx context.Context, tx pgx.Tx, userID, transactionID string) (bool, error) {
+	var managed bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM public.account_yield_reconciliations
 			WHERE user_id = $1 AND transaction_id = $2
 		)
 	`, userID, transactionID).Scan(&managed)

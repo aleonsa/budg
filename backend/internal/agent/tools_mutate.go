@@ -32,6 +32,7 @@ type WriteStore interface {
 	CreateMSIPurchase(ctx context.Context, userID string, in store.MSIPurchaseInput) (store.MSIPurchase, error)
 	UpdateMSIPurchase(ctx context.Context, userID, id string, in store.MSIPurchaseInput) (store.MSIPurchase, error)
 	DeleteMSIPurchase(ctx context.Context, userID, id string) error
+	ReconcileYield(ctx context.Context, userID, accountID string, in store.YieldReconciliationInput) (store.YieldReconciliationResult, error)
 }
 
 // Store is everything the full (read + mutation) tool set needs.
@@ -44,7 +45,7 @@ type Store interface {
 // mutations to an existing registry. Every one of them requires
 // explicit confirmation before it ever writes to the store -- see the
 // "Política de mutaciones" section of docs/agentic/phase-2-backend-agent.md.
-func RegisterMutationTools(registry *ToolRegistry, data Store, confirmer *Confirmer, userID string) error {
+func RegisterMutationTools(registry *ToolRegistry, data Store, confirmer *Confirmer, userID, currentDate string) error {
 	if registry == nil {
 		return errors.New("registry is required")
 	}
@@ -56,6 +57,9 @@ func RegisterMutationTools(registry *ToolRegistry, data Store, confirmer *Confir
 	}
 	if userID == "" {
 		return errors.New("user id is required")
+	}
+	if err := validateOptionalDate(currentDate); err != nil || currentDate == "" {
+		return errors.New("current date must have format YYYY-MM-DD")
 	}
 
 	tools := []Tool{
@@ -74,6 +78,7 @@ func RegisterMutationTools(registry *ToolRegistry, data Store, confirmer *Confir
 		newCreateMSIPurchaseTool(data, confirmer, userID),
 		newUpdateMSIPurchaseTool(data, confirmer, userID),
 		newDeleteMSIPurchaseTool(data, confirmer, userID),
+		newReconcileAccountYieldTool(data, confirmer, userID, currentDate),
 	}
 	for _, tool := range tools {
 		if err := registry.Register(tool); err != nil {
@@ -123,6 +128,8 @@ func mutationStoreError(err error) ToolResult {
 		return errorResult("La compra MSI requiere una cuenta de crédito.", false)
 	case errors.Is(err, store.ErrMSIPurchaseHasPaidInstallments):
 		return errorResult("No se puede reemplazar una compra MSI que ya tiene mensualidades pagadas.", false)
+	case errors.Is(err, store.ErrYieldTransactionManaged):
+		return errorResult("Ese movimiento pertenece a una conciliación de rendimientos; deshaz la conciliación.", false)
 	case errors.Is(err, store.ErrMSILegacyBalanceChange):
 		return errorResult("La compra MSI usa datos heredados que requieren conciliación manual.", false)
 	default:

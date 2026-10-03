@@ -233,6 +233,32 @@ var last4Pattern = regexp.MustCompile(`^[0-9]{4}$`)
 // truth for the debit/credit field-shape invariant; this only rejects the
 // obviously invalid cases early so clients get fast, friendly feedback
 // instead of a raw constraint-violation error.
+func validTiersMessage(accountType string, tiers []store.YieldTier) bool {
+	if accountType != "debit" {
+		return len(tiers) == 0
+	}
+	if len(tiers) == 0 {
+		return true
+	}
+	if len(tiers) > 8 {
+		return false
+	}
+	var previous int64
+	for i, tier := range tiers {
+		if tier.AnnualYieldBps < 0 || tier.AnnualYieldBps > store.MaxAnnualYieldBps {
+			return false
+		}
+		if tier.UpToCents == nil {
+			return i == len(tiers)-1
+		}
+		if *tier.UpToCents <= previous {
+			return false
+		}
+		previous = *tier.UpToCents
+	}
+	return false
+}
+
 func validateAccountInput(in store.AccountInput) string {
 	if in.Name == "" {
 		return "name is required"
@@ -248,6 +274,13 @@ func validateAccountInput(in store.AccountInput) string {
 	}
 	if in.Currency != "MXN" && in.Currency != "USD" {
 		return "currency must be 'MXN' or 'USD'"
+	}
+	if in.AnnualYieldBps != nil &&
+		(in.Type != "debit" || *in.AnnualYieldBps < 0 || *in.AnnualYieldBps > store.MaxAnnualYieldBps) {
+		return "annualYieldBps must be between 0 and 10000 and only applies to debit accounts"
+	}
+	if !validTiersMessage(in.Type, in.AnnualYieldTiers) {
+		return "annualYieldTiers must be a ladder of 1-8 bands with increasing positive upToCents in cents, rates between 0 and 10000, and an uncapped final band"
 	}
 	if in.Type == "debit" {
 		if in.BalanceCents == nil {

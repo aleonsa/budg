@@ -12,6 +12,8 @@ import { cycleElapsed, getCreditCardCycles, sumCycleTransactions } from '@/lib/c
 import { today } from '@/lib/date'
 import { queryKeys } from '@/lib/query-keys'
 import { cn } from '@/lib/utils'
+import { describeYieldTiers, estimateAccountYield } from '@/lib/yield'
+import { YieldReconciliationPanel } from '@/features/yields/YieldReconciliationPanel'
 import {
   useAccounts,
   useCategories,
@@ -80,6 +82,48 @@ function todayISO(): string {
 }
 
 // ── Hero ─────────────────────────────────────────────────────
+
+type YieldFormConfig =
+  | 'none'
+  | 'invalid'
+  | { flatBps: number | null; tiers: null }
+  | { flatBps: null; tiers: Array<{ upToCents: number | null; annualYieldBps: number }> }
+
+function parseYieldTiers(rows: Array<{ rate: string; cap: string }>): YieldFormConfig {
+  const norm = (value: string) => value.trim().replace(',', '.')
+  const rates = rows.map((row) => norm(row.rate))
+  if (rates.every((rate) => rate === '')) return 'none'
+  const parsedRates = rates.map((rate) => Number(rate))
+  if (
+    parsedRates.some(
+      (rate, i) => rates[i] !== '' && (!Number.isFinite(rate) || rate < 0 || rate > 100),
+    )
+  ) {
+    return 'invalid'
+  }
+  if (rows.length === 1) {
+    return { flatBps: Math.round(parsedRates[0] * 100), tiers: null }
+  }
+  if (parsedRates.some((rate, i) => rates[i] === '' || !Number.isFinite(rate))) return 'invalid'
+  const caps = rows.slice(0, -1).map((row) => norm(row.cap))
+  if (caps.some((cap) => cap === '')) return 'invalid'
+  const parsedCaps = caps.map((cap) => Number(cap))
+  if (
+    parsedCaps.some(
+      (cap, i) => !Number.isFinite(cap) || cap <= 0 || (i > 0 && cap <= parsedCaps[i - 1]),
+    )
+  ) {
+    return 'invalid'
+  }
+  if (norm(rows[rows.length - 1].cap) !== '') return 'invalid'
+  return {
+    flatBps: null,
+    tiers: rows.map((_, i) => ({
+      upToCents: i === rows.length - 1 ? null : Math.round(parsedCaps[i] * 100),
+      annualYieldBps: Math.round(parsedRates[i] * 100),
+    })),
+  }
+}
 
 function NetWorthHero({
   netWorth,
@@ -171,12 +215,18 @@ function DebitCardItem({
   sharePct,
   onEdit,
   onDelete,
+  onReconcileYield,
 }: {
   account: AccountWithSummary
   sharePct: number
   onEdit: () => void
   onDelete: () => void
+  onReconcileYield: () => void
 }) {
+  const hasYield =
+    (account.annualYieldBps != null && account.annualYieldBps > 0) ||
+    (account.annualYieldTiers?.some((tier) => tier.annualYieldBps > 0) ?? false)
+  const yieldEstimate = hasYield ? estimateAccountYield(account, today()) : null
   return (
     <Card className="p-3">
       <div className="flex items-start justify-between gap-2">
@@ -202,6 +252,23 @@ function DebitCardItem({
           {sharePct}% del total
         </span>
       </div>
+      {yieldEstimate && (
+        <div className="mt-2.5 rounded-lg bg-[hsl(var(--color-green-soft))] p-2.5 text-[11px]">
+          <p className="font-medium text-[hsl(var(--color-green))]">
+            Rinde{' '}
+            {describeYieldTiers(account.annualYieldBps, account.annualYieldTiers, account.currency)}{' '}
+            · ≈ {formatMoney(yieldEstimate.monthly, account.currency)}/mes
+          </p>
+          <p className="mt-0.5 text-muted-foreground">
+            {yieldEstimate.since
+              ? `≈ +${formatMoney(yieldEstimate.accrued, account.currency)} generados desde ${formatDate(yieldEstimate.since)}`
+              : 'Activa el seguimiento de saldo para estimar lo generado'}
+          </p>
+          <Button variant="outline" size="sm" className="mt-2" onClick={onReconcileYield}>
+            Conciliar rendimientos
+          </Button>
+        </div>
+      )}
       <AccountActions accountName={account.name} onEdit={onEdit} onDelete={onDelete} />
     </Card>
   )
@@ -551,7 +618,12 @@ export default function AccountsPage() {
   const [fLast4, setFLast4] = useState('')
   const [fCutDay, setFCutDay] = useState('')
   const [fDueDay, setFDueDay] = useState('')
+  const [fYieldTiers, setFYieldTiers] = useState<Array<{ rate: string; cap: string }>>([
+    { rate: '', cap: '' },
+  ])
+  const [yieldAccount, setYieldAccount] = useState<Account | null>(null)
   const [showNameError, setShowNameError] = useState(false)
+  const [yieldError, setYieldError] = useState(false)
   const [fMSIAccount, setFMSIAccount] = useState('')
   const [fMSICategory, setFMSICategory] = useState('')
   const [fMSIDescription, setFMSIDescription] = useState('')
@@ -637,6 +709,8 @@ export default function AccountsPage() {
     setFLast4('')
     setFCutDay('')
     setFDueDay('')
+    setFYieldTiers([{ rate: '', cap: '' }])
+    setYieldError(false)
     setShowNameError(false)
     setIsAccountPanelOpen(true)
   }
@@ -656,6 +730,20 @@ export default function AccountsPage() {
     setFLast4(account.last4)
     setFCutDay(account.statementCutDay ? String(account.statementCutDay) : '')
     setFDueDay(account.paymentDueDay ? String(account.paymentDueDay) : '')
+    setFYieldTiers(
+      account.annualYieldTiers && account.annualYieldTiers.length > 0
+        ? account.annualYieldTiers.map((tier) => ({
+            rate: String(tier.annualYieldBps / 100),
+            cap: tier.upToCents === null ? '' : String(tier.upToCents / 100),
+          }))
+        : [
+            {
+              rate: account.annualYieldBps != null ? String(account.annualYieldBps / 100) : '',
+              cap: '',
+            },
+          ],
+    )
+    setYieldError(false)
     setShowNameError(false)
     setIsAccountPanelOpen(true)
   }
@@ -692,6 +780,15 @@ export default function AccountsPage() {
     const availableCredit = balance - debt
     const cutDay = Number(fCutDay)
     const dueDay = Number(fDueDay)
+    let yieldConfig: YieldFormConfig = parseYieldTiers(fYieldTiers)
+    if (yieldConfig === 'invalid') {
+      setYieldError(true)
+      return
+    }
+    setYieldError(false)
+    if (isCredit) yieldConfig = 'none'
+    const annualYieldBps = yieldConfig === 'none' ? null : yieldConfig.flatBps
+    const annualYieldTiers = yieldConfig === 'none' ? null : yieldConfig.tiers
     const creditSchedule = {
       ...(Number.isInteger(cutDay) && cutDay >= 1 && cutDay <= 28
         ? { statementCutDay: cutDay }
@@ -720,6 +817,7 @@ export default function AccountsPage() {
             ...(isCredit && dueDay !== editingAccount.paymentDueDay
               ? { paymentDueDay: creditSchedule.paymentDueDay }
               : {}),
+            ...(!isCredit ? { annualYieldBps, annualYieldTiers } : {}),
           },
         },
         { onSuccess: closePanel },
@@ -734,7 +832,13 @@ export default function AccountsPage() {
         institution: fInstitution.trim() || 'Banco',
         last4: fLast4.trim().slice(-4) || '0000',
         currency: 'MXN',
-        ...(isCredit ? { creditLimit: balance, availableCredit, ...creditSchedule } : { balance }),
+        ...(isCredit
+          ? { creditLimit: balance, availableCredit, ...creditSchedule }
+          : {
+              balance,
+              ...(annualYieldBps !== null ? { annualYieldBps } : {}),
+              ...(annualYieldTiers !== null ? { annualYieldTiers } : {}),
+            }),
       },
       { onSuccess: closePanel },
     )
@@ -914,6 +1018,80 @@ export default function AccountsPage() {
           </div>
         )}
       </div>
+      {fType === 'debit' && (
+        <div className="space-y-1.5">
+          <Label>Rendimiento anual % (opcional)</Label>
+          {fYieldTiers.map((row, index) => {
+            const isLast = index === fYieldTiers.length - 1
+            const single = fYieldTiers.length === 1
+            return (
+              <div key={index} className="flex items-center gap-1.5">
+                <Input
+                  aria-label={`Tasa anual tramo ${index + 1} (%)`}
+                  placeholder={single ? 'Ej. 12.5' : 'Ej. 15'}
+                  inputMode="decimal"
+                  value={row.rate}
+                  onChange={(event) =>
+                    setFYieldTiers((rows) =>
+                      rows.map((r, i) => (i === index ? { ...r, rate: event.target.value } : r)),
+                    )
+                  }
+                />
+                <Input
+                  aria-label={`Límite tramo ${index + 1} (pesos)`}
+                  placeholder={single ? 'Sin límite' : isLast ? 'Sin límite' : 'Hasta $…'}
+                  inputMode="decimal"
+                  disabled={single || isLast}
+                  value={row.cap}
+                  onChange={(event) =>
+                    setFYieldTiers((rows) =>
+                      rows.map((r, i) => (i === index ? { ...r, cap: event.target.value } : r)),
+                    )
+                  }
+                />
+                {fYieldTiers.length > 1 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 shrink-0 px-2"
+                    aria-label={`Quitar tramo ${index + 1}`}
+                    onClick={() =>
+                      setFYieldTiers((rows) => {
+                        const next = rows.filter((_, i) => i !== index)
+                        return next.map((tier, i) =>
+                          i === next.length - 1 ? { ...tier, cap: '' } : tier,
+                        )
+                      })
+                    }
+                  >
+                    ×
+                  </Button>
+                )}
+              </div>
+            )
+          })}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-[11px]"
+            disabled={fYieldTiers.length >= 8}
+            onClick={() => setFYieldTiers((rows) => [...rows, { rate: '', cap: '' }])}
+          >
+            + Agregar tramo (tasa con límite)
+          </Button>
+          <p className="text-[11px] text-muted-foreground">
+            Usa la tasa neta si tu banco retiene ISR. Cada tramo aplica a la parte del saldo entre
+            el límite anterior y el suyo (ej. 15% hasta $25,000 y 7% después); el último tramo no
+            lleva límite.
+          </p>
+          {yieldError && (
+            <p role="alert" className="text-xs text-destructive">
+              Revisa los tramos: tasas entre 0 y 100, límites en pesos crecientes y el último tramo
+              sin límite.
+            </p>
+          )}
+        </div>
+      )}
       {fType === 'credit' && (
         <div className="space-y-3">
           {editingAccount?.balanceTrackingEnabled && (
@@ -1206,6 +1384,7 @@ export default function AccountsPage() {
                     sharePct={sharePct}
                     onEdit={() => openEditPanel(acc)}
                     onDelete={() => openDeletePanel(acc)}
+                    onReconcileYield={() => setYieldAccount(acc)}
                   />
                 )
               })}
@@ -1293,6 +1472,14 @@ export default function AccountsPage() {
       {msiPanel}
       {deletePanel}
       {deleteMSIPanel}
+      {yieldAccount && (
+        <YieldReconciliationPanel
+          open
+          onClose={() => setYieldAccount(null)}
+          account={accounts.find((account) => account.id === yieldAccount.id) ?? yieldAccount}
+          categories={categoriesQ.data ?? []}
+        />
+      )}
     </>
   )
 }

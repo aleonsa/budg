@@ -74,7 +74,7 @@ async function updateCurrentAmount(
 // Backend JSON uses the same camelCase contract the frontend already uses,
 // field-for-field (no `order`-style renames like categories has).
 
-interface BackendAccount {
+export interface BackendAccount {
   id: string
   name: string
   type: 'debit' | 'credit'
@@ -88,10 +88,13 @@ interface BackendAccount {
   paymentDueDay?: number
   balanceTrackingEnabled?: boolean
   balanceTrackingStartedAt?: string
+  annualYieldBps?: number | null
+  annualYieldTiers?: Array<{ upToCents: number | null; annualYieldBps: number }> | null
+  yieldReconciledOn?: string | null
   isActive: boolean
 }
 
-function toFrontend(a: BackendAccount): Account {
+export function toFrontend(a: BackendAccount): Account {
   return {
     id: a.id,
     name: a.name,
@@ -106,6 +109,9 @@ function toFrontend(a: BackendAccount): Account {
     paymentDueDay: a.paymentDueDay,
     balanceTrackingEnabled: a.balanceTrackingEnabled,
     balanceTrackingStartedAt: a.balanceTrackingStartedAt,
+    annualYieldBps: a.annualYieldBps ?? null,
+    annualYieldTiers: a.annualYieldTiers ?? null,
+    yieldReconciledOn: a.yieldReconciledOn ?? null,
     isActive: a.isActive,
   }
 }
@@ -124,6 +130,8 @@ function toBackend(
     availableCredit: input.availableCredit,
     statementCutDay: input.statementCutDay,
     paymentDueDay: input.paymentDueDay,
+    ...(input.annualYieldBps != null ? { annualYieldBps: input.annualYieldBps } : {}),
+    ...(input.annualYieldTiers != null ? { annualYieldTiers: input.annualYieldTiers } : {}),
   }
 }
 
@@ -139,5 +147,7 @@ function toBackendPatch(patch: Partial<Account>): Partial<BackendAccount> {
   if (patch.availableCredit !== undefined) out.availableCredit = patch.availableCredit
   if (patch.statementCutDay !== undefined) out.statementCutDay = patch.statementCutDay
   if (patch.paymentDueDay !== undefined) out.paymentDueDay = patch.paymentDueDay
+  if (patch.annualYieldBps !== undefined) out.annualYieldBps = patch.annualYieldBps
+  if (patch.annualYieldTiers !== undefined) out.annualYieldTiers = patch.annualYieldTiers
   return out
 }

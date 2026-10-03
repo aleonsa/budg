@@ -19,7 +19,16 @@ type fakeReadStore struct {
 	savingsGoals []store.SavingsGoal
 	recurring    []store.RecurringTransaction
 	msiPurchases []store.MSIPurchase
+	yields       []store.YieldReconciliation
 	err          error
+}
+
+func (f *fakeReadStore) ListYieldReconciliations(context.Context, string) ([]store.YieldReconciliation, error) {
+	return f.yields, f.err
+}
+
+func (f *fakeReadStore) ReconcileYield(context.Context, string, string, store.YieldReconciliationInput) (store.YieldReconciliationResult, error) {
+	return unsupportedMutation[store.YieldReconciliationResult]()
 }
 
 func (f *fakeReadStore) ListAccounts(context.Context, string) ([]store.Account, error) {

@@ -1,4 +1,5 @@
 import type { Account, Cents, MSIPurchase, RecurringTransaction } from '@/types'
+import { estimateYieldCents } from '@/lib/yield'
 
 export interface ForecastParams {
   accounts: Account[]
@@ -7,6 +8,8 @@ export interface ForecastParams {
   currentDate: string // YYYY-MM-DD
   horizonDays: 30 | 60 | 90
   discretionaryDailyBurnRateCents?: number
+  /** Add expected flat or tiered savings yield as daily inflow. */
+  includeYield?: boolean
 }
 
 export interface ScheduledForecastEvent {
@@ -43,6 +46,7 @@ export interface CashFlowForecast {
   totalMSIOutflowCents: Cents
   totalScheduledOutflowCents: Cents
   totalDiscretionaryBurnCents: Cents
+  totalExpectedYieldCents: Cents
   events: ScheduledForecastEvent[]
   timeline: ForecastTimelinePoint[]
 }
@@ -171,6 +175,7 @@ export function computeCashFlowForecast({
   currentDate,
   horizonDays,
   discretionaryDailyBurnRateCents = 0,
+  includeYield = true,
 }: ForecastParams): CashFlowForecast {
   const accountMap = new Map(accounts.map((a) => [a.id, a.name]))
 
@@ -250,6 +255,23 @@ export function computeCashFlowForecast({
   let minRealisticDate = currentDate
 
   const normalizedBurnRate = Math.max(0, discretionaryDailyBurnRateCents)
+  const yieldAccounts = includeYield
+    ? accounts.filter(
+        (a) =>
+          a.isActive &&
+          a.type === 'debit' &&
+          ((a.annualYieldBps ?? 0) > 0 ||
+            (a.annualYieldTiers?.some((tier) => tier.annualYieldBps > 0) ?? false)),
+      )
+    : []
+  // Same daily-compounding estimate as the backend (store.EstimateYieldCents).
+  const yieldThrough = (days: number) =>
+    yieldAccounts.reduce(
+      (sum, a) =>
+        sum + estimateYieldCents(a.balance ?? 0, a.annualYieldBps, days, a.annualYieldTiers),
+      0,
+    )
+  let accruedYield = 0
 
   for (let day = 0; day <= horizonDays; day++) {
     const date = addDaysISO(currentDate, day)
@@ -259,6 +281,11 @@ export function computeCashFlowForecast({
     realisticBalance -= outflow
     if (day > 0) {
       realisticBalance -= normalizedBurnRate
+      const total = yieldThrough(day)
+      const yieldToday = total - accruedYield
+      accruedYield = total
+      scheduledBalance += yieldToday
+      realisticBalance += yieldToday
     }
 
     if (scheduledBalance < minScheduledBalanceCents) {
@@ -315,6 +342,7 @@ export function computeCashFlowForecast({
     totalMSIOutflowCents,
     totalScheduledOutflowCents,
     totalDiscretionaryBurnCents,
+    totalExpectedYieldCents: accruedYield,
     events,
     timeline,
   }

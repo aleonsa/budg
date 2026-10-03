@@ -64,5 +64,6 @@ describe('FabChat', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.savingsOverview })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.recurringTransactions })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.msiPurchases })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.yieldReconciliations })
   })
 })

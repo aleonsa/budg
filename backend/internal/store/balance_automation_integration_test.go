@@ -306,6 +306,15 @@ func TestTransactionCreateIdempotency(t *testing.T) {
 	assertAccountAmount(t, ctx, admin, account.ID, "balance_cents", 9300)
 	assertTransactionLedger(t, ctx, admin, first.ID, map[string]int64{account.ID: -700})
 	otherUserID := seedAuthUser(t, ctx, admin, "55555555-5555-5555-5555-555555555555", "idempotency-other@budg.local")
+	for _, statement := range []string{
+		`DELETE FROM public.create_idempotency_receipts WHERE user_id = $1`,
+		`DELETE FROM public.transactions WHERE user_id = $1`,
+		`DELETE FROM public.accounts WHERE user_id = $1`,
+	} {
+		if _, err := admin.Exec(ctx, statement, otherUserID); err != nil {
+			t.Fatalf("cleanup other user: %v", err)
+		}
+	}
 	otherAccount, err := accounts.Create(ctx, otherUserID, store.AccountInput{
 		Name: "Other idempotent payments", Type: "debit", Institution: "Bank", Last4: "4003",
 		Currency: "MXN", BalanceCents: &initial,

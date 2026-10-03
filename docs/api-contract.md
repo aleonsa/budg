@@ -418,6 +418,69 @@ cut, line, and amount, and `POST /v1/accounts/:id/credit-card-statements` to
 save the cut. Card-payment credits are unchecked by default and saving or
 registering is blocked on `card_last4_mismatch` until the user confirms.
 
+### Savings yields
+
+Debit accounts accept either an optional flat `annualYieldBps` (0–10000;
+`1200` = 12% a year, ideally net of withheld tax) or `annualYieldTiers` on
+create and `PATCH`. A tier ladder has 1–8 bands, positive increasing
+`upToCents` caps, rates from 0–10000 bps, and an uncapped (`null`) final band:
+
+```json
+[
+  { "upToCents": 2500000, "annualYieldBps": 1500 },
+  { "upToCents": null, "annualYieldBps": 700 }
+]
+```
+
+Tiers take precedence over the flat rate. Each balance portion compounds daily
+at its band rate; without tiers, the flat estimate remains
+`balance × ((1 + rate/365)^days − 1)`. Accounts also expose
+`yieldReconciledOn`, the date of the latest reconciliation. Estimates accrue
+from that date or, before the first reconciliation, the balance-tracking start
+date. Send `annualYieldTiers: null` to clear tiers.
+
+#### `POST /v1/accounts/:id/yield-reconciliations`
+
+Requires a debit account with balance tracking. Body:
+
+```json
+{ "currentBalance": 101500, "yieldAmount": 1000, "categoryId": "uuid|null", "date": "2026-10-02" }
+```
+
+The difference `currentBalance − balance` is split atomically:
+
+- `yieldAmount` (0 ≤ yield ≤ positive difference; must be 0 when the balance
+  dropped) becomes an `income` transaction "Rendimientos" in the optional
+  income `categoryId`.
+- The remainder is a plain `reconciliation` ledger adjustment (not income).
+- The yield is distributed to the account's goals in proportion to the funds
+  each goal has allocated there (denominator: the larger of the balance and
+  total allocated), recorded as `yield` allocations; leftover cents stay
+  unallocated.
+
+`date` cannot precede the previous reconciliation. Optional `Idempotency-Key`.
+Returns `201 { reconciliation, account }`. Errors: `400 invalid_request`,
+`404 not_found`, `409 balance_tracking_conflict`, `409 idempotency_conflict`,
+`409 idempotency_resource_deleted`.
+
+The yield transaction is managed: editing or deleting it directly returns
+`409 yield_transaction_managed`.
+
+#### `DELETE /v1/accounts/:id/yield-reconciliations/:reconciliationId`
+
+Undoes the latest reconciliation of the account: removes goal shares, the yield
+transaction, and reverses the adjustment. Older ones return
+`409 yield_reconciliation_not_latest`; a goal that no longer holds its share
+returns `409 goal_allocation_conflict`. Returns the updated account.
+
+#### `GET /v1/yield-reconciliations`
+
+Returns `{ data: YieldReconciliation[] }` newest first, each with `date`,
+`periodStart`, `balanceBefore`, `balanceAfter`, `yield`, `adjustment`,
+`estimatedYield`, the configured `annualYieldBps`/`annualYieldTiers` snapshot,
+and goal `allocations`. Used for realized annual rates:
+`Σ yield / Σ(balanceBefore × days) × 365`.
+
 ### `GET /v1/rules`
 
 Returns `Rule[]`, sorted by `priority ASC`, then `id ASC`.
