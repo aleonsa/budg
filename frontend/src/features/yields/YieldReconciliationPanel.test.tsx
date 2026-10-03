@@ -64,6 +64,7 @@ function result(yieldAmount: number): Awaited<ReturnType<typeof api.reconcileYie
       adjustment: 0,
       estimatedYield: 99_102,
       annualYieldBps: 1200,
+      annualYieldTiers: null,
       allocations: [{ goalId: 'goal-1', amount: 40_000 }],
     },
     account,

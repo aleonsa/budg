@@ -12,25 +12,28 @@ import (
 )
 
 type accountYieldView struct {
-	AccountID              string  `json:"accountId"`
-	AccountName            string  `json:"accountName"`
-	BalanceCents           int64   `json:"balanceCents"`
-	AnnualYieldBps         *int    `json:"annualYieldBps"`
-	LastReconciledOn       *string `json:"lastReconciledOn"`
-	EstimatedAccruedCents  int64   `json:"estimatedAccruedCents"`
-	EstimatedMonthlyCents  int64   `json:"estimatedMonthlyCents"`
-	YieldYearToDateCents   int64   `json:"yieldYearToDateCents"`
-	EffectiveAnnualRateBps *int64  `json:"effectiveAnnualRateBps"`
-	BalanceTrackingEnabled bool    `json:"balanceTrackingEnabled"`
+	AccountID              string            `json:"accountId"`
+	AccountName            string            `json:"accountName"`
+	BalanceCents           int64             `json:"balanceCents"`
+	AnnualYieldBps         *int              `json:"annualYieldBps"`
+	AnnualYieldTiers       []store.YieldTier `json:"annualYieldTiers"`
+	BlendedAnnualYieldBps  *int              `json:"blendedAnnualYieldBps"`
+	LastReconciledOn       *string           `json:"lastReconciledOn"`
+	EstimatedAccruedCents  int64             `json:"estimatedAccruedCents"`
+	EstimatedMonthlyCents  int64             `json:"estimatedMonthlyCents"`
+	YieldYearToDateCents   int64             `json:"yieldYearToDateCents"`
+	EffectiveAnnualRateBps *int64            `json:"effectiveAnnualRateBps"`
+	BalanceTrackingEnabled bool              `json:"balanceTrackingEnabled"`
 }
 
 func newListAccountYieldsTool(data ReadStore, userID, currentDate string) Tool {
 	return Tool{
 		Definition: ToolDefinition{
 			Name: "list_account_yields",
-			Description: "Lista cuentas de ahorro con tasa de rendimiento: saldo, tasa anual configurada (bps, 100 = 1%), " +
-				"rendimiento estimado acumulado desde la última conciliación, estimado mensual, rendimientos registrados en el año " +
-				"y tasa efectiva real de los últimos 12 meses.",
+			Description: "Lista cuentas de ahorro con tasa de rendimiento: saldo, tasa anual configurada (bps, 100 = 1%; puede ser " +
+				"por tramos, ej. 15% hasta $25,000 y 7% después), tasa combinada al saldo actual, rendimiento estimado acumulado " +
+				"desde la última conciliación, estimado mensual, rendimientos registrados en el año y tasa efectiva real de los " +
+				"últimos 12 meses.",
 			InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`),
 		},
 		Handler: func(ctx context.Context, raw json.RawMessage) (ToolResult, error) {
@@ -66,7 +69,8 @@ func buildAccountYieldViews(accounts []store.Account, reconciliations []store.Yi
 	views := []accountYieldView{}
 	for _, account := range accounts {
 		history := byAccount[account.ID]
-		if !account.IsActive || account.Type != "debit" || (account.AnnualYieldBps == nil && len(history) == 0) {
+		if !account.IsActive || account.Type != "debit" ||
+			(account.AnnualYieldBps == nil && len(account.AnnualYieldTiers) == 0 && len(history) == 0) {
 			continue
 		}
 		balance := int64(0)
@@ -75,9 +79,11 @@ func buildAccountYieldViews(accounts []store.Account, reconciliations []store.Yi
 		}
 		view := accountYieldView{
 			AccountID: account.ID, AccountName: account.Name, BalanceCents: balance,
-			AnnualYieldBps: account.AnnualYieldBps, LastReconciledOn: account.YieldReconciledOn,
+			AnnualYieldBps: account.AnnualYieldBps, AnnualYieldTiers: account.AnnualYieldTiers,
+			LastReconciledOn:       account.YieldReconciledOn,
 			BalanceTrackingEnabled: account.BalanceTrackingEnabled,
-			EstimatedMonthlyCents:  store.EstimateYieldCents(balance, account.AnnualYieldBps, 30),
+			EstimatedMonthlyCents:  store.EstimateYieldCentsTiered(balance, account.AnnualYieldBps, account.AnnualYieldTiers, 30),
+			BlendedAnnualYieldBps:  store.BlendedAnnualYieldBps(balance, account.AnnualYieldBps, account.AnnualYieldTiers),
 		}
 		start := account.YieldReconciledOn
 		if start == nil && account.BalanceTrackingStartedAt != nil {
@@ -86,7 +92,7 @@ func buildAccountYieldViews(accounts []store.Account, reconciliations []store.Yi
 		}
 		if start != nil {
 			if from, err := time.Parse(time.DateOnly, *start); err == nil && today.After(from) {
-				view.EstimatedAccruedCents = store.EstimateYieldCents(balance, account.AnnualYieldBps, int(today.Sub(from).Hours()/24))
+				view.EstimatedAccruedCents = store.EstimateYieldCentsTiered(balance, account.AnnualYieldBps, account.AnnualYieldTiers, int(today.Sub(from).Hours()/24))
 			}
 		}
 		var weightedBalanceDays float64
@@ -206,7 +212,7 @@ func newReconcileAccountYieldTool(data Store, confirmer *Confirmer, userID, curr
 				from, errFrom := time.Parse(time.DateOnly, *start)
 				to, errTo := time.Parse(time.DateOnly, date)
 				if errFrom == nil && errTo == nil && to.After(from) {
-					estimate = store.EstimateYieldCents(balance, account.AnnualYieldBps, int(to.Sub(from).Hours()/24))
+					estimate = store.EstimateYieldCentsTiered(balance, account.AnnualYieldBps, account.AnnualYieldTiers, int(to.Sub(from).Hours()/24))
 				}
 			}
 

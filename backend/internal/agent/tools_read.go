@@ -1030,7 +1030,8 @@ func newCashFlowForecastTool(data ReadStore, userID, currentDate string) Tool {
 			var expectedYield int64
 			for _, acc := range accounts {
 				if acc.IsActive && acc.Type == "debit" && acc.BalanceCents != nil {
-					expectedYield += store.EstimateYieldCents(*acc.BalanceCents, acc.AnnualYieldBps, args.DaysAhead)
+					expectedYield += store.EstimateYieldCentsTiered(
+						*acc.BalanceCents, acc.AnnualYieldBps, acc.AnnualYieldTiers, args.DaysAhead)
 				}
 			}
 

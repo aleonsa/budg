@@ -1,4 +1,4 @@
-import type { Account, Cents, YieldReconciliation } from '@/types'
+import type { Account, Cents, YieldReconciliation, YieldTier } from '@/types'
 
 const DAY_MS = 86_400_000
 
@@ -20,10 +20,84 @@ export function estimateYieldCents(
   balance: Cents,
   annualYieldBps: number | null | undefined,
   days: number,
+  tiers?: YieldTier[] | null,
 ): Cents {
-  if (!annualYieldBps || annualYieldBps <= 0 || balance <= 0 || days <= 0) return 0
+  if (balance <= 0 || days <= 0) return 0
+  if (tiers && tiers.length > 0) {
+    let currentBalance = balance
+    for (let day = 0; day < days; day += 1) {
+      currentBalance += tieredDailyYield(currentBalance, tiers)
+    }
+    return Math.round(currentBalance - balance)
+  }
+  if (!annualYieldBps || annualYieldBps <= 0) return 0
   const rate = annualYieldBps / 10_000
   return Math.round(balance * (Math.pow(1 + rate / 365, days) - 1))
+}
+
+function tieredDailyYield(balance: number, tiers: YieldTier[]): number {
+  let dailyYield = 0
+  let previousCap = 0
+  for (const tier of tiers) {
+    const portion =
+      tier.upToCents === null
+        ? balance - previousCap
+        : Math.min(balance, tier.upToCents) - previousCap
+    if (portion <= 0) break
+    dailyYield += (portion * tier.annualYieldBps) / 10_000 / 365
+    if (tier.upToCents === null) break
+    previousCap = tier.upToCents
+  }
+  return dailyYield
+}
+
+/** Balance-weighted configured rate across tiers (or the flat rate). */
+export function blendedAnnualYieldBps(
+  balance: Cents,
+  annualYieldBps: number | null | undefined,
+  tiers?: YieldTier[] | null,
+): number | null {
+  if (balance <= 0) return null
+  if (!tiers || tiers.length === 0) return annualYieldBps ?? null
+  let previousCap = 0
+  let weighted = 0
+  for (const tier of tiers) {
+    const portion =
+      tier.upToCents === null
+        ? balance - previousCap
+        : Math.min(balance, tier.upToCents) - previousCap
+    if (portion <= 0) break
+    weighted += portion * tier.annualYieldBps
+    if (tier.upToCents === null) break
+    previousCap = tier.upToCents
+  }
+  return Math.round(weighted / balance)
+}
+
+/** "15% hasta $25k · 7% después" for display. */
+export function describeYieldTiers(
+  annualYieldBps: number | null | undefined,
+  tiers: YieldTier[] | null | undefined,
+  currency: string,
+): string | null {
+  if (tiers && tiers.length > 0) {
+    return tiers
+      .map((tier, index) => {
+        const rate = formatBps(tier.annualYieldBps)
+        return tier.upToCents === null
+          ? index === 0
+            ? `${rate} sin límite`
+            : `${rate} después`
+          : `${rate} hasta ${new Intl.NumberFormat('es-MX', {
+              style: 'currency',
+              currency,
+              maximumFractionDigits: 0,
+            }).format(tier.upToCents / 100)}`
+      })
+      .join(' · ')
+  }
+  if (annualYieldBps != null && annualYieldBps > 0) return `${formatBps(annualYieldBps)} anual`
+  return null
 }
 
 /** Date from which yield accrues: last reconciliation, else tracking start. */
@@ -47,8 +121,8 @@ export function estimateAccountYield(account: Account, today: string): AccountYi
   return {
     since,
     days,
-    accrued: estimateYieldCents(balance, account.annualYieldBps, days),
-    monthly: estimateYieldCents(balance, account.annualYieldBps, 30),
+    accrued: estimateYieldCents(balance, account.annualYieldBps, days, account.annualYieldTiers),
+    monthly: estimateYieldCents(balance, account.annualYieldBps, 30, account.annualYieldTiers),
   }
 }
 

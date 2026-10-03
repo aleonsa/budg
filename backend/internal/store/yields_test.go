@@ -23,6 +23,86 @@ func TestEstimateYieldCents(t *testing.T) {
 	}
 }
 
+func int64Ptr(v int64) *int64 { return &v }
+
+func TestEstimateYieldCentsTiered(t *testing.T) {
+	// 15% up to $25,000, then 7%: each portion compounds at its own rate.
+	tiers := []YieldTier{
+		{UpToCents: int64Ptr(2_500_000), AnnualYieldBps: 1500},
+		{UpToCents: nil, AnnualYieldBps: 700},
+	}
+	below := EstimateYieldCentsTiered(2_500_000, nil, tiers, 30)
+	if below != 30_908 {
+		t.Fatalf("at first-tier cap = %d, want 30908", below)
+	}
+	above := EstimateYieldCentsTiered(5_000_000, nil, tiers, 30)
+	if above != 45_331 {
+		t.Fatalf("across tiers = %d, want 45331", above)
+	}
+	if crossing := EstimateYieldCentsTiered(2_500_000, nil, tiers, 365); crossing != 388_398 {
+		t.Fatalf("interest crossing the cap = %d, want 388398", crossing)
+	}
+	// Tiers take precedence over the flat rate.
+	flatOnly := EstimateYieldCentsTiered(1_000_000, int64PtrBps(100), nil, 10)
+	if flatOnly != EstimateYieldCents(1_000_000, int64PtrBps(100), 10) {
+		t.Fatalf("flat fallback = %d", flatOnly)
+	}
+	if EstimateYieldCentsTiered(0, nil, tiers, 30) != 0 || EstimateYieldCentsTiered(100, nil, tiers, 0) != 0 {
+		t.Fatal("zero balance or days must yield zero")
+	}
+}
+
+func int64PtrBps(v int64) *int { bps := int(v); return &bps }
+
+func TestBlendedAnnualYieldBps(t *testing.T) {
+	tiers := []YieldTier{
+		{UpToCents: int64Ptr(2_500_000), AnnualYieldBps: 1500},
+		{UpToCents: nil, AnnualYieldBps: 700},
+	}
+	// $50,000: half at 15%, half at 7% -> 11%.
+	if got := BlendedAnnualYieldBps(5_000_000, nil, tiers); got == nil || *got != 1100 {
+		t.Fatalf("blended = %v, want 1100", got)
+	}
+	if got := BlendedAnnualYieldBps(2_500_000, nil, tiers); got == nil || *got != 1500 {
+		t.Fatalf("blended below cap = %v, want 1500", got)
+	}
+	flat := 900
+	if got := BlendedAnnualYieldBps(1_000_000, &flat, nil); got == nil || *got != 900 {
+		t.Fatalf("flat blended = %v", got)
+	}
+	if BlendedAnnualYieldBps(0, &flat, tiers) != nil || BlendedAnnualYieldBps(100, nil, nil) != nil {
+		t.Fatal("zero balance or no config must return nil")
+	}
+}
+
+func TestValidYieldTiers(t *testing.T) {
+	valid := []YieldTier{
+		{UpToCents: int64Ptr(2_500_000), AnnualYieldBps: 1500},
+		{UpToCents: nil, AnnualYieldBps: 700},
+	}
+	if !validYieldTiers("debit", valid) {
+		t.Fatal("valid ladder rejected")
+	}
+	if !validYieldTiers("debit", nil) {
+		t.Fatal("absent ladder rejected")
+	}
+	invalid := map[string][]YieldTier{
+		"single capped":     {{UpToCents: int64Ptr(100), AnnualYieldBps: 100}},
+		"cap not last":      {{UpToCents: nil, AnnualYieldBps: 100}, {UpToCents: int64Ptr(100), AnnualYieldBps: 100}},
+		"non increasing":    {{UpToCents: int64Ptr(200), AnnualYieldBps: 100}, {UpToCents: int64Ptr(100), AnnualYieldBps: 100}, {UpToCents: nil, AnnualYieldBps: 100}},
+		"rate out of range": {{UpToCents: int64Ptr(100), AnnualYieldBps: 20_001}, {UpToCents: nil, AnnualYieldBps: 100}},
+		"too many":          make([]YieldTier, 9),
+	}
+	for name, tiers := range invalid {
+		if validYieldTiers("debit", tiers) {
+			t.Fatalf("%s ladder accepted", name)
+		}
+	}
+	if validYieldTiers("credit", valid) {
+		t.Fatal("credit ladder accepted")
+	}
+}
+
 func TestYieldShares(t *testing.T) {
 	shares := YieldShares(1_000, 100_000, map[string]int64{"b": 20_000, "a": 40_000, "empty": 0})
 	if len(shares) != 2 || shares[0] != (YieldAllocation{GoalID: "a", Amount: 400}) ||

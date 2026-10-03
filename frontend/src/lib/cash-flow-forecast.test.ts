@@ -7,6 +7,7 @@ import {
   projectRecurringOccurrences,
   sampleForecastTimeline,
 } from './cash-flow-forecast'
+import { estimateYieldCents } from './yield'
 
 describe('cash-flow-forecast', () => {
   describe('addDaysISO', () => {
@@ -297,8 +298,11 @@ describe('cash-flow-forecast', () => {
           institution: 'Nu',
           last4: '0001',
           currency: 'MXN',
-          balance: 3_650_000, // $36,500 at 10%, compounded daily
-          annualYieldBps: 1000,
+          balance: 3_650_000,
+          annualYieldTiers: [
+            { upToCents: 2_500_000, annualYieldBps: 1500 },
+            { upToCents: null, annualYieldBps: 700 },
+          ],
           isActive: true,
         },
       ]
@@ -309,8 +313,9 @@ describe('cash-flow-forecast', () => {
         currentDate: '2026-08-01',
         horizonDays: 30,
       })
-      expect(forecast.totalExpectedYieldCents).toBe(30_119)
-      expect(forecast.projectedScheduledBalanceCents).toBe(3_680_119)
+      const expectedYield = estimateYieldCents(3_650_000, null, 30, accounts[0].annualYieldTiers)
+      expect(forecast.totalExpectedYieldCents).toBe(expectedYield)
+      expect(forecast.projectedScheduledBalanceCents).toBe(3_650_000 + expectedYield)
       expect(forecast.minScheduledBalanceCents).toBe(3_650_000)
 
       const withoutYield = computeCashFlowForecast({

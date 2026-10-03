@@ -8,7 +8,7 @@ export interface ForecastParams {
   currentDate: string // YYYY-MM-DD
   horizonDays: 30 | 60 | 90
   discretionaryDailyBurnRateCents?: number
-  /** Add expected savings yield (accounts with annualYieldBps) as daily inflow. */
+  /** Add expected flat or tiered savings yield as daily inflow. */
   includeYield?: boolean
 }
 
@@ -256,12 +256,19 @@ export function computeCashFlowForecast({
 
   const normalizedBurnRate = Math.max(0, discretionaryDailyBurnRateCents)
   const yieldAccounts = includeYield
-    ? accounts.filter((a) => a.isActive && a.type === 'debit' && (a.annualYieldBps ?? 0) > 0)
+    ? accounts.filter(
+        (a) =>
+          a.isActive &&
+          a.type === 'debit' &&
+          ((a.annualYieldBps ?? 0) > 0 ||
+            (a.annualYieldTiers?.some((tier) => tier.annualYieldBps > 0) ?? false)),
+      )
     : []
   // Same daily-compounding estimate as the backend (store.EstimateYieldCents).
   const yieldThrough = (days: number) =>
     yieldAccounts.reduce(
-      (sum, a) => sum + estimateYieldCents(a.balance ?? 0, a.annualYieldBps, days),
+      (sum, a) =>
+        sum + estimateYieldCents(a.balance ?? 0, a.annualYieldBps, days, a.annualYieldTiers),
       0,
     )
   let accruedYield = 0

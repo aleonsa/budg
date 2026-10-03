@@ -56,6 +56,52 @@ func TestYieldReconciliationLifecycle(t *testing.T) {
 		t.Fatalf("credit account with yield err = %v, want ErrInvalidAccountShape", err)
 	}
 
+	// Tiered rates: 15% up to $25,000 then 7%; tiers take precedence.
+	tiers := []store.YieldTier{
+		{UpToCents: &[]int64{2_500_000}[0], AnnualYieldBps: 1500},
+		{UpToCents: nil, AnnualYieldBps: 700},
+	}
+	if _, err := accounts.Create(ctx, userID, store.AccountInput{
+		Name: "Inválida", Type: "debit", Institution: "Banco", Last4: "9090", Currency: "MXN",
+		BalanceCents: &balance, AnnualYieldTiers: tiers[:1],
+	}); !errors.Is(err, store.ErrInvalidAccountShape) {
+		t.Fatalf("capped-only ladder err = %v, want ErrInvalidAccountShape", err)
+	}
+	tiered, err := accounts.Update(ctx, userID, account.ID, store.AccountPatch{
+		AnnualYieldTiers: store.Field[[]store.YieldTier]{Set: true, Value: &tiers},
+	})
+	if err != nil {
+		t.Fatalf("patch tiers: %v", err)
+	}
+	if len(tiered.AnnualYieldTiers) != 2 || *tiered.AnnualYieldTiers[0].UpToCents != 2_500_000 ||
+		tiered.AnnualYieldTiers[1].UpToCents != nil {
+		t.Fatalf("stored tiers = %+v", tiered.AnnualYieldTiers)
+	}
+	if _, err := accounts.Create(ctx, userID, store.AccountInput{
+		Name: "Escalonada", Type: "debit", Institution: "Banco", Last4: "9091", Currency: "MXN",
+		BalanceCents: &balance, AnnualYieldTiers: tiers, TrackBalance: true,
+	}); err != nil {
+		t.Fatalf("create tiered account: %v", err)
+	}
+	if _, err := admin.Exec(ctx, `
+		UPDATE public.accounts
+		SET annual_yield_tiers = '[{"upToCents": null}]'::jsonb
+		WHERE id = $1
+	`, account.ID); err == nil {
+		t.Fatal("database accepted malformed yield tiers")
+	}
+	cleared, err := accounts.Update(ctx, userID, account.ID, store.AccountPatch{
+		AnnualYieldTiers: store.Field[[]store.YieldTier]{Set: true},
+	})
+	if err != nil || len(cleared.AnnualYieldTiers) != 0 {
+		t.Fatalf("clear tiers = %+v, %v", cleared.AnnualYieldTiers, err)
+	}
+	if _, err := accounts.Update(ctx, userID, account.ID, store.AccountPatch{
+		AnnualYieldTiers: store.Field[[]store.YieldTier]{Set: true, Value: &tiers},
+	}); err != nil {
+		t.Fatalf("restore tiers: %v", err)
+	}
+
 	today := time.Now().UTC().Format(time.DateOnly)
 	goalA, err := goals.Create(ctx, userID, store.SavingsGoalInput{Name: "Viaje", TargetAmount: 1_000_000})
 	if err != nil {
@@ -86,7 +132,7 @@ func TestYieldReconciliationLifecycle(t *testing.T) {
 	}
 	rec := first.Reconciliation
 	if rec.YieldCents != 1_000 || rec.AdjustmentCents != 500 || rec.BalanceBeforeCents != 100_000 ||
-		rec.BalanceAfterCents != 101_500 || rec.TransactionID == nil {
+		rec.BalanceAfterCents != 101_500 || rec.TransactionID == nil || len(rec.AnnualYieldTiers) != 2 {
 		t.Fatalf("reconciliation = %+v", rec)
 	}
 	if len(rec.Allocations) != 2 {

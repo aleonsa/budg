@@ -51,6 +51,8 @@ export interface Account {
 
   // savings yield (debit only)
   annualYieldBps?: number | null // 1200 = 12% anual
+  annualYieldTiers?: YieldTier[] | null // tasa por tramos; reemplaza la tasa plana
+
   yieldReconciledOn?: ISODate | null
 
   isActive: boolean
@@ -100,6 +102,13 @@ export interface CreditCardStatementInput {
   minimumPayment?: Cents
 }
 
+// ── Savings yield tiers ────────────────────────────────────
+export interface YieldTier {
+  /** Cap of this band in cents; null = uncapped final band. */
+  upToCents: number | null
+  annualYieldBps: number
+}
+
 // ── Savings yield reconciliation ───────────────────────────
 export interface YieldReconciliation {
   id: ID
@@ -113,6 +122,7 @@ export interface YieldReconciliation {
   adjustment: Cents
   estimatedYield: Cents
   annualYieldBps: number | null
+  annualYieldTiers: YieldTier[] | null
   allocations: Array<{ goalId: ID; amount: Cents }>
 }
 

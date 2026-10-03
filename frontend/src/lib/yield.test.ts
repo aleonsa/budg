@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import type { Account, YieldReconciliation } from '@/types'
 import {
   accrualStart,
+  blendedAnnualYieldBps,
   daysBetween,
+  describeYieldTiers,
   effectiveAnnualRateBps,
   estimateAccountYield,
   estimateYieldCents,
@@ -37,6 +39,7 @@ function rec(overrides: Partial<YieldReconciliation>): YieldReconciliation {
     adjustment: 0,
     estimatedYield: 98_000,
     annualYieldBps: 1200,
+    annualYieldTiers: null,
     allocations: [],
     ...overrides,
   }
@@ -48,6 +51,19 @@ describe('yield helpers', () => {
     expect(estimateYieldCents(10_000_000, null, 30)).toBe(0)
     expect(estimateYieldCents(-1, 1200, 30)).toBe(0)
     expect(estimateYieldCents(10_000_000, 1200, 0)).toBe(0)
+  })
+
+  it('estimates and describes a tiered rate', () => {
+    const tiers = [
+      { upToCents: 2_500_000, annualYieldBps: 1500 },
+      { upToCents: null, annualYieldBps: 700 },
+    ]
+    expect(estimateYieldCents(5_000_000, null, 30, tiers)).toBe(45_331)
+    expect(estimateYieldCents(2_500_000, null, 30, tiers)).toBe(30_908)
+    expect(estimateYieldCents(2_500_000, null, 365, tiers)).toBe(388_398)
+    expect(blendedAnnualYieldBps(5_000_000, null, tiers)).toBe(1100)
+    expect(describeYieldTiers(null, tiers, 'MXN')).toContain('15% hasta $25,000')
+    expect(describeYieldTiers(null, tiers, 'MXN')).toContain('7% después')
   })
 
   it('accrues from the last reconciliation, else tracking start', () => {

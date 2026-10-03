@@ -17,7 +17,13 @@ import {
 import { netWorthTimeline } from '@/lib/net-worth-timeline'
 import { computeCashFlowForecast, sampleForecastTimeline } from '@/lib/cash-flow-forecast'
 import { cn } from '@/lib/utils'
-import { effectiveAnnualRateBps, estimateAccountYield, formatBps, sumYield } from '@/lib/yield'
+import {
+  blendedAnnualYieldBps,
+  effectiveAnnualRateBps,
+  estimateAccountYield,
+  formatBps,
+  sumYield,
+} from '@/lib/yield'
 import {
   useTransactions,
   useCategories,
@@ -395,6 +401,7 @@ export default function StatsPage() {
       account.type === 'debit' &&
       account.isActive &&
       ((account.annualYieldBps ?? 0) > 0 ||
+        account.annualYieldTiers?.some((tier) => tier.annualYieldBps > 0) ||
         yieldReconciliations.some((rec) => rec.accountId === account.id)),
   )
   const yearStart = `${currentDate.slice(0, 4)}-01-01`
@@ -831,7 +838,13 @@ export default function StatsPage() {
                     <div key={account.id} className="grid grid-cols-4 gap-2 py-1.5 text-[11px]">
                       <span className="truncate font-medium">{account.name}</span>
                       <span className="text-right tabular-nums">
-                        {formatBps(account.annualYieldBps)}
+                        {formatBps(
+                          blendedAnnualYieldBps(
+                            account.balance ?? 0,
+                            account.annualYieldBps,
+                            account.annualYieldTiers,
+                          ),
+                        )}
                       </span>
                       <span className="text-right tabular-nums">
                         {formatBps(effectiveAnnualRateBps(history, currentDate))}

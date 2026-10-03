@@ -89,6 +89,7 @@ export interface BackendAccount {
   balanceTrackingEnabled?: boolean
   balanceTrackingStartedAt?: string
   annualYieldBps?: number | null
+  annualYieldTiers?: Array<{ upToCents: number | null; annualYieldBps: number }> | null
   yieldReconciledOn?: string | null
   isActive: boolean
 }
@@ -109,6 +110,7 @@ export function toFrontend(a: BackendAccount): Account {
     balanceTrackingEnabled: a.balanceTrackingEnabled,
     balanceTrackingStartedAt: a.balanceTrackingStartedAt,
     annualYieldBps: a.annualYieldBps ?? null,
+    annualYieldTiers: a.annualYieldTiers ?? null,
     yieldReconciledOn: a.yieldReconciledOn ?? null,
     isActive: a.isActive,
   }
@@ -129,6 +131,7 @@ function toBackend(
     statementCutDay: input.statementCutDay,
     paymentDueDay: input.paymentDueDay,
     ...(input.annualYieldBps != null ? { annualYieldBps: input.annualYieldBps } : {}),
+    ...(input.annualYieldTiers != null ? { annualYieldTiers: input.annualYieldTiers } : {}),
   }
 }
 
@@ -145,5 +148,6 @@ function toBackendPatch(patch: Partial<Account>): Partial<BackendAccount> {
   if (patch.statementCutDay !== undefined) out.statementCutDay = patch.statementCutDay
   if (patch.paymentDueDay !== undefined) out.paymentDueDay = patch.paymentDueDay
   if (patch.annualYieldBps !== undefined) out.annualYieldBps = patch.annualYieldBps
+  if (patch.annualYieldTiers !== undefined) out.annualYieldTiers = patch.annualYieldTiers
   return out
 }

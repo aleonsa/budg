@@ -578,6 +578,8 @@ describe('AccountsPage', () => {
       institution: 'BBVA',
       last4: '1111',
       balance: 30_000,
+      annualYieldBps: null,
+      annualYieldTiers: null,
     })
     expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['accounts'] })
     expect(state.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
@@ -695,7 +697,7 @@ describe('AccountsPage', () => {
     expect(state.reset).toHaveBeenCalledTimes(resetCount + 1)
   })
 
-  it('saves an annual yield rate on create and clears it on edit', async () => {
+  it('saves a flat rate, tiered rates, and clears them on edit', async () => {
     state.accounts.data = [debit({ annualYieldBps: 1250 })]
     const user = userEvent.setup()
     renderPage()
@@ -703,18 +705,89 @@ describe('AccountsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Agregar cuenta' }))
     await user.type(screen.getByRole('textbox', { name: 'Nombre' }), 'Nu Cajita')
     await user.type(screen.getByRole('textbox', { name: 'Saldo inicial' }), '1000')
-    await user.type(screen.getByRole('textbox', { name: 'Rendimiento anual % (opcional)' }), '12.5')
+    await user.type(screen.getByRole('textbox', { name: 'Tasa anual tramo 1 (%)' }), '12.5')
     await user.click(screen.getByRole('button', { name: 'Agregar' }))
     await flushMutation()
     expect(state.payloads[0]).toMatchObject({ name: 'Nu Cajita', annualYieldBps: 1250 })
+    expect(state.payloads[0]).not.toHaveProperty('annualYieldTiers')
+
+    await user.click(screen.getByRole('button', { name: 'Agregar cuenta' }))
+    await user.type(screen.getByRole('textbox', { name: 'Nombre' }), 'Stori')
+    await user.type(screen.getByRole('textbox', { name: 'Tasa anual tramo 1 (%)' }), '15')
+    await user.click(screen.getByRole('button', { name: '+ Agregar tramo (tasa con límite)' }))
+    await user.type(screen.getByRole('textbox', { name: 'Límite tramo 1 (pesos)' }), '25000')
+    await user.type(screen.getByRole('textbox', { name: 'Tasa anual tramo 2 (%)' }), '7')
+    await user.click(screen.getByRole('button', { name: 'Agregar' }))
+    await flushMutation()
+    expect(state.payloads[1]).toMatchObject({
+      name: 'Stori',
+      annualYieldTiers: [
+        { upToCents: 2_500_000, annualYieldBps: 1500 },
+        { upToCents: null, annualYieldBps: 700 },
+      ],
+    })
+    expect(state.payloads[1]).not.toHaveProperty('annualYieldBps')
 
     await user.click(screen.getByRole('button', { name: 'Editar Nómina' }))
-    const rate = screen.getByRole('textbox', { name: 'Rendimiento anual % (opcional)' })
+    const rate = screen.getByRole('textbox', { name: 'Tasa anual tramo 1 (%)' })
     expect(rate).toHaveValue('12.5')
     await user.clear(rate)
     await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
     await flushMutation()
-    expect(state.payloads[1]).toMatchObject({ id: 'debit-1', patch: { annualYieldBps: null } })
+    expect(state.payloads[2]).toMatchObject({
+      id: 'debit-1',
+      patch: { annualYieldBps: null, annualYieldTiers: null },
+    })
+  })
+
+  it('prefills tiers on edit and validates the ladder', async () => {
+    state.accounts.data = [
+      debit({
+        annualYieldTiers: [
+          { upToCents: 2_500_000, annualYieldBps: 1500 },
+          { upToCents: null, annualYieldBps: 700 },
+        ],
+      }),
+    ]
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Editar Nómina' }))
+    expect(screen.getByRole('textbox', { name: 'Tasa anual tramo 1 (%)' })).toHaveValue('15')
+    expect(screen.getByRole('textbox', { name: 'Límite tramo 1 (pesos)' })).toHaveValue('25000')
+    expect(screen.getByRole('textbox', { name: 'Tasa anual tramo 2 (%)' })).toHaveValue('7')
+
+    await user.clear(screen.getByRole('textbox', { name: 'Límite tramo 1 (pesos)' }))
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    expect(screen.getByText(/Revisa los tramos/)).toBeInTheDocument()
+    expect(state.payloads).toHaveLength(0)
+  })
+
+  it('turns the remaining tier into a flat rate when removing the final band', async () => {
+    state.accounts.data = [
+      debit({
+        annualYieldTiers: [
+          { upToCents: 2_500_000, annualYieldBps: 1500 },
+          { upToCents: null, annualYieldBps: 700 },
+        ],
+      }),
+    ]
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Editar Nómina' }))
+    await user.click(screen.getByRole('button', { name: 'Quitar tramo 2' }))
+
+    expect(screen.getByRole('textbox', { name: 'Tasa anual tramo 1 (%)' })).toHaveValue('15')
+    expect(screen.getByRole('textbox', { name: 'Límite tramo 1 (pesos)' })).toBeDisabled()
+    expect(screen.getByRole('textbox', { name: 'Límite tramo 1 (pesos)' })).toHaveValue('')
+
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await flushMutation()
+    expect(state.payloads[0]).toMatchObject({
+      id: 'debit-1',
+      patch: { annualYieldBps: 1500, annualYieldTiers: null },
+    })
   })
 
   it('rejects an invalid yield percentage', async () => {
@@ -724,10 +797,10 @@ describe('AccountsPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Agregar cuenta' }))
     await user.type(screen.getByRole('textbox', { name: 'Nombre' }), 'Ahorro')
-    await user.type(screen.getByRole('textbox', { name: 'Rendimiento anual % (opcional)' }), '150')
+    await user.type(screen.getByRole('textbox', { name: 'Tasa anual tramo 1 (%)' }), '150')
     await user.click(screen.getByRole('button', { name: 'Agregar' }))
 
-    expect(screen.getByText('Ingresa un porcentaje entre 0 y 100.')).toBeInTheDocument()
+    expect(screen.getByText(/Revisa los tramos/)).toBeInTheDocument()
     expect(state.payloads).toHaveLength(0)
   })
 

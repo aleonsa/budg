@@ -149,6 +149,25 @@ func TestCreateAccountPersistsAndReturnsCreated(t *testing.T) {
 	}
 }
 
+func TestCreateAccountAcceptsYieldTiers(t *testing.T) {
+	t.Parallel()
+	stub := &stubAccountStore{createResult: store.Account{ID: "acc-new"}}
+	router := newAccountsRouter(stub)
+	body := `{"name":"Ahorro","type":"debit","institution":"Nu","last4":"0001","currency":"MXN","balance":5000000,"annualYieldTiers":[{"upToCents":2500000,"annualYieldBps":1500},{"upToCents":null,"annualYieldBps":700}]}`
+
+	rec := doRequest(router, http.MethodPost, "/v1/accounts", body)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (body=%s)", rec.Code, rec.Body.String())
+	}
+	if len(stub.createInput.AnnualYieldTiers) != 2 ||
+		stub.createInput.AnnualYieldTiers[0].UpToCents == nil ||
+		*stub.createInput.AnnualYieldTiers[0].UpToCents != 2_500_000 ||
+		stub.createInput.AnnualYieldTiers[1].UpToCents != nil {
+		t.Fatalf("captured tiers = %+v", stub.createInput.AnnualYieldTiers)
+	}
+}
+
 func TestCreateAccountRejectsInvalidPayload(t *testing.T) {
 	t.Parallel()
 	stub := &stubAccountStore{}
@@ -170,6 +189,14 @@ func TestCreateAccountRejectsInvalidPayload(t *testing.T) {
 		{"credit with balance", `{"name":"X","type":"credit","institution":"BBVA","last4":"4521","currency":"MXN","balance":1000}`},
 		{"credit without limit", `{"name":"X","type":"credit","institution":"BBVA","last4":"4521","currency":"MXN","availableCredit":1000}`},
 		{"credit without available credit", `{"name":"X","type":"credit","institution":"BBVA","last4":"4521","currency":"MXN","creditLimit":1000}`},
+		{"credit with yield tiers", `{"name":"X","type":"credit","institution":"BBVA","last4":"4521","currency":"MXN","creditLimit":1000,"availableCredit":1000,"annualYieldTiers":[{"upToCents":null,"annualYieldBps":1000}]}`},
+		{"capped final yield tier", `{"name":"X","type":"debit","institution":"BBVA","last4":"4521","currency":"MXN","balance":1000,"annualYieldTiers":[{"upToCents":1000,"annualYieldBps":1000}]}`},
+		{"descending yield caps", `{"name":"X","type":"debit","institution":"BBVA","last4":"4521","currency":"MXN","balance":1000,"annualYieldTiers":[{"upToCents":2000,"annualYieldBps":1000},{"upToCents":1000,"annualYieldBps":900},{"upToCents":null,"annualYieldBps":800}]}`},
+		{"yield rate above maximum", `{"name":"X","type":"debit","institution":"BBVA","last4":"4521","currency":"MXN","balance":1000,"annualYieldTiers":[{"upToCents":null,"annualYieldBps":10001}]}`},
+		{"yield tier without rate", `{"name":"X","type":"debit","institution":"BBVA","last4":"4521","currency":"MXN","balance":1000,"annualYieldTiers":[{"upToCents":null}]}`},
+		{"yield tier with null rate", `{"name":"X","type":"debit","institution":"BBVA","last4":"4521","currency":"MXN","balance":1000,"annualYieldTiers":[{"upToCents":null,"annualYieldBps":null}]}`},
+		{"yield tier without cap", `{"name":"X","type":"debit","institution":"BBVA","last4":"4521","currency":"MXN","balance":1000,"annualYieldTiers":[{"annualYieldBps":1000}]}`},
+		{"yield tier with unknown field", `{"name":"X","type":"debit","institution":"BBVA","last4":"4521","currency":"MXN","balance":1000,"annualYieldTiers":[{"upToCents":null,"annualYieldBps":1000,"extra":true}]}`},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -213,7 +240,7 @@ func TestUpdateAccountClearsNullableFieldExplicitly(t *testing.T) {
 	router := newAccountsRouter(stub)
 
 	// Explicit null clears statementCutDay; omitted fields stay untouched.
-	body := `{"statementCutDay":null}`
+	body := `{"statementCutDay":null,"annualYieldTiers":null}`
 	rec := doRequest(router, http.MethodPatch, "/v1/accounts/acc-1", body)
 
 	if rec.Code != http.StatusOK {
@@ -224,6 +251,9 @@ func TestUpdateAccountClearsNullableFieldExplicitly(t *testing.T) {
 	}
 	if stub.updatePatch.StatementCutDay.Value != nil {
 		t.Fatalf("statementCutDay value = %v, want nil (explicit clear)", *stub.updatePatch.StatementCutDay.Value)
+	}
+	if !stub.updatePatch.AnnualYieldTiers.Set || stub.updatePatch.AnnualYieldTiers.Value != nil {
+		t.Fatalf("annualYieldTiers patch = %+v, want explicit clear", stub.updatePatch.AnnualYieldTiers)
 	}
 }
 

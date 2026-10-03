@@ -787,7 +787,10 @@ describe('StatsPage', () => {
       last4: '0001',
       currency: 'MXN',
       balance: 10_000_000,
-      annualYieldBps: 1200,
+      annualYieldTiers: [
+        { upToCents: 5_000_000, annualYieldBps: 1500 },
+        { upToCents: null, annualYieldBps: 700 },
+      ],
       balanceTrackingEnabled: true,
       isActive: true,
     }
@@ -804,6 +807,7 @@ describe('StatsPage', () => {
         adjustment: 0,
         estimatedYield: 98_000,
         annualYieldBps: 1200,
+        annualYieldTiers: null,
         allocations: [],
       },
     ]
@@ -812,7 +816,7 @@ describe('StatsPage', () => {
 
     const section = screen.getByRole('heading', { name: 'Rendimientos' }).parentElement!
     expect(within(section).getByText('Nu Cajita')).toBeInTheDocument()
-    expect(within(section).getByText('12%')).toBeInTheDocument()
+    expect(within(section).getByText('11%')).toBeInTheDocument()
     expect(within(section).getByText('12.17%')).toBeInTheDocument()
     expect(within(section).getAllByText('$1,000.00').length).toBeGreaterThan(0)
   })

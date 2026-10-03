@@ -12,7 +12,7 @@ import { cycleElapsed, getCreditCardCycles, sumCycleTransactions } from '@/lib/c
 import { today } from '@/lib/date'
 import { queryKeys } from '@/lib/query-keys'
 import { cn } from '@/lib/utils'
-import { estimateAccountYield, formatBps } from '@/lib/yield'
+import { describeYieldTiers, estimateAccountYield } from '@/lib/yield'
 import { YieldReconciliationPanel } from '@/features/yields/YieldReconciliationPanel'
 import {
   useAccounts,
@@ -82,6 +82,48 @@ function todayISO(): string {
 }
 
 // ── Hero ─────────────────────────────────────────────────────
+
+type YieldFormConfig =
+  | 'none'
+  | 'invalid'
+  | { flatBps: number | null; tiers: null }
+  | { flatBps: null; tiers: Array<{ upToCents: number | null; annualYieldBps: number }> }
+
+function parseYieldTiers(rows: Array<{ rate: string; cap: string }>): YieldFormConfig {
+  const norm = (value: string) => value.trim().replace(',', '.')
+  const rates = rows.map((row) => norm(row.rate))
+  if (rates.every((rate) => rate === '')) return 'none'
+  const parsedRates = rates.map((rate) => Number(rate))
+  if (
+    parsedRates.some(
+      (rate, i) => rates[i] !== '' && (!Number.isFinite(rate) || rate < 0 || rate > 100),
+    )
+  ) {
+    return 'invalid'
+  }
+  if (rows.length === 1) {
+    return { flatBps: Math.round(parsedRates[0] * 100), tiers: null }
+  }
+  if (parsedRates.some((rate, i) => rates[i] === '' || !Number.isFinite(rate))) return 'invalid'
+  const caps = rows.slice(0, -1).map((row) => norm(row.cap))
+  if (caps.some((cap) => cap === '')) return 'invalid'
+  const parsedCaps = caps.map((cap) => Number(cap))
+  if (
+    parsedCaps.some(
+      (cap, i) => !Number.isFinite(cap) || cap <= 0 || (i > 0 && cap <= parsedCaps[i - 1]),
+    )
+  ) {
+    return 'invalid'
+  }
+  if (norm(rows[rows.length - 1].cap) !== '') return 'invalid'
+  return {
+    flatBps: null,
+    tiers: rows.map((_, i) => ({
+      upToCents: i === rows.length - 1 ? null : Math.round(parsedCaps[i] * 100),
+      annualYieldBps: Math.round(parsedRates[i] * 100),
+    })),
+  }
+}
 
 function NetWorthHero({
   netWorth,
@@ -181,7 +223,9 @@ function DebitCardItem({
   onDelete: () => void
   onReconcileYield: () => void
 }) {
-  const hasYield = account.annualYieldBps != null && account.annualYieldBps > 0
+  const hasYield =
+    (account.annualYieldBps != null && account.annualYieldBps > 0) ||
+    (account.annualYieldTiers?.some((tier) => tier.annualYieldBps > 0) ?? false)
   const yieldEstimate = hasYield ? estimateAccountYield(account, today()) : null
   return (
     <Card className="p-3">
@@ -211,8 +255,9 @@ function DebitCardItem({
       {yieldEstimate && (
         <div className="mt-2.5 rounded-lg bg-[hsl(var(--color-green-soft))] p-2.5 text-[11px]">
           <p className="font-medium text-[hsl(var(--color-green))]">
-            Rinde {formatBps(account.annualYieldBps)} anual · ≈{' '}
-            {formatMoney(yieldEstimate.monthly, account.currency)}/mes
+            Rinde{' '}
+            {describeYieldTiers(account.annualYieldBps, account.annualYieldTiers, account.currency)}{' '}
+            · ≈ {formatMoney(yieldEstimate.monthly, account.currency)}/mes
           </p>
           <p className="mt-0.5 text-muted-foreground">
             {yieldEstimate.since
@@ -573,7 +618,9 @@ export default function AccountsPage() {
   const [fLast4, setFLast4] = useState('')
   const [fCutDay, setFCutDay] = useState('')
   const [fDueDay, setFDueDay] = useState('')
-  const [fYield, setFYield] = useState('')
+  const [fYieldTiers, setFYieldTiers] = useState<Array<{ rate: string; cap: string }>>([
+    { rate: '', cap: '' },
+  ])
   const [yieldAccount, setYieldAccount] = useState<Account | null>(null)
   const [showNameError, setShowNameError] = useState(false)
   const [yieldError, setYieldError] = useState(false)
@@ -662,7 +709,7 @@ export default function AccountsPage() {
     setFLast4('')
     setFCutDay('')
     setFDueDay('')
-    setFYield('')
+    setFYieldTiers([{ rate: '', cap: '' }])
     setYieldError(false)
     setShowNameError(false)
     setIsAccountPanelOpen(true)
@@ -683,7 +730,19 @@ export default function AccountsPage() {
     setFLast4(account.last4)
     setFCutDay(account.statementCutDay ? String(account.statementCutDay) : '')
     setFDueDay(account.paymentDueDay ? String(account.paymentDueDay) : '')
-    setFYield(account.annualYieldBps != null ? String(account.annualYieldBps / 100) : '')
+    setFYieldTiers(
+      account.annualYieldTiers && account.annualYieldTiers.length > 0
+        ? account.annualYieldTiers.map((tier) => ({
+            rate: String(tier.annualYieldBps / 100),
+            cap: tier.upToCents === null ? '' : String(tier.upToCents / 100),
+          }))
+        : [
+            {
+              rate: account.annualYieldBps != null ? String(account.annualYieldBps / 100) : '',
+              cap: '',
+            },
+          ],
+    )
     setYieldError(false)
     setShowNameError(false)
     setIsAccountPanelOpen(true)
@@ -721,18 +780,15 @@ export default function AccountsPage() {
     const availableCredit = balance - debt
     const cutDay = Number(fCutDay)
     const dueDay = Number(fDueDay)
-    const yieldText = fYield.trim().replace(',', '.')
-    const yieldPercent = Number(yieldText)
-    if (
-      !isCredit &&
-      yieldText !== '' &&
-      (!Number.isFinite(yieldPercent) || yieldPercent < 0 || yieldPercent > 100)
-    ) {
+    let yieldConfig: YieldFormConfig = parseYieldTiers(fYieldTiers)
+    if (yieldConfig === 'invalid') {
       setYieldError(true)
       return
     }
     setYieldError(false)
-    const annualYieldBps = isCredit || yieldText === '' ? null : Math.round(yieldPercent * 100)
+    if (isCredit) yieldConfig = 'none'
+    const annualYieldBps = yieldConfig === 'none' ? null : yieldConfig.flatBps
+    const annualYieldTiers = yieldConfig === 'none' ? null : yieldConfig.tiers
     const creditSchedule = {
       ...(Number.isInteger(cutDay) && cutDay >= 1 && cutDay <= 28
         ? { statementCutDay: cutDay }
@@ -761,9 +817,7 @@ export default function AccountsPage() {
             ...(isCredit && dueDay !== editingAccount.paymentDueDay
               ? { paymentDueDay: creditSchedule.paymentDueDay }
               : {}),
-            ...(!isCredit && annualYieldBps !== (editingAccount.annualYieldBps ?? null)
-              ? { annualYieldBps }
-              : {}),
+            ...(!isCredit ? { annualYieldBps, annualYieldTiers } : {}),
           },
         },
         { onSuccess: closePanel },
@@ -780,7 +834,11 @@ export default function AccountsPage() {
         currency: 'MXN',
         ...(isCredit
           ? { creditLimit: balance, availableCredit, ...creditSchedule }
-          : { balance, ...(annualYieldBps !== null ? { annualYieldBps } : {}) }),
+          : {
+              balance,
+              ...(annualYieldBps !== null ? { annualYieldBps } : {}),
+              ...(annualYieldTiers !== null ? { annualYieldTiers } : {}),
+            }),
       },
       { onSuccess: closePanel },
     )
@@ -962,21 +1020,74 @@ export default function AccountsPage() {
       </div>
       {fType === 'debit' && (
         <div className="space-y-1.5">
-          <Label htmlFor="account-yield">Rendimiento anual % (opcional)</Label>
-          <Input
-            id="account-yield"
-            placeholder="Ej. 12.5"
-            inputMode="decimal"
-            value={fYield}
-            onChange={(event) => setFYield(event.target.value)}
-            aria-describedby="account-yield-help"
-          />
-          <p id="account-yield-help" className="text-[11px] text-muted-foreground">
-            Usa la tasa neta (después de impuestos) si tu banco retiene ISR.
+          <Label>Rendimiento anual % (opcional)</Label>
+          {fYieldTiers.map((row, index) => {
+            const isLast = index === fYieldTiers.length - 1
+            const single = fYieldTiers.length === 1
+            return (
+              <div key={index} className="flex items-center gap-1.5">
+                <Input
+                  aria-label={`Tasa anual tramo ${index + 1} (%)`}
+                  placeholder={single ? 'Ej. 12.5' : 'Ej. 15'}
+                  inputMode="decimal"
+                  value={row.rate}
+                  onChange={(event) =>
+                    setFYieldTiers((rows) =>
+                      rows.map((r, i) => (i === index ? { ...r, rate: event.target.value } : r)),
+                    )
+                  }
+                />
+                <Input
+                  aria-label={`Límite tramo ${index + 1} (pesos)`}
+                  placeholder={single ? 'Sin límite' : isLast ? 'Sin límite' : 'Hasta $…'}
+                  inputMode="decimal"
+                  disabled={single || isLast}
+                  value={row.cap}
+                  onChange={(event) =>
+                    setFYieldTiers((rows) =>
+                      rows.map((r, i) => (i === index ? { ...r, cap: event.target.value } : r)),
+                    )
+                  }
+                />
+                {fYieldTiers.length > 1 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 shrink-0 px-2"
+                    aria-label={`Quitar tramo ${index + 1}`}
+                    onClick={() =>
+                      setFYieldTiers((rows) => {
+                        const next = rows.filter((_, i) => i !== index)
+                        return next.map((tier, i) =>
+                          i === next.length - 1 ? { ...tier, cap: '' } : tier,
+                        )
+                      })
+                    }
+                  >
+                    ×
+                  </Button>
+                )}
+              </div>
+            )
+          })}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-[11px]"
+            disabled={fYieldTiers.length >= 8}
+            onClick={() => setFYieldTiers((rows) => [...rows, { rate: '', cap: '' }])}
+          >
+            + Agregar tramo (tasa con límite)
+          </Button>
+          <p className="text-[11px] text-muted-foreground">
+            Usa la tasa neta si tu banco retiene ISR. Cada tramo aplica a la parte del saldo entre
+            el límite anterior y el suyo (ej. 15% hasta $25,000 y 7% después); el último tramo no
+            lleva límite.
           </p>
           {yieldError && (
             <p role="alert" className="text-xs text-destructive">
-              Ingresa un porcentaje entre 0 y 100.
+              Revisa los tramos: tasas entre 0 y 100, límites en pesos crecientes y el último tramo
+              sin límite.
             </p>
           )}
         </div>

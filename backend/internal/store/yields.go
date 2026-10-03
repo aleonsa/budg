@@ -36,6 +36,7 @@ type YieldReconciliation struct {
 	AdjustmentCents     int64             `json:"adjustment"`
 	EstimatedYieldCents int64             `json:"estimatedYield"`
 	AnnualYieldBps      *int              `json:"annualYieldBps"`
+	AnnualYieldTiers    []YieldTier       `json:"annualYieldTiers"`
 	Allocations         []YieldAllocation `json:"allocations"`
 	operationID         string
 }
@@ -68,6 +69,88 @@ func EstimateYieldCents(balance int64, annualYieldBps *int, days int) int64 {
 	return int64(math.Round(float64(balance) * (math.Pow(1+rate/365, float64(days)) - 1)))
 }
 
+// EstimateYieldCentsTiered estimates yield when the rate depends on the
+// balance: each tier's portion of the balance compounds at its own rate.
+// Tiers take precedence over the flat rate when present.
+func EstimateYieldCentsTiered(balance int64, flatBps *int, tiers []YieldTier, days int) int64 {
+	if balance <= 0 || days <= 0 {
+		return 0
+	}
+	if len(tiers) == 0 {
+		return EstimateYieldCents(balance, flatBps, days)
+	}
+	currentBalance := float64(balance)
+	for range days {
+		currentBalance += tieredDailyYield(currentBalance, tiers)
+	}
+	return int64(math.Round(currentBalance - float64(balance)))
+}
+
+func tieredDailyYield(balance float64, tiers []YieldTier) float64 {
+	var dailyYield float64
+	var previousCap float64
+	for _, tier := range tiers {
+		portion := balance - previousCap
+		if tier.UpToCents != nil {
+			portion = math.Min(balance, float64(*tier.UpToCents)) - previousCap
+		}
+		if portion <= 0 {
+			break
+		}
+		dailyYield += portion * float64(tier.AnnualYieldBps) / 10_000 / 365
+		if tier.UpToCents == nil {
+			break
+		}
+		previousCap = float64(*tier.UpToCents)
+	}
+	return dailyYield
+}
+
+// BlendedAnnualYieldBps is the single effective configured rate on balance:
+// the balance-weighted average of the tiers (or the flat rate). Returns nil
+// when nothing is configured or balance is zero.
+func BlendedAnnualYieldBps(balance int64, flatBps *int, tiers []YieldTier) *int {
+	if balance <= 0 {
+		return nil
+	}
+	if len(tiers) == 0 {
+		if flatBps == nil {
+			return nil
+		}
+		bps := *flatBps
+		return &bps
+	}
+	var previousCap int64
+	weighted := float64(0)
+	for _, tier := range tiers {
+		portion := balance - previousCap
+		if tier.UpToCents != nil {
+			portion = min64(balance, *tier.UpToCents) - previousCap
+			if portion <= 0 {
+				break
+			}
+			previousCap = *tier.UpToCents
+		}
+		weighted += float64(portion) * float64(tier.AnnualYieldBps)
+		if tier.UpToCents == nil {
+			break
+		}
+	}
+	bps := int64(math.Round(weighted / float64(balance)))
+	if bps < 0 {
+		bps = 0
+	}
+	rounded := int(bps)
+	return &rounded
+}
+
+func min64(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // AccountYieldRepository persists yield reconciliations.
 type AccountYieldRepository struct {
 	pool *pgxpool.Pool
@@ -80,13 +163,13 @@ func NewAccountYieldRepository(pool *pgxpool.Pool) *AccountYieldRepository {
 
 const yieldReconciliationColumns = `id, account_id, transaction_id, occurred_on::text, period_start::text,
 	balance_before_cents, balance_after_cents, yield_cents, adjustment_cents,
-	estimated_yield_cents, annual_yield_bps, operation_id`
+	estimated_yield_cents, annual_yield_bps, annual_yield_tiers, operation_id`
 
 func scanYieldReconciliation(row pgx.Row, rec *YieldReconciliation) error {
 	return row.Scan(
 		&rec.ID, &rec.AccountID, &rec.TransactionID, &rec.Date, &rec.PeriodStart,
 		&rec.BalanceBeforeCents, &rec.BalanceAfterCents, &rec.YieldCents, &rec.AdjustmentCents,
-		&rec.EstimatedYieldCents, &rec.AnnualYieldBps, &rec.operationID,
+		&rec.EstimatedYieldCents, &rec.AnnualYieldBps, &rec.AnnualYieldTiers, &rec.operationID,
 	)
 }
 
@@ -218,13 +301,15 @@ func (r *AccountYieldRepository) Reconcile(ctx context.Context, userID, accountI
 		}
 
 		var bps *int
+		var tiers []YieldTier
 		var reconciledOn *string
 		var trackingStartedAt *time.Time
 		if err := tx.QueryRow(ctx, `
-			SELECT annual_yield_bps, yield_reconciled_on::text, balance_tracking_started_at
+			SELECT annual_yield_bps, annual_yield_tiers,
+				yield_reconciled_on::text, balance_tracking_started_at
 			FROM public.accounts
 			WHERE user_id = $1 AND id = $2
-		`, userID, accountID).Scan(&bps, &reconciledOn, &trackingStartedAt); err != nil {
+		`, userID, accountID).Scan(&bps, &tiers, &reconciledOn, &trackingStartedAt); err != nil {
 			return err
 		}
 		periodStart := in.Date
@@ -251,7 +336,11 @@ func (r *AccountYieldRepository) Reconcile(ctx context.Context, userID, accountI
 			return ErrInvalidTransactionShape
 		}
 		days := int(date.Sub(start).Hours() / 24)
-		estimate := EstimateYieldCents(balanceBefore, bps, days)
+		estimate := EstimateYieldCentsTiered(balanceBefore, bps, tiers, days)
+		tiersDBValue, err := yieldTiersDBValue(tiers)
+		if err != nil {
+			return err
+		}
 
 		if in.CategoryID != nil {
 			var kind string
@@ -294,12 +383,12 @@ func (r *AccountYieldRepository) Reconcile(ctx context.Context, userID, accountI
 			INSERT INTO public.account_yield_reconciliations (
 				user_id, account_id, transaction_id, occurred_on, period_start,
 				balance_before_cents, balance_after_cents, yield_cents, adjustment_cents,
-				estimated_yield_cents, annual_yield_bps
+				estimated_yield_cents, annual_yield_bps, annual_yield_tiers
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
 			RETURNING `+yieldReconciliationColumns,
 			userID, accountID, transactionID, in.Date, periodStart,
-			balanceBefore, in.CurrentBalanceCents, in.YieldCents, adjustment, estimate, bps,
+			balanceBefore, in.CurrentBalanceCents, in.YieldCents, adjustment, estimate, bps, tiersDBValue,
 		), &rec); err != nil {
 			return err
 		}

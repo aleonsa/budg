@@ -11,10 +11,13 @@ import (
 
 func yieldStore() *fakeWriteStore {
 	data := sampleWriteStore()
-	bps := 1200
 	started := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	reconciled := "2026-07-15"
-	data.accounts[0].AnnualYieldBps = &bps
+	data.accounts[0].AnnualYieldTiers = []store.YieldTier{
+		{UpToCents: &[]int64{2_000_000}[0], AnnualYieldBps: 1500},
+		{UpToCents: nil, AnnualYieldBps: 700},
+	}
+	data.accounts[0].AnnualYieldBps = nil
 	data.accounts[0].BalanceTrackingEnabled = true
 	data.accounts[0].BalanceTrackingStartedAt = &started
 	data.accounts[0].YieldReconciledOn = &reconciled
@@ -40,11 +43,15 @@ func TestListAccountYieldsReportsEstimatesAndEffectiveRate(t *testing.T) {
 		t.Fatalf("accounts = %+v, want only the yield account", payload.Accounts)
 	}
 	view := payload.Accounts[0]
-	if view.AccountID != "acc-bbva" || view.YieldYearToDateCents != 24_000 {
+	if view.AccountID != "acc-bbva" || view.YieldYearToDateCents != 24_000 || len(view.AnnualYieldTiers) != 2 {
 		t.Fatalf("view = %+v", view)
 	}
-	// 2026-07-15 -> 2026-08-14 = 30 days at 12% on 2,540,050 cents.
-	want := store.EstimateYieldCents(2_540_050, view.AnnualYieldBps, 30)
+	// $25,400.50: $20,000 at 15% + $5,400.50 at 7% ≈ 13.3% blended.
+	if view.BlendedAnnualYieldBps == nil || *view.BlendedAnnualYieldBps != 1330 {
+		t.Fatalf("blended = %v, want 1330", view.BlendedAnnualYieldBps)
+	}
+	// 2026-07-15 -> 2026-08-14 = 30 days, tiered: 15% up to $20,000 + 7% above.
+	want := store.EstimateYieldCentsTiered(2_540_050, view.AnnualYieldBps, view.AnnualYieldTiers, 30)
 	if view.EstimatedAccruedCents != want || view.EstimatedMonthlyCents != want {
 		t.Fatalf("estimates = %d/%d, want %d", view.EstimatedAccruedCents, view.EstimatedMonthlyCents, want)
 	}

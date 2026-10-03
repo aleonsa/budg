@@ -420,12 +420,24 @@ registering is blocked on `card_last4_mismatch` until the user confirms.
 
 ### Savings yields
 
-Debit accounts accept an optional `annualYieldBps` (0–10000; `1200` = 12% a
-year, ideally net of withheld tax) on create and `PATCH`. Accounts also expose
-`yieldReconciledOn`, the date of the latest yield reconciliation. Estimates use
-daily compounding: `balance × ((1 + rate/365)^days − 1)`, accruing from
-`yieldReconciledOn` or, before the first reconciliation, the balance-tracking
-start date.
+Debit accounts accept either an optional flat `annualYieldBps` (0–10000;
+`1200` = 12% a year, ideally net of withheld tax) or `annualYieldTiers` on
+create and `PATCH`. A tier ladder has 1–8 bands, positive increasing
+`upToCents` caps, rates from 0–10000 bps, and an uncapped (`null`) final band:
+
+```json
+[
+  { "upToCents": 2500000, "annualYieldBps": 1500 },
+  { "upToCents": null, "annualYieldBps": 700 }
+]
+```
+
+Tiers take precedence over the flat rate. Each balance portion compounds daily
+at its band rate; without tiers, the flat estimate remains
+`balance × ((1 + rate/365)^days − 1)`. Accounts also expose
+`yieldReconciledOn`, the date of the latest reconciliation. Estimates accrue
+from that date or, before the first reconciliation, the balance-tracking start
+date. Send `annualYieldTiers: null` to clear tiers.
 
 #### `POST /v1/accounts/:id/yield-reconciliations`
 
@@ -465,8 +477,9 @@ returns `409 goal_allocation_conflict`. Returns the updated account.
 
 Returns `{ data: YieldReconciliation[] }` newest first, each with `date`,
 `periodStart`, `balanceBefore`, `balanceAfter`, `yield`, `adjustment`,
-`estimatedYield`, `annualYieldBps`, and goal `allocations`. Used for realized
-annual rates: `Σ yield / Σ(balanceBefore × days) × 365`.
+`estimatedYield`, the configured `annualYieldBps`/`annualYieldTiers` snapshot,
+and goal `allocations`. Used for realized annual rates:
+`Σ yield / Σ(balanceBefore × days) × 365`.
 
 ### `GET /v1/rules`
 

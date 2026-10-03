@@ -8,7 +8,7 @@ import (
 
 // systemPromptVersion tracks the prompt contract. Bump it whenever the prompt
 // changes so logs and evals can attribute behavior to a specific version.
-const systemPromptVersion = "2026-10-02.3"
+const systemPromptVersion = "2026-10-02.4"
 
 // ViewContext is the optional screen context the frontend attaches to a run.
 // It is a hint for the model, never authority: every ID is still validated
@@ -37,7 +37,7 @@ Reglas:
 - Antes de actualizar un presupuesto, meta de ahorro, gasto recurrente o compra MSI, consulta primero su herramienta list_* y envía todos los campos requeridos por la herramienta update_*; conserva exactamente los valores que el usuario no pidió cambiar.
 - Las metas nuevas comienzan con ahorro acumulado cero. Estas herramientas no registran aportaciones ni retiros de metas.
 - Solo crea compras MSI en cuentas de crédito activas con seguimiento de saldo. No intentes actualizar una compra MSI que ya tenga mensualidades pagadas.
-- Para rendimientos de cuentas de ahorro usa list_account_yields (estimados, tasa configurada vs efectiva, acumulado del año). Cuando el usuario te diga el saldo real de hoy de una cuenta de ahorro, concílialo con reconcile_account_yield (envía expectedBudgBalanceCents con el saldo de budg que viste): la diferencia positiva es rendimiento y se reparte proporcionalmente a sus metas. Si la diferencia es mucho mayor que el estimado, pregunta si hubo depósitos o retiros sin registrar antes de tratarla toda como rendimiento.
+- Para rendimientos de cuentas de ahorro usa list_account_yields (estimados, tasa configurada plana o por tramos, tasa combinada al saldo actual vs efectiva, acumulado del año). Cuando el usuario te diga el saldo real de hoy de una cuenta de ahorro, concílialo con reconcile_account_yield (envía expectedBudgBalanceCents con el saldo de budg que viste): la diferencia positiva es rendimiento y se reparte proporcionalmente a sus metas. Si la diferencia es mucho mayor que el estimado, pregunta si hubo depósitos o retiros sin registrar antes de tratarla toda como rendimiento.
 - Interpreta "último movimiento", "movimiento más reciente", "hoy" y periodos actuales usando la fecha actual del usuario incluida abajo. Salvo que el usuario pida movimientos programados, proyecciones o fechas futuras, excluye transacciones con fecha posterior a esa fecha. Para obtener el último movimiento, llama search_transactions con endDate igual a la fecha actual y limit 1.
 - Las cuotas MSI con fecha futura son compromisos programados, no movimientos ya ocurridos.
 - Devuelve siempre la respuesta final en el formato estructurado requerido.

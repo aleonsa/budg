@@ -7,7 +7,13 @@ import { api } from '@/lib/api'
 import { formatDate, today } from '@/lib/date'
 import { formatMoney, toCents } from '@/lib/format'
 import { queryKeys } from '@/lib/query-keys'
-import { daysBetween, estimateYieldCents, formatBps, suggestYieldSplit } from '@/lib/yield'
+import {
+  blendedAnnualYieldBps,
+  daysBetween,
+  estimateYieldCents,
+  formatBps,
+  suggestYieldSplit,
+} from '@/lib/yield'
 import type { Account, Category, YieldReconciliation } from '@/types'
 
 const selectClass = 'h-8 w-full rounded-[7px] border border-input bg-background px-2.5 text-[13px]'
@@ -46,7 +52,12 @@ function YieldReconciliationForm({ onClose, account, categories }: YieldReconcil
 
   const [date, setDate] = useState(currentDate)
   const days = since ? Math.max(0, daysBetween(since, date)) : 0
-  const estimate = estimateYieldCents(balance, account.annualYieldBps, days)
+  const estimate = estimateYieldCents(
+    balance,
+    account.annualYieldBps,
+    days,
+    account.annualYieldTiers,
+  )
 
   const [bankBalance, setBankBalance] = useState('')
   const [yieldInput, setYieldInput] = useState('')
@@ -198,7 +209,11 @@ function YieldReconciliationForm({ onClose, account, categories }: YieldReconcil
           Saldo en budg: <span className="font-medium text-foreground">{money(balance)}</span>
         </p>
         <p>
-          Tasa {formatBps(account.annualYieldBps)} · estimado {money(estimate)}
+          Tasa{' '}
+          {formatBps(
+            blendedAnnualYieldBps(balance, account.annualYieldBps, account.annualYieldTiers),
+          )}{' '}
+          · estimado {money(estimate)}
           {since ? ` desde ${formatDate(since)} (${days} días)` : ''}
         </p>
       </div>
