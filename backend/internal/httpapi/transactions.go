@@ -155,6 +155,8 @@ func writeTransactionClientError(w http.ResponseWriter, err error) bool {
 		writeJSON(w, http.StatusConflict, errorResponse{
 			Error: apiError{Code: "msi_installment_managed", Message: "manage this installment through its msi purchase"},
 		})
+	case errors.Is(err, store.ErrLoanPaymentManaged):
+		writeJSON(w, http.StatusConflict, errorResponse{Error: apiError{Code: "loan_payment_managed", Message: "undo the payment from the loan before editing its transaction"}})
 	case errors.Is(err, store.ErrYieldTransactionManaged):
 		writeJSON(w, http.StatusConflict, errorResponse{
 			Error: apiError{Code: "yield_transaction_managed", Message: "undo the yield reconciliation instead of editing this transaction"},

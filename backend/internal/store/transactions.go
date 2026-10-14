@@ -207,6 +207,11 @@ func (r *TransactionRepository) Update(ctx context.Context, userID, id string, p
 		if existing.MSIPurchaseID != nil {
 			return ErrMSIInstallmentManaged
 		}
+		if managed, err := transactionHasLoanPayment(ctx, tx, userID, id); err != nil {
+			return err
+		} else if managed {
+			return ErrLoanPaymentManaged
+		}
 		managed, managedErr := transactionHasSavingsAllocation(ctx, tx, userID, id)
 		if managedErr != nil {
 			return managedErr
@@ -418,6 +423,11 @@ func (r *TransactionRepository) Delete(ctx context.Context, userID, id string) e
 		}
 		if existing.MSIPurchaseID != nil {
 			return ErrMSIInstallmentManaged
+		}
+		if managed, err := transactionHasLoanPayment(ctx, tx, userID, id); err != nil {
+			return err
+		} else if managed {
+			return ErrLoanPaymentManaged
 		}
 		managed, managedErr := transactionHasSavingsAllocation(ctx, tx, userID, id)
 		if managedErr != nil {

@@ -39,6 +39,7 @@ type Options struct {
 	MSIPurchases          MSIPurchaseStore
 	RecurringTransactions RecurringTransactionStore
 	AccountYields         AccountYieldStore
+	Loans                 LoanStore
 
 	// ParseStatement overrides the credit card statement PDF parser. Nil uses
 	// statements.ParseContext; tests inject fakes so they need no real PDFs.
@@ -203,6 +204,24 @@ func NewRouter(opts Options) http.Handler {
 					recurring.Route("/{id}", func(item chi.Router) {
 						item.Put("/", h.update)
 						item.Delete("/", h.delete)
+					})
+				})
+			}
+
+			if opts.Loans != nil {
+				h := &loansHandler{store: opts.Loans}
+				std.Route("/loans", func(l chi.Router) {
+					l.Get("/", h.list)
+					l.Post("/", h.create)
+					l.Route("/{id}", func(item chi.Router) {
+						item.Get("/", h.get)
+						item.Patch("/", h.update)
+						item.Delete("/", h.delete)
+						item.Post("/calculate", h.calculate)
+						item.Post("/extra-payments", h.extra)
+						item.Post("/reconcile", h.reconcile)
+						item.Post("/payments/{paymentId}/pay", h.pay)
+						item.Delete("/payments/{paymentId}", h.undo)
 					})
 				})
 			}
