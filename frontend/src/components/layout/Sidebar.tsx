@@ -12,6 +12,7 @@ import {
   BarChart3,
   Settings,
   LogOut,
+  Car,
 } from 'lucide-react'
 import { apiBaseUrl } from '@/lib/api/backend'
 import { cn } from '@/lib/utils'
@@ -30,6 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/accounts', label: 'Cuentas', icon: CreditCard },
   { to: '/budgets', label: 'Presupuestos', icon: Wallet },
   { to: '/goals', label: 'Metas', icon: Target },
+  { to: '/loans', label: 'Préstamos', icon: Car },
   { to: '/categories', label: 'Categorías', icon: Tags, secondary: true },
   { to: '/rules', label: 'Reglas', icon: Zap, secondary: true },
   { to: '/subscriptions', label: 'Suscripciones', icon: Repeat2, secondary: true },

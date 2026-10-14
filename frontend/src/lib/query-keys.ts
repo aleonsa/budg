@@ -3,6 +3,7 @@
  * Each key is an array — stable references prevent duplicate requests.
  */
 export const queryKeys = {
+  loans: ['loans'] as const,
   categories: ['categories'] as const,
   accounts: ['accounts'] as const,
   creditCardStatements: (accountId: string) => ['accounts', accountId, 'statements'] as const,

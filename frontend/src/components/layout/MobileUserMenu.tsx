@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { LogOut, Settings } from 'lucide-react'
+import { LogOut, Settings, Car } from 'lucide-react'
 import { Sheet } from '@/components/ui/sheet'
 import { apiBaseUrl } from '@/lib/api/backend'
 import { useAuth } from '@/stores/auth'
@@ -55,6 +55,14 @@ export function MobileUserMenu() {
           </div>
 
           <div className="space-y-1">
+            <Link
+              to="/loans"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <Car className="h-4 w-4" />
+              Préstamos
+            </Link>
             <Link
               to="/settings"
               onClick={() => setOpen(false)}

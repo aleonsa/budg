@@ -226,6 +226,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		SavingsGoals:          store.NewSavingsGoalRepository(pool),
 		Rules:                 store.NewRuleRepository(pool),
 		MSIPurchases:          store.NewMSIPurchaseRepository(pool),
+		Loans:                 store.NewLoanRepository(pool),
 		RecurringTransactions: store.NewRecurringTransactionRepository(pool),
 		AccountYields:         store.NewAccountYieldRepository(pool),
 	}
