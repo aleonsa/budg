@@ -90,7 +90,7 @@ runtime. `DATABASE_URL` de producción debe incluir:
 
 `backend/Dockerfile` (multi-stage, ~15MB final):
 
-1. Compila en stage `golang:1.26.6-bookworm` con `CGO_ENABLED=0` (pgx y jwx son
+1. Compila en stage `golang:1.26.9-bookworm` con `CGO_ENABLED=0` (pgx y jwx son
    pure Go, sin dependencia cgo).
 2. Runtime en `gcr.io/distroless/static-debian12:nonroot` — sin shell, sin
    package manager, corre como `nonroot` (uid 65532).
